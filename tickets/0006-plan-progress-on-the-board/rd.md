@@ -43,4 +43,6 @@ OUT: the Plan and Design views, hill/timeline SVG, and any click-through to them
 ## Open questions
 
 - Until 0007 lands, what do the rail segments and the "Open plan ›", "Replan" and stale "Review" buttons do? [only rail segments set the phase filter and the other buttons are not drawn until 0007/0008 (proposed); draw them disabled; draw them now and have them show a toast "coming soon"]
+  **Resolved 2026-11-10 (human): Only the rail segments do anything until 0007 lands: they set the phase filter, and the "Open plan ›", "Replan" and stale "Review" buttons are not drawn at all until 0007/0008.**
 - Does Plan % count ticket progress only for builds that have a ticket, or also not-started builds in the denominator (the §4 formula says all counted builds)? [use §4 as written, so a plan with few tickets reads low (proposed); show ticket % beside it]
+  **Resolved 2026-11-10 (human): Use the §4 formula as written: the denominator is all counted builds, so not-started builds (including those with no ticket) count toward it, and a plan with few tickets reads low. Show the ticket % beside it so the gap is visible.**

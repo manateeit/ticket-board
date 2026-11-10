@@ -41,6 +41,10 @@ OUT: pane buttons, Start screen, Plan/Design views and batch ticket creation (ti
 ## Open questions
 
 - Is EGM optional, used when installed with the built-in elephant + goldfish fallback otherwise, or required? [optional with fallback (default); required]
+  **Resolved 2026-11-10 (human): EGM is optional: the skills use `/egm:egm-brainstorm` and `egm-review` when EGM is installed, and fall back to the built-in elephant and goldfish path otherwise, with the brief stating which path was used.**
 - Split out: should this be three tickets (brainstorm + elephant/goldfish; design + fresh-reader; planning + planner + `Plan:`/`Design:` lines)? [keep as one M-size ticket; split into three]
+  **Resolved 2026-11-10 (human): Keep it as one M-size ticket; the ticket already scopes all three skills and four agents together, and splitting would break the shared file standard and the Plan/Design line work it depends on.**
 - Maximum elephant rounds before it must write the brief? [3 (as drafted); 2; ask the person each round]
+  **Resolved 2026-11-10 (human): The ticket already drafts this as 3 rounds, so keep the maximum at 3; the elephant writes the brief after round 3 even if questions remain, listing them as open questions.**
 - Should the elephant be a separate agent file, or the brainstorm skill itself acting as elephant in the main chat? [separate `elephant` agent (as drafted, holds context across rounds); the main session is the elephant]
+  **Resolved 2026-11-10 (human): The elephant should be a separate `elephant` agent file, as drafted, because it has to hold the whole context across rounds while the goldfish run in isolation, and the main chat session would otherwise see the goldfish output and break their no-shared-context rule.**

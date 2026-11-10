@@ -26,6 +26,7 @@ Out: running any command from the pane; the brainstorm, design and planning skil
 - `hooks/views.tsx` — `drawPane`, `setupView` (replaced by Start when nothing exists), terminal Start view, `fill()` helper for the buttons.
 - `hooks/desk.tsx` — desktop Start card, banner above the board in `deskBoard`.
 - `hooks/register.tsx` — auto-open currently needs a board; a Start-state project must open too.
+  **Decided 2026-11-10 (human): auto-open only where a `tickets/` folder exists (with or without BOARD.md). Folders without `tickets/` never auto-open; there the person opens Start with `/board`. The `autoOpen` setting text in `.claude-plugin/plugin.json` and the README must say this.**
 - `hooks/core/roadmap.ts` — from 0003 (design/plan detection).
 - `tests/core.test.ts`, `tests/pane.test.tsx` — `boot()` fake fs; add blank-folder and tickets-present cases for both surfaces.
 
@@ -39,3 +40,5 @@ Out: running any command from the pane; the brainstorm, design and planning skil
   **Resolved 2026-11-10 (human): Show the Start screen only when there is no design, no plan and no tickets; projects that already have tickets get the dismissible "No design or plan yet → Set up" banner instead.**
 - Should new GitHub repos be private by default? [private (default) | public | ask each time]
   **Resolved 2026-11-10 (human): Private by default: the setup button's prompt should ask Claude to create the repo with `gh repo create --private`, and the person can change that in the prompt before approving.**
+- Should the pane auto-open in every project that has no board? [everywhere | only where tickets/ exists]
+  **Resolved 2026-11-10 (human): Only where a `tickets/` folder exists; see the decision under Touchpoints.**
