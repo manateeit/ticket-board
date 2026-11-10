@@ -12,6 +12,15 @@ the checker fails the ticket if they are stale.
 
 | #    | Ticket                        | Status | Mode | Blocked by | Owner   | Notes |
 |------|-------------------------------|--------|------|------------|---------|-------|
+| 0001 | Design and plan file standard | draft | solo | — | — | AI draft done · 1 open question |
+| 0002 | Ticket board's own design and plan in the standard | draft | solo | 0001 | — | AI draft done · 4 open questions |
+| 0003 | Roadmap parser and progress computation | draft | solo | 0001 | — | AI draft done · no open questions |
+| 0004 | Start screen for new projects | draft | solo | 0003 | — | AI draft done · 2 open questions |
+| 0005 | Brainstorm, design and planning skills and agents | draft | solo | 0001 | — | AI draft done · 4 open questions |
+| 0006 | Plan progress on the board | draft | solo | 0003 | — | AI draft done · 2 open questions |
+| 0007 | Plan and Design views | draft | solo | 0006 | — | AI draft done · 4 open questions |
+| 0008 | Tickets from the plan, redesign and replan | draft | solo | 0005, 0007 | — | AI draft done · 4 open questions |
+| 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | draft | solo | 0008 | — | AI draft done · 2 open questions |
 
 How to read this board:
 
