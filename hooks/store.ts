@@ -1,5 +1,5 @@
 // The pane's in-memory state and everything that reads or writes the tickets folder.
-import type { EngineInterface } from 'claude-code'
+import type { AgentInfo, EngineInterface } from 'claude-code'
 
 import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
 import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
@@ -58,6 +58,9 @@ export const S = {
   newKind: 'feature',
   overrideTo: '',
   isRefreshing: false,
+  /** This session's subagents and teammates, as $.agent.list() last gave them. */
+  agents: [] as AgentInfo[],
+  showAgents: false,
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -346,4 +349,29 @@ export async function saveJobs($: $) {
 
 export function jobFor(number: string): Job | undefined {
   return [...S.jobs.values()].find(j => j.number === number)
+}
+
+
+const LIVE = new Set(['pending', 'running', 'waiting'])
+export const isLive = (a: AgentInfo) => LIVE.has(a.status)
+
+/** Re-reads this session's agents; redraws only when something changed. */
+export async function loadAgents($: $): Promise<void> {
+  try {
+    const next = await $.agent.list()
+    const sig = (l: AgentInfo[]) => l.map(a => `${a.id}:${a.status}`).join(',')
+    if (sig(next) === sig(S.agents)) return
+    S.agents = next
+    if (S.isOpen) redraw($)
+  } catch {
+    // agent.list is unavailable (older Claude Code): the panel just stays empty.
+  }
+}
+
+/** The ticket an agent works on: one of our writer jobs, or "ticket 0007" / "#0007" / "0007" in its description. */
+export function ticketOfAgent(a: AgentInfo): string | undefined {
+  const job = S.jobs.get(a.id)
+  if (job !== undefined) return job.number
+  const m = /(?:ticket\s*#?|#)(\d{1,4})\b/i.exec(a.description) ?? /\b(\d{4})\b/.exec(a.description)
+  return m === null ? undefined : m[1]!.padStart(4, '0')
 }

@@ -2,7 +2,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
-import { S, dir, resetSession, editRow, loadFilters, loadJobs, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI } from './glass'
 import { drawPane, go, type UI } from './views'
 
@@ -29,7 +29,10 @@ async function open($: $, byCommand: boolean) {
   S.openedByCommand = S.openedByCommand || byCommand
   const r = await $.ui.open({ id: PANE, title: TITLE, ...(byCommand ? { focus: true as const } : {}) })
   S.isOpen = r.isPlaced
-  if (r.isPlaced) bg(refresh($))
+  if (r.isPlaced) {
+    bg(refresh($))
+    bg(loadAgents($))
+  }
   return r
 }
 
@@ -55,6 +58,9 @@ export const register: Register = (on, options) => {
     if (S.options.autoOpen && e.isInteractive && S.snap?.hasBoard === true) bg(open($, false))
     $.clock.every(S.options.pollSeconds * 1000, () => {
       if (S.isOpen) bg(refresh($))
+    })
+    $.clock.every(3000, () => {
+      if (S.isOpen) bg(loadAgents($))
     })
     return next(e)
   })
@@ -129,7 +135,14 @@ export const register: Register = (on, options) => {
     return ran
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'ticket-board: its tool guard failed.' }))
 
+  on('agent.spawn', async ($, e, next) => {
+    const r = await next(e)
+    if (S.isOpen) bg(loadAgents($))
+    return r
+  })
+
   on('turn.complete', async ($, e, next) => {
+    if (e.agentId !== undefined && S.isOpen) bg(loadAgents($))
     const job = e.agentId === undefined ? undefined : S.jobs.get(e.agentId)
     if (job !== undefined) {
       S.jobs.delete(job.agentId)

@@ -9,7 +9,7 @@ import { STATUSES } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
 import { G, STATUS_HEX, barSvg, tint } from './glass'
-import { S, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf } from './store'
+import { S, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf } from './store'
 import {
   blockersOpen,
   checksFor,
@@ -133,6 +133,98 @@ function Kpi(ui: UI, key: string, value: string, label: string, hex: string, sub
         {sub !== undefined && <Text color={G.faint}>{`  ${sub}`}</Text>}
       </Text>
     </Box>
+  )
+}
+
+// ---------- Agents ----------
+
+const AGENT_HEX: Record<string, string> = {
+  pending: '#FBBF24',
+  running: '#60A5FA',
+  waiting: '#C084FC',
+  idle: '#94A3B8',
+  completed: '#34D399',
+  failed: '#F87171',
+  killed: '#F87171',
+}
+
+function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
+  const { Box, Text, Button } = ui
+  const live = S.agents.filter(isLive)
+  const past = S.agents.filter(a => !isLive(a)).slice(-5).reverse()
+  const flight = all.filter(i => i.status === 'in-progress' || i.status === 'in-check')
+  const agentRow = (a: (typeof S.agents)[number], dim: boolean) => {
+    const hex = AGENT_HEX[a.status] ?? G.soft
+    const t = ticketOfAgent(a)
+    const title = t === undefined ? undefined : all.find(i => i.number === t)?.title
+    return (
+      <Box key={`agent-${a.id}`} flexDirection="row" alignItems="center" gap={1} paddingX={1} paddingY={dim ? 0 : 1} backgroundColor={dim ? undefined : 'rgba(255,255,255,0.03)'}>
+        <Box width="12%" flexShrink={0}>
+          {Pill(ui, `● ${a.status}`, hex)}
+        </Box>
+        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+          <Text color={dim ? G.soft : G.ink} weight={dim ? 'regular' : 'medium'} wrap="truncate">
+            {a.name ?? (a.description || a.type)}
+          </Text>
+          <Text color={G.faint} size="footnote" wrap="truncate">
+            {[a.type, a.name !== undefined && a.description !== '' ? a.description : undefined, a.spawnedBy === 'ticket-board' ? 'ticket writer' : undefined].filter(Boolean).join(' · ')}
+          </Text>
+        </Box>
+        {t !== undefined && (
+          <Button key={`agent-t-${a.id}`} plain onPress={() => go($, { kind: 'ticket', number: t, tab: 'rd' })}>
+            <Text color={G.accent} size="footnote">{`${t}${title ? ` ${title.slice(0, 28)}` : ''} ›`}</Text>
+          </Button>
+        )}
+        {a.teammateId === undefined && <Button key={`agent-w-${a.id}`} label="Watch" plain onPress={() => void $.ui.view({ agentId: a.id }).catch(() => say($, 'That agent cannot be shown here', 'warning'))} />}
+      </Box>
+    )
+  }
+  return Card(
+    ui,
+    [
+      live.length === 0 ? (
+        <Text key="agents-none" color={G.soft} size="footnote">
+          No agents running in this session right now.
+        </Text>
+      ) : (
+        <Box key="agents-live" flexDirection="column" gap={0}>
+          {live.map(a => agentRow(a, false))}
+        </Box>
+      ),
+      flight.length > 0 ? (
+        <Box key="agents-flight" flexDirection="column" gap={0}>
+          <Text color={G.faint} size="caption" weight="bold">
+            {`IN FLIGHT ON THE BOARD (${flight.length})`}
+          </Text>
+          {flight.map(i => (
+            <Box key={`flight-${i.number}`} flexDirection="row" gap={1} alignItems="center" paddingX={1}>
+              {StatusPill(ui, i.status)}
+              <Button key={`flight-o-${i.number}`} plain onPress={() => go($, { kind: 'ticket', number: i.number, tab: 'rd' })}>
+                <Text color={G.ink}>{`${i.number}  ${i.title}`}</Text>
+              </Button>
+              {i.owner !== '' && i.owner !== '—' && <Text color={G.faint} size="footnote">{i.owner}</Text>}
+            </Box>
+          ))}
+        </Box>
+      ) : null,
+      past.length > 0 ? (
+        <Box key="agents-past" flexDirection="column" gap={0}>
+          <Text color={G.faint} size="caption" weight="bold">
+            RECENTLY FINISHED
+          </Text>
+          {past.map(a => agentRow(a, true))}
+        </Box>
+      ) : null,
+      <Text key="agents-hint" color={G.faint} size="footnote">
+        Shows this session's subagents and teammates. A router running in another session shows up through its tickets under In flight.
+      </Text>,
+    ],
+    {
+      key: 'agents-card',
+      title: `Agents · ${live.length} running`,
+      accent: live.length > 0 ? tint(AGENT_HEX.running!, 0.5) : undefined,
+      right: <Button key="agents-hide" label="Hide" plain onPress={() => ((S.showAgents = false), redraw($))} />,
+    },
   )
 }
 
@@ -315,6 +407,19 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
         </Box>
         <Box flexDirection="row" gap={1} alignItems="center">
           {run.length > 0 && <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run), 'Run line is in your prompt box — press Enter to send it')} />}
+          <Button
+            key="agents"
+            hotkey="a"
+            variant={S.showAgents ? 'primary' : 'secondary'}
+            onPress={() => {
+              S.showAgents = !S.showAgents
+              redraw($)
+              if (S.showAgents) void loadAgents($)
+            }}
+          >
+            {'Agents '}
+            <Text color={S.agents.some(isLive) ? AGENT_HEX.running! : G.faint}>{`● ${S.agents.filter(isLive).length}`}</Text>
+          </Button>
           <Button key="refresh" label="↻" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'))} />
           <Button key="new" label="+ New ticket" hotkey="n" variant="primary" onPress={() => go($, { kind: 'new' })} />
         </Box>
@@ -331,6 +436,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
         {Kpi(ui, 'kpi-done', total === 0 ? '0%' : `${Math.round((done / total) * 100)}%`, 'Done', STATUS_HEX.done!, `${done} of ${total}`)}
       </Box>
       {ui.Svg !== undefined && total > 0 && <ui.Svg key="bar" source={barSvg(counts, total)} alt={counts.map(([s, n]) => `${s} ${n}`).join(', ')} height={6} />}
+      {S.showAgents && AgentsPanel($, ui, all)}
 
       {/* Filters */}
       <Box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center">

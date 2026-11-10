@@ -94,6 +94,10 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
   on('command.register', () => ({ value: { command: 'board' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('clock.every', () => ({ deny: 'no timers in tests' }))
+  on('agent.list', () => ({ value: [
+    { id: 'a1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
+    { id: 'a2', description: 'Check 0001', type: 'checker', status: 'completed' },
+  ] }))
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => ({ value: undefined }))
   on('fs.list', (_: unknown, e: { path: string }) => {
@@ -222,5 +226,17 @@ test('ticket page: sections as cards, no questions once done', async ($, on) => 
   expect(drawn).toContain('Health endpoint')
   expect(drawn).not.toContain('Which port')
   expect(drawn).not.toContain('OPEN QUESTION')
+  await ui.unmount()
+})
+
+test('agents button shows what is running', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  await ui.press({ key: 'agents' })
+  await ui.find({ type: 'Text', text: /AGENTS · 1 RUNNING/ })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('worker-0002')
+  expect(drawn).toContain('RECENTLY FINISHED')
+  await ui.press({ key: 'agents-hide' })
   await ui.unmount()
 })
