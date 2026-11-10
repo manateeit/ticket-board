@@ -39,6 +39,12 @@
       "title": "Ticket writer model",
       "description": "Model for the AI ticket writer (for example opus or sonnet). Empty uses the session's model.",
       "default": ""
+    },
+    "showVersion": {
+      "type": "boolean",
+      "title": "Show version",
+      "description": "Show which ticket-board version is running, as a small label on the board, so after an update and reload you can tell the new version loaded.",
+      "default": true
     }
   },
   "icon": "./.claude-plugin/icon.png"
