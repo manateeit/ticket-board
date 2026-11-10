@@ -195,12 +195,14 @@ that already has tickets gets the board plus a dismissible banner "No design or 
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-- Detection: `.git` present, `origin` remote and whether it is github.com (read from
-  `.git/config`; `$.process.run(['git', …])` when available), design/plan bound or found,
-  tickets/ present.
-- Git init runs from the pane after a click. **Creating the GitHub repo is outward-facing**, so it
-  fills the chat with "create a private GitHub repo with gh and push" for you to send
-  **(default: private)** — the pane never publishes on its own.
+- Detection reads files only, so it works in the terminal and the desktop app: `.git/config`
+  (origin remote, host), `.git/HEAD` (branch), worktree `.git` pointer files — the same reader
+  that draws the project/repo header since 0.4.7 (`hooks/core/project.ts`). Plus design/plan
+  bound or found, tickets/ present.
+- Commands (`git init`, `gh repo create`, first push) are never run by the pane. Each button
+  fills the prompt with the request ("initialise git here and make the first commit", "create a
+  private GitHub repo with gh and push") and Claude runs it with its Bash tool when you press
+  Enter, so you see and approve every command. **(default: private)**
 - After each step the stepper advances; leaving and coming back resumes where you were.
 
 ### 6.2 Board (running project) — header tracker + roadmap summary
