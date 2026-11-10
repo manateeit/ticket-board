@@ -22,6 +22,7 @@ Milestone M1 of `PLAN-design-plan.md` (sections 3 and 7). Write `docs/STANDARD.m
 ## Scope
 
 - IN: `docs/STANDARD.md`; `templates/design.md`, `templates/plan.md`, `templates/brief.md`, `templates/change.md`; README updates listed below.
+- IN (added 2026-11-10 by the person): `.gitignore` — anchor the `PLAN.md` ignore to the repo root (`/PLAN.md`) so `templates/plan.md` and `design/PLAN.md` are not ignored.
 - OUT: any TypeScript (`hooks/core/roadmap.ts` is ticket 0003); skills, agents and views; changes to `skills/ticket/` (ticket 0008 teaches the writer the `Plan:` / `Design:` lines); examples/demo-roadmap (ticket 0009).
 
 ## Touchpoints

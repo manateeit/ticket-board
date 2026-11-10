@@ -1,5 +1,7 @@
 # Ticket board
 
+Design: design/DESIGN.md · Plan: design/PLAN.md
+
 Single source of truth for the super-agent workflow. Only the router (and the
 human) edit this file. Workers report back; the router updates the board.
 
@@ -12,8 +14,8 @@ the checker fails the ticket if they are stale.
 
 | #    | Ticket                        | Status | Mode | Blocked by | Owner   | Notes |
 |------|-------------------------------|--------|------|------------|---------|-------|
-| 0001 | Design and plan file standard | in-progress | solo | — | router · worker | questions answered; worker dispatched |
-| 0002 | Ticket board's own design and plan in the standard | ready | solo | 0001 | — | questions answered · waits on 0001 |
+| 0001 | Design and plan file standard | done | solo | — | — | merged 33a3b72 (no rebase), all 6 checks PASS, 36/36 tests |
+| 0002 | Ticket board's own design and plan in the standard | done | solo | 0001 | — | merged 2ab9878 (no rebase), 7 checks PASS + 1 N/A, 36/36 tests |
 | 0003 | Roadmap parser and progress computation | draft | solo | 0001 | — | AI draft done · no open questions |
 | 0004 | Start screen for new projects | draft | solo | 0003 | — | AI draft done · 2 open questions |
 | 0005 | Brainstorm, design and planning skills and agents | draft | solo | 0001 | — | AI draft done · 4 open questions |
@@ -21,6 +23,10 @@ the checker fails the ticket if they are stale.
 | 0007 | Plan and Design views | draft | solo | 0006 | — | AI draft done · 4 open questions |
 | 0008 | Tickets from the plan, redesign and replan | draft | solo | 0005, 0007 | — | AI draft done · 4 open questions |
 | 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | draft | solo | 0008 | — | AI draft done · 2 open questions |
+| 0010 | New ticket button does nothing | draft | solo | — | — | AI draft done · 6 open questions |
+| 0011 | README button does nothing | draft | solo | — | — | AI draft done · 4 open questions |
+| 0012 | Agents button does nothing | draft | solo | — | — | AI draft done · 6 open questions · likely shared cause with 0010/0011 |
+| 0013 | Pane does not draw when a resumed agent is listed twice | done | solo | — | — | merged 2d441d3 (no rebase), 5 checks PASS, 37/37 tests · needs a release to reach the installed plugin |
 
 How to read this board:
 
