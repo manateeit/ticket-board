@@ -1,7 +1,7 @@
 ---
 design: Ticket board
 version: 1
-status: draft
+status: approved
 updated: 2026-11-10
 ---
 # Ticket board: design

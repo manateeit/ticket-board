@@ -98,7 +98,7 @@ const PANE = {
 
 // `gate.wait`, while set, holds every fs.list: a refresh stays in flight until the test lets it go.
 // `manifest`, when set, is what the plugin reads as its own .claude-plugin/plugin.json; left out, that read fails.
-type BootOptions = { blank?: boolean; store?: Map<string, unknown>; dirs?: string[]; gate?: { wait?: Promise<void> }; manifest?: string }
+type BootOptions = { cwd?: string; blank?: boolean; store?: Map<string, unknown>; dirs?: string[]; gate?: { wait?: Promise<void> }; manifest?: string }
 
 async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | 'desktop', extra: Record<string, string> = {}, opts: BootOptions = {}) {
   const fs = fakeFs()
@@ -144,7 +144,7 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
     filled.push(e.text)
     return { isFilled: true }
   })
-  await $.session.start({ cwd: '/repo', surface, isInteractive: true })
+  await $.session.start({ cwd: opts.cwd ?? '/repo', surface, isInteractive: true })
   // Auto-open runs in the background: let it settle before reading what opened.
   await new Promise(r => setTimeout(r, 20))
   const openedAtStart = [...opened]
@@ -433,6 +433,26 @@ const PROJECT_FILES = {
   '/repo/.git/HEAD': 'ref: refs/heads/feature/csv\n',
   '/repo/README.md': '# Acme Shop\n\nThe storefront.\n\n## Install\n\nRun `npm i`.\n',
 }
+
+// The desktop app can start a session in a spare folder and move it to the project after
+// session.start ran: the board follows the session's folder instead of keeping the first one.
+test('board follows the session when it moves from a spare folder to the project (desktop)', async ($, on) => {
+  let where = '/Users/me/.claude/spares/spare-AbCd'
+  on('session.cwd', () => ({ value: where }))
+  const { ui } = await boot($, on, 'desktop', PROJECT_FILES, { cwd: where })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  let drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('spare-AbCd')
+  expect(drawn).toContain('not a git repository')
+  where = '/repo'
+  await $.command.run({ command: 'board', args: '' } as any)
+  await ui.find({ type: 'Text', text: /acme\/shop-app/ })
+  drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('Acme Shop')
+  expect(drawn).toContain('feature/csv')
+  expect(drawn).not.toContain('not a git repository')
+  await ui.unmount()
+})
 
 test('desktop header names the project and repo, and opens the README', async ($, on) => {
   const { ui, filled } = await boot($, on, 'desktop', PROJECT_FILES)

@@ -293,11 +293,43 @@ export async function loadProject($: $, boardText?: string): Promise<Project> {
   }
 }
 
+/**
+ * Follows the session to the folder it runs in now. The desktop app can start a session in a spare
+ * folder (`~/.claude/spares/…`) and move it to the project afterwards, after `session.start` ran, and
+ * `/cd` or a worktree move does the same. Without this the board keeps reading the first folder:
+ * an empty board and "not a git repository" in a project that has both. Returns whether it moved.
+ */
+export async function followCwd($: $): Promise<boolean> {
+  let now: unknown
+  try {
+    now = await $.session.cwd()
+  } catch {
+    return false
+  }
+  if (typeof now !== 'string' || now === '' || now === S.cwd) return false
+  Object.assign(S, {
+    cwd: now,
+    root: '',
+    snap: undefined,
+    project: undefined,
+    filters: { ...DEFAULT_FILTERS },
+    startFlags: { ...NO_START_FLAGS },
+    planMode: 'list',
+  })
+  S.jobs.clear()
+  await loadFilters($)
+  await loadStartFlags($)
+  await loadPlanMode($)
+  await loadJobs($)
+  return true
+}
+
 /** Re-reads what changed since the last snapshot (by modification time). Returns whether anything changed. */
 export async function refresh($: $, force = false): Promise<boolean> {
   if (S.isRefreshing) return false
   S.isRefreshing = true
   try {
+    if (await followCwd($)) force = true
     if (S.root === '') await resolveRoot($)
     const prev = S.snap
     const entries = await listOr($, dir())
