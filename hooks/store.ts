@@ -114,6 +114,9 @@ export function resetSession(cwd: string) {
     project: undefined,
     startFlags: { ...NO_START_FLAGS },
     showBoard: false,
+    // The last session's agents and the panel's open state must not carry over (0012).
+    agents: [],
+    showAgents: false,
   })
   S.jobs.clear()
   S.agentLog.clear()
