@@ -92,7 +92,8 @@ const PANE = {
   props: { title: 'Tickets', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
-type BootOptions = { blank?: boolean; store?: Map<string, unknown>; dirs?: string[] }
+// `gate.wait`, while set, holds every fs.list: a refresh stays in flight until the test lets it go.
+type BootOptions = { blank?: boolean; store?: Map<string, unknown>; dirs?: string[]; gate?: { wait?: Promise<void> } }
 
 async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | 'desktop', extra: Record<string, string> = {}, opts: BootOptions = {}) {
   const fs = fakeFs()
@@ -114,7 +115,8 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
   ] }))
   on('store.get', (_: unknown, e: { key: string }) => ({ value: store.get(e.key) }))
   on('store.set', (_: unknown, e: { key: string; value: unknown }) => (store.set(e.key, e.value), { value: undefined }))
-  on('fs.list', (_: unknown, e: { path: string }) => {
+  on('fs.list', async (_: unknown, e: { path: string }) => {
+    if (opts.gate?.wait !== undefined) await opts.gate.wait
     calls.push(`list ${e.path} -> ${fs.list(e.path).map(x => x.name).join(',')}`)
     return { value: fs.list(e.path) }
   })
@@ -310,6 +312,124 @@ test('terminal shows the project line and README; no git falls back to the folde
   await ui.find({ type: 'Text', text: /no README.md yet/ })
   await ui.unmount()
 })
+
+// ---------- README (0011: README button did nothing) ----------
+
+/** Every Button in the drawing that answers the `o` key: more than one would fire on one press. */
+const oButtons = async (ui: any) => (await ui.findAll({ type: 'Button' })).filter((b: any) => b.props.hotkey === 'o')
+
+/** Opens a view from the board: a ticket, its questions, or the new-ticket form. */
+async function openFromBoard(ui: any, surface: 'terminal' | 'desktop', view: 'board' | 'ticket' | 'questions' | 'new') {
+  if (view === 'ticket') {
+    if (surface === 'desktop') await ui.press({ key: 'show-all' })
+    await ui.press({ key: 'open-0002' })
+    await ui.find({ type: 'Text', text: /CSV export/ })
+  } else if (view === 'questions') {
+    await ui.press({ key: 'ans-0003' })
+    await ui.find({ type: 'Text', text: /Which accent colour/ })
+  } else if (view === 'new') {
+    await ui.press({ key: 'new' })
+    await ui.find({ key: 'create-ai' } as any)
+  }
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  for (const from of ['board', 'ticket', 'questions', 'new'] as const) {
+    test(`README opens from the ${from} and toggles back to the board (${surface})`, async ($, on) => {
+      const { ui } = await boot($, on, surface, PROJECT_FILES)
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      await openFromBoard(ui, surface, from)
+      // The `o` hotkey presses this Button, and only this one: two on one key would open then close.
+      const before = await oButtons(ui)
+      expect(before.map((b: any) => b.key)).toEqual(['readme'])
+      expect(before[0].props.label).toBe('README')
+      await ui.press({ key: 'readme' })
+      await ui.find({ type: 'Text', text: /The storefront/ })
+      let drawn = await drawnText(ui)
+      expect(drawn).not.toContain('Dark mode')
+      // Still one `o` Button in the README view, now reading ‹ Board: pressing it again goes back.
+      const inReadme = await oButtons(ui)
+      expect(inReadme.map((b: any) => b.key)).toEqual(['readme'])
+      expect(inReadme[0].props.label).toBe('‹ Board')
+      await ui.press({ key: 'readme' })
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      drawn = await drawnText(ui)
+      expect(drawn).not.toContain('The storefront')
+      // The README view's own back button works too.
+      await ui.press({ key: 'readme' })
+      await ui.find({ type: 'Text', text: /The storefront/ })
+      await ui.press({ key: 'back' })
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      expect(await drawnText(ui)).not.toContain('The storefront')
+      await ui.unmount()
+    })
+  }
+
+  test(`one README press switches the view once, also after a redraw (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, PROJECT_FILES)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'readme' })
+    await ui.redraw()
+    await new Promise(r => setTimeout(r, 20))
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('The storefront')
+    expect(drawn).not.toContain('Dark mode')
+    await ui.unmount()
+  })
+
+  test(`README opens while a refresh is still running (${surface})`, async ($, on) => {
+    const gate: { wait?: Promise<void> } = {}
+    const { ui } = await boot($, on, surface, PROJECT_FILES, { gate })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    let release = () => undefined as void
+    gate.wait = new Promise<void>(r => (release = r))
+    // A refresh that cannot finish until the gate opens (the board's ↻ / Refresh button).
+    const busy = ui.press({ key: 'refresh' })
+    await new Promise(r => setTimeout(r, 20))
+    const opened = ui.press({ key: 'readme' })
+    const seen = await Promise.race([opened.then(() => 'settled'), new Promise(r => setTimeout(() => r('pending'), 200))])
+    // The switch is drawn without waiting for the stuck refresh.
+    const drawn = await drawnText(ui)
+    gate.wait = undefined
+    release()
+    await busy
+    await opened
+    expect(seen).toBe('settled')
+    expect(drawn).toContain('The storefront')
+    expect(drawn).not.toContain('Dark mode')
+    await ui.unmount()
+  })
+
+  test(`no README.md: README (none) opens a No README card (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    if (surface === 'desktop') expect((await ui.find({ key: 'readme' }))?.props.label).toBe('README (none)')
+    await ui.press({ key: 'readme' })
+    await ui.find({ type: 'Text', text: surface === 'desktop' ? /No README/ : /no README.md yet/ })
+    expect(await drawnText(ui)).not.toContain('Dark mode')
+    await ui.press({ key: 'readme' })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.unmount()
+  })
+
+  test(`README opens with resumed (duplicate-id) agents listed (${surface})`, async ($, on) => {
+    AGENTS_OVERRIDE = manyAgents()
+    try {
+      const { ui } = await boot($, on, surface, PROJECT_FILES)
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      if (surface === 'desktop') {
+        await ui.press({ key: 'agents' })
+        await ui.find({ type: 'Text', text: /AGENTS ·/ })
+      }
+      await ui.press({ key: 'readme' })
+      await ui.find({ type: 'Text', text: /The storefront/ })
+      expect(await drawnText(ui)).not.toContain('Dark mode')
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+}
 
 test('colors follow the app by default; dark and light glass are one press away', async ($, on) => {
   const { ui } = await boot($, on, 'desktop')

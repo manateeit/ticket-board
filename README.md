@@ -23,7 +23,7 @@ The files stay the single source of truth. The pane reads them and changes them 
 
 1. [Install](#install)
 2. [Quick start](#quick-start)
-3. [The pane, view by view](#the-pane-view-by-view) (including the [Start screen](#start-screen) for new projects)
+3. [The pane, view by view](#the-pane-view-by-view) (including the [project header and README](#project-header-and-readme) and the [Start screen](#start-screen) for new projects)
 4. [Answering open questions](#answering-open-questions)
 5. [Draft → ready (and the ready check)](#draft--ready-and-the-ready-check)
 6. [Creating a ticket with the AI writer](#creating-a-ticket-with-the-ai-writer)
@@ -108,6 +108,15 @@ Tickets are a **table** — ID, Type, Title, Phase (when there is a plan), Statu
 - **New ticket.** Pick Feature, Bug or Chore, give an optional title and a description (the placeholder tells you what a good bug report or feature request contains), set mode and dependencies, then *Create + AI enhance*.
 
 **Types.** Each ticket is a feature, a bug or a chore. The type is the `Type:` line under the title in rd.md (the AI writer and the /ticket skill keep it); tickets without one are guessed from the title ("Fix …" → bug, "Rename …" → chore, otherwise feature).
+
+### Project header and README
+
+Above every view the pane names the project you are in.
+
+- **Desktop:** a **PROJECT** card with the project's name (the README's title, else `package.json`'s name, else the folder), a short summary from the README's first paragraph (else `package.json`'s description), the repo (`⎇ owner/repo`, a link when it is on GitHub; *local git · no origin remote* or *not a git repository* otherwise) and `· branch <name>`. When the session runs in a linked worktree, a line says the board is read from the main checkout. The card's buttons are **Colors** and **README**.
+- **Terminal:** one line, `Project · owner/repo · branch`, with a **README** button after it, above the board, Start, a ticket, its questions and the new-ticket form.
+
+**README** (key `o`) opens the **README view**: README.md rendered, with a back button. In the desktop app it also has **↻** (key `r`, reload) and **✨ Ask Claude to update it**, which puts a request in your prompt box to bring README.md up to date with the project and `tickets/BOARD.md`. While the README is open the header button reads **‹ Board**; pressing it, or `o` again, takes you back to the board. With no README.md the desktop button reads **README (none)** and the view shows a *No README* card with **✨ Ask Claude to write a README**; the terminal says *This project has no README.md yet.*
 
 ### Start screen
 
@@ -301,7 +310,8 @@ Keys while the pane has focus:
 |---|---|---|
 | `n` | board | new ticket |
 | `x` | board / ready ticket | run ready / run this ticket |
-| `r` | board | refresh |
+| `r` | board / README (desktop) | refresh / reload the README |
+| `o` | every view with the project header | open the README; again to go back to the board |
 | `q` | ticket | answer questions |
 | `m` | draft ticket | mark ready |
 | `d` | ready ticket | back to draft |
@@ -342,6 +352,7 @@ Change these in `/plugin` → ticket-board → configure:
 | `⚠` on a row | A folder `tickets/0012-…/` with no row on the board, or the reverse. Add the row, or fix the folder name. |
 | **Mark ready** missing | The ready check is failing. Open the ticket to see which rule. |
 | *…is now in-progress, not draft — refreshed* | Someone (usually the router) changed that ticket first. Nothing was written. |
+| Buttons (README, + New ticket, Agents) do nothing | Version 0.4.12 or older: when an agent was listed twice, the pane stopped redrawing, so every button looked dead. Update the plugin. Keys such as `o` and `n` only work while the pane has focus; click the pane first. |
 | The pane doesn't open at start | It only opens on its own where it can sit beside the chat. Run `/board`. |
 | The AI writer stopped | The note says why. **Watch** opens its transcript; **✎ Enhance with AI** starts it again. |
 | *The prompt box is busy* | Something else is in the prompt box. Copy the line shown and paste it yourself. |

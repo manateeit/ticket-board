@@ -49,3 +49,13 @@ Why the existing test passes: `tests/pane.test.tsx` ("desktop header names the p
   **Resolved 2026-11-10 (human): no**
 - Which plugin version is installed? [0.4.11 / 0.4.12 / other]
   **Resolved 2026-11-10 (human): i don't know the version**
+
+## Findings
+
+Worker, 2026-11-10, on main at 5e2ac52 (plugin 0.4.14).
+
+**Desktop: not reproduced.** In the desktop pane, **README** opens the README view from the board, a ticket, the questions view and the new-ticket form. The button then reads **‹ Board**, and pressing it again returns to the board. Exactly one Button carries hotkey `o` in each view, so one press cannot toggle twice. The view switch is drawn even while another refresh is in flight: `openReadme` calls `go()`, which redraws by itself, before `refresh`, and the early return in `refresh` does not matter. With no README.md the button reads **README (none)** and opens the *No README* card. The README view's own buttons work: back, ↻ and Ask Claude. It also works with resumed agents listed twice (the 0013 fixture), with the Agents panel open. The most likely cause of the desktop report is the same as in 0010: before 0.4.13, the duplicate agent keys stopped the pane redrawing, so every button looked dead (0013).
+
+**Terminal: a real gap, fixed.** In the terminal, the README button (and with it the `o` key) was drawn only above the board and Start. On a ticket, its questions or the new-ticket form, `o` did nothing. In the README view there was no `o` button either, so `o` could not take you back. That matches "the `o` hotkey also does nothing". Fix in `hooks/views.tsx`: `drawPane` wraps the ticket, questions, new and README views in `withProject`, and the button reads **‹ Board** in the README view. The README view's title is now the file name, because the project line is already above it. Without the fix, 5 of the new terminal tests fail (board, ticket, questions, new, and no README).
+
+Tests: `tests/pane.test.tsx`, "README (0011)", on both surfaces.
