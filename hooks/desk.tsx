@@ -9,7 +9,7 @@ import { STATUSES } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
 import { G, HUE, SCHEMES, STATUS_HEX, barSvg, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
-import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs } from './store'
+import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
 import {
   ASK_NOTE,
   CLEARED,
@@ -602,7 +602,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
             {intro.title}
           </Text>
           <Text color={G.faint} size="footnote" mono wrap="truncate">
-            {`${boardPath()} · ${total} ticket${total === 1 ? '' : 's'}`}
+            {`${boardPath()} · ${total} ticket${total === 1 ? '' : 's'}${versionLabel() === '' ? '' : ` · ${versionLabel()}`}`}
           </Text>
         </Box>
         <Box key="title-buttons" flexDirection="row" gap={1} alignItems="center" flexShrink={0}>

@@ -32,6 +32,7 @@ import {
   ticketOfAgent,
   type View,
   abs,
+  versionLabel,
 } from './store'
 
 type $ = EngineInterface
@@ -343,6 +344,11 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
               {s} {n}
             </Text>
           ))
+        )}
+        {versionLabel() !== '' && (
+          <Text key="version" dimColor>
+            {versionLabel()}
+          </Text>
         )}
       </Box>
       {plan !== undefined && (

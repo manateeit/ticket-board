@@ -51,13 +51,15 @@ export type View =
 export type PlanMode = 'list' | 'timeline'
 export type Job = { agentId: string; number: string; kind: 'draft' | 'enhance' | 'fold'; startedAt: number }
 
-export type Options = { ticketsDir: string; pollSeconds: number; autoOpen: boolean; writerModel: string }
+export type Options = { ticketsDir: string; pollSeconds: number; autoOpen: boolean; writerModel: string; showVersion: boolean }
 
 export type StartFlags = { isGithubSkipped: boolean; isBannerDismissed: boolean }
 const NO_START_FLAGS: StartFlags = { isGithubSkipped: false, isBannerDismissed: false }
 
 export const S = {
-  options: { ticketsDir: 'tickets', pollSeconds: 3, autoOpen: true, writerModel: '' } as Options,
+  options: { ticketsDir: 'tickets', pollSeconds: 3, autoOpen: true, writerModel: '', showVersion: true } as Options,
+  /** This plugin's version from its own manifest, read at session start; '' when it could not be read. */
+  version: '',
   cwd: '',
   /** Where tickets/ lives: the main checkout when the session runs in a linked git worktree (agent or EnterWorktree), else cwd. '' until resolved. */
   root: '',
@@ -137,6 +139,20 @@ export function resetSession(cwd: string) {
   S.watching = ''
   S.drafts.clear()
   S.suggesting.clear()
+}
+
+/** The board's version label (`ticket-board 0.4.15`), or '' when switched off or the version is unknown. */
+export const versionLabel = () => (S.options.showVersion && S.version !== '' ? `ticket-board ${S.version}` : '')
+
+/** Reads `version` from this plugin's own manifest. Any failure leaves it '' (no label), never an error. */
+export async function loadVersion($: $): Promise<void> {
+  try {
+    const m: unknown = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`))
+    const v = typeof m === 'object' && m !== null ? (m as { version?: unknown }).version : undefined
+    S.version = typeof v === 'string' && /^[\w.+-]{1,40}$/.test(v.trim()) ? v.trim() : ''
+  } catch {
+    S.version = ''
+  }
 }
 
 export const dir = () => S.options.ticketsDir.replace(/\/+$/, '') || 'tickets'
