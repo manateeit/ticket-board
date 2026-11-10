@@ -9,22 +9,36 @@ import { STATUSES } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
 import { G, HUE, SCHEMES, STATUS_HEX, barSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
-import { S, setSchemeChoice, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf, abs } from './store'
+import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf, abs } from './store'
 import {
+  ASK_NOTE,
+  ORIGIN_NOTE,
+  bannerText,
   blockersOpen,
   checksFor,
   createTicket,
   draftInChat,
   fail,
   fill,
+  fillWithIdea,
   go,
   runTicket,
   runnable,
   setFilters,
+  setStartIdea,
   setStatus,
+  setUpBoardOnly,
+  setupLines,
+  showBoard,
+  startFacts,
+  startFill,
+  startIdea,
+  startPrompt,
+  stepMarks,
   type Frame,
   type UI,
 } from './views'
+import { startStep } from './core/project'
 
 type $ = EngineInterface
 
@@ -544,6 +558,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
       </Box>
 
       {Toast(ui)}
+      {Banner($, ui)}
 
       {/* KPIs */}
       <Box flexDirection="row" gap={1} flexWrap="wrap">
@@ -1197,6 +1212,189 @@ export function deskNew($: $, ui: UI): RenderChildren {
           )}
         </Box>
       </Box>
+    </Box>
+  )
+}
+
+// ---------- Start ----------
+
+/** Over the board: tickets exist but no design or plan. Set up opens Start; Dismiss is remembered per project. */
+function Banner($: $, ui: UI): RenderChildren {
+  const text = bannerText()
+  if (text === undefined) return null
+  const { Box, Text, Button } = ui
+  const hex = STATUS_HEX.draft!
+  return (
+    <Box key="banner" flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1} backgroundColor={tint(hex, 0.1)} borderStyle="round" borderColor={tint(hex, 0.5)} paddingX={2}>
+      <Text color={hex} weight="semibold">{`${text} →`}</Text>
+      <Box flexDirection="row" gap={1}>
+        <Button key="banner-setup" label="Set up" variant="primary" onPress={() => go($, { kind: 'start' })} />
+        <Button key="banner-dismiss" label="Dismiss" plain onPress={() => void setStartFlag($, { isBannerDismissed: true })} />
+      </Box>
+    </Box>
+  )
+}
+
+function SetupLine(ui: UI, key: string, mark: string, label: string, detail: string, actions?: RenderChildren, notes: string[] = []) {
+  const { Box, Text } = ui
+  const hex = mark === '✓' ? STATUS_HEX.ready! : mark === '!' ? STATUS_HEX.draft! : G.faint
+  return (
+    <Box key={key} flexDirection="column">
+      <Box flexDirection="row" gap={2} alignItems="center" flexWrap="wrap">
+        <Text color={hex} weight="bold">
+          {mark}
+        </Text>
+        <Box minWidth={22}>
+          <Text color={G.ink} weight="semibold">
+            {label}
+          </Text>
+        </Box>
+        {detail !== '' && (
+          <Text color={G.soft} mono>
+            {detail}
+          </Text>
+        )}
+        {actions}
+      </Box>
+      {notes.map((n, i) => (
+        <Box key={`${key}-note-${i}`} paddingLeft={4}>
+          <Text color={G.faint} size="footnote">
+            {n}
+          </Text>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+/** The Start screen: a Setup → Idea → Design → Plan → Tickets stepper with ways to begin. Buttons only fill the prompt. */
+export function deskStart($: $, ui: UI): RenderChildren {
+  const { Box, Text, Button, Input } = ui
+  const f = startFacts()
+  const at = startStep(f)
+  const lines = setupLines()
+  const p = S.project
+  const idea = startIdea()
+  const hasBoard = S.snap?.hasBoard === true
+  const marks = stepMarks()
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Box flexDirection="row" gap={1} alignItems="center">
+        {hasBoard && <Button key="back" label="‹ Board" plain onPress={() => showBoard($)} />}
+        <Text color={G.ink} size="title" weight="bold">
+          Start a project
+        </Text>
+      </Box>
+      {Toast(ui)}
+      <Box flexDirection="row" alignItems="center" flexWrap="wrap" gap={1}>
+        {marks.map((m, n) => {
+          const hex = m.state === 'now' ? G.accent : m.state === 'done' ? STATUS_HEX.ready! : G.faint
+          return [
+            <Text key={`step-${m.step}`} color={hex} backgroundColor={m.state === 'now' ? tint(hex, 0.18) : undefined} weight={m.state === 'now' ? 'bold' : 'regular'} size="footnote">
+              {` ${m.state === 'done' ? '✓' : m.state === 'now' ? '●' : '○'} ${m.name} `}
+            </Text>,
+            n < marks.length - 1 ? (
+              <Text key={`step-arrow-${m.step}`} color={G.faint}>
+                ──
+              </Text>
+            ) : null,
+          ]
+        })}
+      </Box>
+      {Card(
+        ui,
+        [
+          SetupLine(
+            ui,
+            'line-git',
+            lines.git.mark,
+            lines.git.label,
+            lines.git.detail,
+            f.git === 'none' ? (
+              <Button key="start-git" label="Initialise git and make the first commit" hotkey="i" onPress={() => startFill($, startPrompt.gitInit())} />
+            ) : f.git === 'repo' && !f.hasCommit ? (
+              <Button key="start-push" label={f.hasOrigin ? 'Make the first commit and push' : 'Make the first commit'} hotkey="u" onPress={() => startFill($, startPrompt.firstPush())} />
+            ) : undefined,
+            f.git === 'none' || (f.git === 'repo' && !f.hasCommit) ? [ASK_NOTE] : [],
+          ),
+          SetupLine(
+            ui,
+            'line-github',
+            lines.github.mark,
+            lines.github.label,
+            lines.github.detail,
+            !f.hasOrigin && !f.isGithubSkipped ? (
+              <Box key="github-actions" flexDirection="row" gap={1}>
+                <Button key="start-github" label="Create private repo on GitHub" hotkey="g" onPress={() => startFill($, startPrompt.github())} />
+                <Button key="start-skip" label="Skip" hotkey="k" plain onPress={() => void setStartFlag($, { isGithubSkipped: true })} />
+              </Box>
+            ) : undefined,
+            !f.hasOrigin && !f.isGithubSkipped ? [ORIGIN_NOTE, ASK_NOTE] : [],
+          ),
+        ],
+        { key: 'start-setup', title: 'Setup', accent: at === 'setup' ? tint(G.accent, 0.5) : undefined },
+      )}
+      {!f.hasDesign &&
+        !f.hasPlan &&
+        Card(
+          ui,
+          [
+            f.hasIdea ? (
+              <Text key="idea-file" color={STATUS_HEX.ready!}>
+                {`✓ Idea written down: ${p?.ideaPath ?? ''}`}
+              </Text>
+            ) : null,
+            <Input
+              key="start-idea"
+              label="What are you building?"
+              rows={3}
+              value={S.drafts.get('start-idea') ?? ''}
+              placeholder="A booking app for small salons; owners hate phone tag…"
+              submitLabel="Save"
+              onInput={v => setStartIdea($, v)}
+              onSubmit={v => setStartIdea($, v)}
+            />,
+            <Box key="idea-actions" flexDirection="row" gap={1} flexWrap="wrap">
+              <Button key="start-brainstorm" label="✨ Brainstorm it first" hotkey="b" variant={idea !== '' ? 'primary' : undefined} dimColor={idea === ''} onPress={() => fillWithIdea($, startPrompt.brainstorm)} />
+              <Button key="start-design" label="Go straight to design" hotkey="d" dimColor={idea === ''} onPress={() => fillWithIdea($, startPrompt.design)} />
+              {p?.hasCode === true && <Button key="start-code" label="Draft a design from the code" hotkey="c" onPress={() => startFill($, startPrompt.fromCode())} />}
+            </Box>,
+            idea === '' ? (
+              <Text key="idea-hint" color={G.faint} size="footnote">
+                Type your idea to brainstorm it or go straight to design.
+              </Text>
+            ) : null,
+          ],
+          { key: 'start-idea-card', title: 'Idea', accent: at === 'idea' || at === 'design' ? tint(G.accent, 0.5) : undefined },
+        )}
+      {(f.hasDesign || at === 'design') &&
+        Card(
+          ui,
+          [
+            f.hasDesign ? (
+              <Text key="design-file" color={STATUS_HEX.ready!}>{`✓ ${p?.designPath ?? ''}`}</Text>
+            ) : (
+              <Button key="start-from-idea" label={`Write the design from ${p?.ideaPath ?? 'the idea'}`} hotkey="w" variant="primary" onPress={() => startFill($, startPrompt.fromIdea())} />
+            ),
+            at === 'plan' ? <Button key="start-plan" label="Plan the builds from the design" hotkey="p" variant="primary" onPress={() => startFill($, startPrompt.plan())} /> : null,
+            f.hasPlan ? <Text key="plan-file" color={STATUS_HEX.ready!}>{`✓ ${p?.planPath ?? ''}`}</Text> : null,
+          ],
+          { key: 'start-design-card', title: 'Design and plan' },
+        )}
+      {at === 'tickets' &&
+        Card(
+          ui,
+          [
+            hasBoard ? (
+              <Button key="start-new" label="+ New ticket" hotkey="n" variant="primary" onPress={() => go($, { kind: 'new' })} />
+            ) : (
+              <Button key="start-board-setup" label="Set up board" hotkey="s" variant="primary" onPress={() => void setUpBoardOnly($)} />
+            ),
+          ],
+          { key: 'start-tickets-card', title: 'Tickets' },
+        )}
+      {at === 'done' && <Text color={STATUS_HEX.ready!}>✓ Everything is set up.</Text>}
+      {!hasBoard && at !== 'tickets' && <Button key="setup-board-only" label="Set up board only" hotkey="s" plain onPress={() => void setUpBoardOnly($)} />}
     </Box>
   )
 }

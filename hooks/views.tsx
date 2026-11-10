@@ -1,9 +1,10 @@
-// The pane's views: Board, Ticket, Questions, New ticket, BOARD.md.
-import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskTicket, openReadme } from './desk'
+// The pane's views: Start, Board, Ticket, Questions, New ticket, BOARD.md.
+import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, deskTicket, openReadme } from './desk'
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { STATUSES } from './core/board'
 import { MODE_OPTIONS, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, titleFromIdea, type Filters } from './core/query'
+import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
 import { startJob, suggestAnswer } from './ai'
 import { G, STATUS_HEX, barSvg, heroSvg, tint } from './glass'
@@ -21,6 +22,7 @@ import {
   saveAnswer,
   saveFilters,
   say,
+  setStartFlag,
   statusOf,
   type View,
   abs,
@@ -138,6 +140,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
   const isFiltered = S.filters.show !== 'all' || S.filters.mode !== 'any' || S.filters.search.trim() !== ''
   return (
     <Box flexDirection="column" gap={1}>
+      {bannerView($, ui)}
       {glass && ui.Svg !== undefined ? (
         <ui.Svg
           key="hero"
@@ -755,17 +758,229 @@ export async function setUp($: $) {
   }
 }
 
-function setupView($: $, ui: UI): RenderChildren {
-  const { Box, Text, Button } = ui
+// ---------- Start ----------
+// Shown instead of the board when the project has no design, no plan and no tickets (or no board),
+// and from the banner. Every button fills the prompt: Claude runs the command and asks first.
+
+export function startFacts(): StartFacts {
+  const p = S.project
+  return {
+    git: p?.git ?? 'none',
+    hasCommit: p?.hasCommit === true,
+    hasOrigin: (p?.repo ?? '') !== '',
+    isGithubSkipped: S.startFlags.isGithubSkipped,
+    hasIdea: (p?.ideaPath ?? '') !== '',
+    hasDesign: (p?.designPath ?? '') !== '',
+    hasPlan: (p?.planPath ?? '') !== '',
+    hasTickets: items().length > 0,
+  }
+}
+
+/** Nothing here yet: no design, no plan and no ticket folders or board rows. */
+export function isStartState(): boolean {
+  return S.snap !== undefined && isBlankProject(startFacts())
+}
+
+/** Whether the pane draws Start rather than the current view. */
+export function showsStart(): boolean {
+  const v = S.view
+  if (v.kind === 'readme') return false
+  if (v.kind === 'start' || S.snap?.hasBoard !== true) return true
+  return (v.kind === 'board' || v.kind === 'doc') && !S.showBoard && isStartState()
+}
+
+/**
+ * The banner over the board while the design or the plan is missing (and it was not dismissed): a
+ * project with tickets but no docs, or one part-way through Start. Set up opens Start.
+ */
+export function bannerText(): string | undefined {
+  const f = startFacts()
+  if (S.startFlags.isBannerDismissed || (f.hasDesign && f.hasPlan)) return undefined
+  return `No ${!f.hasDesign && !f.hasPlan ? 'design or plan' : !f.hasDesign ? 'design' : 'plan'} yet`
+}
+
+export const STEP_NAME: Record<StartStep, string> = { setup: 'Setup', idea: 'Idea', design: 'Design', plan: 'Plan', tickets: 'Tickets', done: 'Done' }
+
+/** Each step: done, the current one, or still to come. */
+export type StepMark = { step: (typeof START_STEPS)[number]; name: string; state: 'done' | 'now' | 'todo' }
+
+export function stepMarks(): StepMark[] {
+  const at = startStep(startFacts())
+  const now = at === 'done' ? START_STEPS.length : START_STEPS.indexOf(at)
+  return START_STEPS.map((step, n): StepMark => ({ step, name: STEP_NAME[step], state: n < now ? 'done' : n === now ? 'now' : 'todo' }))
+}
+
+/** The Git and GitHub lines of the Setup step. */
+export function setupLines(): {
+  git: { mark: '✓' | '!' | '?'; label: string; detail: string }
+  github: { mark: '✓' | '!' | '–'; label: string; detail: string }
+} {
+  const p = S.project
+  const f = startFacts()
+  const branch = p?.branch || 'no branch'
+  const git =
+    f.git === 'unknown'
+      ? { mark: '?' as const, label: 'Git repository', detail: 'git status unknown' }
+      : f.git === 'none'
+        ? { mark: '!' as const, label: 'Git repository', detail: 'not a git repo' }
+        : { mark: f.hasCommit ? ('✓' as const) : ('!' as const), label: 'Git repository', detail: `${branch} · ${f.hasCommit ? 'has commits' : '0 commits'}` }
+  const host = p?.host ?? ''
+  const github = f.hasOrigin
+    ? { mark: '✓' as const, label: 'GitHub repository', detail: `${p?.repo ?? ''}${host !== '' && host !== 'github.com' ? ` (${host})` : ''}` }
+    : f.isGithubSkipped
+      ? { mark: '–' as const, label: 'GitHub repository', detail: 'skipped' }
+      : { mark: '!' as const, label: 'No GitHub repository', detail: '' }
+  return { git, github }
+}
+
+export const ASK_NOTE = 'Claude will ask before running the command.'
+export const ORIGIN_NOTE = 'Tickets work locally; the router needs origin to open PRs.'
+
+/** What each Start button puts in the prompt box. Nothing here runs a command. */
+export const startPrompt = {
+  gitInit: () => 'Initialise git here and make the first commit.',
+  github: () =>
+    `Create a private GitHub repository for this project with \`gh repo create --private\`, add it as origin and push${startFacts().hasCommit ? '' : ' (make the first commit first)'}.`,
+  firstPush: () => (startFacts().hasOrigin ? 'Make the first commit and push it to origin.' : 'Make the first commit.'),
+  brainstorm: (idea: string) => `/brainstorm ${idea}`,
+  design: (idea: string) => `/design ${idea}`,
+  fromCode: () => '/design Draft a design from the existing code in this repository.',
+  fromIdea: () => `/design ${S.project?.ideaPath ?? ''}`.trim(),
+  plan: () => `/planning ${S.project?.designPath ?? ''}`.trim(),
+}
+
+const IDEA_KEY = 'start-idea'
+export const startIdea = () => (S.drafts.get(IDEA_KEY) ?? '').trim()
+
+export function setStartIdea($: $, v: string) {
+  const was = startIdea() === ''
+  S.drafts.set(IDEA_KEY, v)
+  if (was !== (v.trim() === '')) redraw($)
+}
+
+/** Brainstorm and design need the idea typed first. */
+export function fillWithIdea($: $, make: (idea: string) => string) {
+  const idea = startIdea()
+  if (idea === '') return say($, 'Type what you are building first', 'warning')
+  void fill($, make(idea), 'In your prompt box — press Enter to start')
+}
+
+export function startFill($: $, text: string) {
+  void fill($, text, `In your prompt box — press Enter to send it. ${ASK_NOTE}`)
+}
+
+/** Leave Start for the board (it stays away this session even while the project is blank). */
+export function showBoard($: $) {
+  S.showBoard = true
+  go($, { kind: 'board' })
+}
+
+/** "Set up board only": what Set up board did before Start, then the board. */
+export async function setUpBoardOnly($: $) {
+  await setUp($)
+  if (S.snap?.hasBoard === true) {
+    S.showBoard = true
+    S.view = { kind: 'board' }
+    redraw($)
+  }
+}
+
+function startView($: $, ui: UI): RenderChildren {
+  const { Box, Text, Button, Input } = ui
+  const f = startFacts()
+  const at = startStep(f)
+  const lines = setupLines()
+  const p = S.project
+  const idea = startIdea()
+  const hasBoard = S.snap?.hasBoard === true
   return (
     <Box flexDirection="column" gap={1}>
-      <Text bold>No ticket board here yet</Text>
-      <Text dimColor>
-        This project has no {boardPath()}. Setting up creates it (the draft → ready → in-progress → in-check → done board) plus {dir()}/TEMPLATE/ with
-        the rd.md and eval.md templates.
-      </Text>
+      <Box flexDirection="row" gap={1}>
+        {hasBoard && <Button key="back" label="‹ Board" plain onPress={() => showBoard($)} />}
+        <Text bold>Start a project</Text>
+      </Box>
+      <Box flexDirection="column">
+        {stepMarks().map((m, n) => (
+          <Text key={`step-${m.step}`} color={m.state === 'now' ? 'claude' : m.state === 'done' ? 'success' : undefined} dimColor={m.state === 'todo'} bold={m.state === 'now'}>
+            {`${n + 1}. ${m.state === 'done' ? '✓' : m.state === 'now' ? '●' : '○'} ${m.name}${m.state === 'now' ? '  ← you are here' : ''}`}
+          </Text>
+        ))}
+      </Box>
       {Message(ui)}
-      <Button key="setup" label="Set up board" variant="primary" autoFocus onPress={() => void setUp($)} />
+      <Box flexDirection="column">
+        <Text color={lines.git.mark === '✓' ? 'success' : 'warning'}>
+          {`${lines.git.mark} ${lines.git.label}  ${lines.git.detail}`}
+        </Text>
+        {f.git === 'none' && (
+          <Box flexDirection="column" paddingLeft={2}>
+            <Button key="start-git" label="Initialise git and make the first commit" hotkey="i" onPress={() => startFill($, startPrompt.gitInit())} />
+            <Text dimColor>{ASK_NOTE}</Text>
+          </Box>
+        )}
+        {f.git === 'repo' && !f.hasCommit && (
+          <Box flexDirection="column" paddingLeft={2}>
+            <Button key="start-push" label={f.hasOrigin ? 'Make the first commit and push' : 'Make the first commit'} hotkey="u" onPress={() => startFill($, startPrompt.firstPush())} />
+            <Text dimColor>{ASK_NOTE}</Text>
+          </Box>
+        )}
+        <Text color={lines.github.mark === '✓' ? 'success' : lines.github.mark === '!' ? 'warning' : undefined} dimColor={lines.github.mark === '–'}>
+          {`${lines.github.mark} ${lines.github.label}${lines.github.detail !== '' ? `  ${lines.github.detail}` : ''}`}
+        </Text>
+        {!f.hasOrigin && !f.isGithubSkipped && (
+          <Box flexDirection="column" paddingLeft={2}>
+            <Box flexDirection="row" columnGap={1}>
+              <Button key="start-github" label="Create private repo on GitHub" hotkey="g" onPress={() => startFill($, startPrompt.github())} />
+              <Button key="start-skip" label="Skip" hotkey="k" plain onPress={() => void setStartFlag($, { isGithubSkipped: true })} />
+            </Box>
+            <Text dimColor>{ORIGIN_NOTE}</Text>
+            <Text dimColor>{ASK_NOTE}</Text>
+          </Box>
+        )}
+      </Box>
+      {!f.hasDesign && !f.hasPlan && (
+        <Box flexDirection="column">
+          {f.hasIdea && <Text color="success">{`✓ Idea written down: ${p?.ideaPath ?? ''}`}</Text>}
+          <Input
+            key={IDEA_KEY}
+            label="What are you building?"
+            rows={3}
+            value={S.drafts.get(IDEA_KEY) ?? ''}
+            placeholder="e.g. A booking app for small salons; owners hate phone tag…"
+            submitLabel="Save"
+            onInput={v => setStartIdea($, v)}
+            onSubmit={v => setStartIdea($, v)}
+          />
+          <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+            <Button key="start-brainstorm" label="✨ Brainstorm it first" hotkey="b" variant={idea !== '' ? 'primary' : undefined} dimColor={idea === ''} onPress={() => fillWithIdea($, startPrompt.brainstorm)} />
+            <Button key="start-design" label="Go straight to design" hotkey="d" dimColor={idea === ''} onPress={() => fillWithIdea($, startPrompt.design)} />
+            {p?.hasCode === true && <Button key="start-code" label="Draft a design from the code" hotkey="c" onPress={() => startFill($, startPrompt.fromCode())} />}
+          </Box>
+          {idea === '' && <Text dimColor>Type your idea to brainstorm it or go straight to design.</Text>}
+        </Box>
+      )}
+      {at === 'design' && (
+        <Button key="start-from-idea" label={`Write the design from ${p?.ideaPath ?? 'the idea'}`} hotkey="w" variant="primary" onPress={() => startFill($, startPrompt.fromIdea())} />
+      )}
+      {f.hasDesign && <Text color="success">{`✓ Design  ${p?.designPath ?? ''}`}</Text>}
+      {at === 'plan' && <Button key="start-plan" label="Plan the builds from the design" hotkey="p" variant="primary" onPress={() => startFill($, startPrompt.plan())} />}
+      {f.hasPlan && <Text color="success">{`✓ Plan  ${p?.planPath ?? ''}`}</Text>}
+      {at === 'tickets' && hasBoard && <Button key="start-new" label="+ New ticket" hotkey="n" variant="primary" onPress={() => go($, { kind: 'new' })} />}
+      {at === 'tickets' && !hasBoard && <Button key="start-board-setup" label="Set up board" hotkey="s" variant="primary" onPress={() => void setUpBoardOnly($)} />}
+      {at === 'done' && <Text color="success">✓ Everything is set up.</Text>}
+      {!hasBoard && at !== 'tickets' && <Button key="setup-board-only" label="Set up board only" hotkey="s" plain onPress={() => void setUpBoardOnly($)} />}
+    </Box>
+  )
+}
+
+function bannerView($: $, ui: UI): RenderChildren {
+  const text = bannerText()
+  if (text === undefined) return null
+  const { Box, Text, Button } = ui
+  return (
+    <Box key="banner" flexDirection="row" columnGap={1} flexWrap="wrap" borderStyle="round" borderColor="warning" paddingX={1}>
+      <Text color="warning">{text} →</Text>
+      <Button key="banner-setup" label="Set up" hotkey="s" onPress={() => go($, { kind: 'start' })} />
+      <Button key="banner-dismiss" label="Dismiss" plain onPress={() => void setStartFlag($, { isBannerDismissed: true })} />
     </Box>
   )
 }
@@ -793,8 +1008,8 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
     const body =
       v.kind === 'readme'
         ? deskReadme($, ui)
-        : !S.snap.hasBoard
-          ? setupView($, ui)
+        : showsStart()
+          ? deskStart($, ui)
           : S.snap.board === undefined
             ? <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
             : v.kind === 'board' || v.kind === 'doc'
@@ -813,7 +1028,7 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
     )
   }
   if (v.kind === 'readme') return readmeView($, ui)
-  if (!S.snap.hasBoard) return withProject($, ui, setupView($, ui))
+  if (showsStart()) return withProject($, ui, startView($, ui))
   if (S.snap.board === undefined)
     return <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
   switch (v.kind) {

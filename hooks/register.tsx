@@ -2,9 +2,9 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
-import { S, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadStartFlags, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
-import { drawPane, go, type UI } from './views'
+import { drawPane, go, isStartState, type UI } from './views'
 
 const PANE = 'ticket-board'
 const TITLE = 'Tickets'
@@ -67,8 +67,10 @@ export const register: Register = (on, options) => {
     await loadFilters($)
     await loadScheme($)
     await loadJobs($)
+    await loadStartFlags($)
     await refresh($)
-    if (S.options.autoOpen && e.isInteractive && S.snap?.hasBoard === true) bg(open($, false))
+    // A project with a board opens on it; a project with nothing yet (no design, plan or tickets) opens on Start.
+    if (S.options.autoOpen && e.isInteractive && (S.snap?.hasBoard === true || isStartState())) bg(open($, false))
     $.clock.every(S.options.pollSeconds * 1000, () => {
       if (S.isOpen) bg(refresh($))
     })

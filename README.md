@@ -23,7 +23,7 @@ The files stay the single source of truth. The pane reads them and changes them 
 
 1. [Install](#install)
 2. [Quick start](#quick-start)
-3. [The pane, view by view](#the-pane-view-by-view)
+3. [The pane, view by view](#the-pane-view-by-view) (including the [Start screen](#start-screen) for new projects)
 4. [Answering open questions](#answering-open-questions)
 5. [Draft → ready (and the ready check)](#draft--ready-and-the-ready-check)
 6. [Creating a ticket with the AI writer](#creating-a-ticket-with-the-ai-writer)
@@ -68,7 +68,7 @@ The plugin includes:
 
 1. Open a project that has `tickets/BOARD.md`, or any project.
 2. Run `/board`.
-   - If there is no board yet, the pane offers **Set up board**. That creates `tickets/BOARD.md` (an empty table with the usual legend) and `tickets/TEMPLATE/`.
+   - In a new project (no design, no plan and no tickets yet) the pane opens on the [Start screen](#start-screen), which walks you from git and GitHub to an idea, a design, a plan and tickets. Its small **Set up board only** button creates `tickets/BOARD.md` (an empty table with the usual legend) and `tickets/TEMPLATE/` and takes you straight to the board.
 3. Press **+ New ticket**, describe what you want, and press **Create draft + enhance with AI**.
 4. When the AI finishes, answer its open questions in the pane, press **✓ Mark ready**, then **▶ Run this ticket**.
 
@@ -82,7 +82,7 @@ Then run `/board`. The demo has one ticket of each kind: done, ready (waiting on
 
 ## The pane, view by view
 
-The pane opens beside the chat. When a session starts in a project with a board, it opens on its own (you can turn that off in [Settings](#settings)). On a surface with no room for a side panel, it only opens when you run `/board`.
+The pane opens beside the chat. When a session starts, it opens on its own: on the board in a project that has one, and on the [Start screen](#start-screen) in a project that has no design, no plan and no tickets yet (you can turn that off in [Settings](#settings)). On a surface with no room for a side panel, it only opens when you run `/board`.
 
 It re-reads the board every few seconds while it is open, and right after any tool writes into `tickets/`, so changes from the router, workers or your editor show up without a refresh.
 
@@ -99,6 +99,26 @@ Tickets are a **table** — ID, Type, Title, Status, Result (a one-word tag from
 - **New ticket.** Pick Feature, Bug or Chore, give an optional title and a description (the placeholder tells you what a good bug report or feature request contains), set mode and dependencies, then *Create + AI enhance*.
 
 **Types.** Each ticket is a feature, a bug or a chore. The type is the `Type:` line under the title in rd.md (the AI writer and the /ticket skill keep it); tickets without one are guessed from the title ("Fix …" → bug, "Rename …" → chore, otherwise feature).
+
+### Start screen
+
+A project with no design, no plan and no tickets (no ticket folders and no board rows) opens on **Start** instead of the board. A blank folder with no `BOARD.md` at all shows Start too.
+
+- **Stepper:** Setup → Idea → Design → Plan → Tickets. The current step is worked out from the files every time the pane draws, so you can leave and come back and it resumes where you were. Nothing extra is stored for it.
+- **Setup** has two lines:
+  - **Git repository**: `✓ main · 0 commits` (or `has commits`), `! not a git repo`, or `? git status unknown` when `.git` is there but cannot be read. With no repo the button reads *Initialise git and make the first commit*; with a repo and no commit, *Make the first commit* (*… and push* when origin is set).
+  - **GitHub repository**: `✓ owner/repo`, or `! No GitHub repository` with *Create private repo on GitHub* and **Skip**. Tickets work locally; the router needs origin to open PRs. An origin on another host (GitLab, your own server) counts as set up. Skip is remembered per project and the line then reads *skipped*.
+- **Idea:** a *What are you building?* box with **✨ Brainstorm it first** (puts `/brainstorm <your idea>` in the prompt box) and **Go straight to design** (`/design <your idea>`). Both stay dimmed and do nothing until the box has text. In a folder that already has code but no docs, **Draft a design from the code** puts `/design Draft a design from the existing code in this repository.` in the prompt box (no text needed).
+- **Design, Plan, Tickets:** once a brainstorm result is saved (`design/brief.md` or a file under `design/brainstorms/`), **Write the design from …** fills `/design <that file>`. Once `DESIGN.md` exists, **Plan the builds from the design** fills `/planning <design file>`. With both, the last step offers **+ New ticket** (or **Set up board** when there is no board yet). The `/brainstorm`, `/design` and `/planning` skills come in a later release; until then the filled line is a request you can edit.
+- **Set up board only** (no board yet): does what *Set up board* always did, then shows the board.
+
+**The buttons never run anything.** Each one only fills your prompt box with a request, such as *Initialise git here and make the first commit.* or *Create a private GitHub repository for this project with `gh repo create --private`, add it as origin and push.* You read it, change it if you like (for example to make the repo public), and press Enter. Claude then runs the commands with its own tools and asks you before each one. If the prompt box already has text in it, the pane shows the line to copy instead.
+
+Design and plan are found from the `Design: … · Plan: …` line under the title of `BOARD.md`, else `design/DESIGN.md` and `design/PLAN.md` in any case (see [docs/STANDARD.md](docs/STANDARD.md)). The git lines come from plain files (`.git/HEAD`, `.git/config`, the branch's ref or `packed-refs`, and a linked worktree's `.git` pointer file), so Start works the same in the terminal and the desktop app and never starts a process.
+
+**Banner on an existing project.** A project that already has tickets but no design or plan opens on the board as before, with a banner *No design or plan yet → Set up* above it (*No plan yet* once a design exists). **Set up** opens the Start screen (**‹ Board** takes you back); **Dismiss** hides the banner for this project, and that is remembered.
+
+In the terminal the Start screen has the same content as plain text, with the steps as a numbered list and the same buttons and keys.
 
 ### Board
 
@@ -274,6 +294,10 @@ Keys while the pane has focus:
 | `m` | draft ticket | mark ready |
 | `d` | ready ticket | back to draft |
 | `e` | draft ticket | enhance with AI |
+| `s` | board with the banner / Start | open Start / set up board only |
+| `i`, `u`, `g`, `k` | Start | initialise git, first commit (and push), create GitHub repo, skip GitHub |
+| `b`, `d`, `c` | Start | brainstorm it first, go straight to design, draft a design from the code |
+| `w`, `p`, `n` | Start | write the design from the idea, plan the builds, new ticket |
 
 You can also click every button with the mouse.
 
@@ -285,7 +309,7 @@ Change these in `/plugin` → ticket-board → configure:
 |---|---|---|
 | Tickets folder | `tickets` | Folder, relative to the project, that holds `BOARD.md` and the ticket folders |
 | Refresh every (seconds) | `3` | How often the open pane re-reads the board |
-| Open at start | on | Open the pane automatically when a session starts in a project with a board |
+| Open at start | on | Open the pane automatically when a session starts in a project with a board, or on the Start screen in a project with no design, plan or tickets yet |
 | Ticket writer model | *(session's)* | Model for the AI writer, e.g. `opus` or `sonnet` |
 
 ## How it edits your files
@@ -294,13 +318,14 @@ Change these in `/plugin` → ticket-board → configure:
 - **rd.md:** an answer is inserted as one `**Resolved <date> (human): …**` line under its question. Nothing else changes.
 - **Conflicts:** each edit reads the file again first. If the row's status is not what you were looking at, the edit is refused and the pane refreshes.
 - **AI writes** go only into the one ticket folder, enforced by a tool guard in the mod.
-- **What it remembers:** your Show/Sort/Mode choices and the list of AI jobs that are still running. Nothing leaves your machine except the model calls for the AI writer and *Suggest*.
+- **What it remembers:** your Show/Sort/Mode choices, the list of AI jobs that are still running, and per project whether you skipped GitHub on the Start screen or dismissed the *No design or plan yet* banner. These live in the pane's own store, never in your project's files. Nothing leaves your machine except the model calls for the AI writer and *Suggest*.
 
 ## Troubleshooting
 
 | You see | Why / fix |
 |---|---|
-| *No ticket board here yet* | No `tickets/BOARD.md` in this project (or in the folder named in Settings). Press **Set up board**, or point the setting at your folder. |
+| *Start a project* instead of your board | There is no `tickets/BOARD.md` in this project (or in the folder named in Settings), or the project has no design, plan or tickets yet. Press **Set up board only** for an empty board, or point the setting at your folder. |
+| *git status unknown* | `.git` exists but its files could not be read. Start does not wait on it; check the folder's permissions. |
 | *BOARD.md has no ticket table* | The file needs a markdown table whose header has `#` and `Status` columns. |
 | `⚠` on a row | A folder `tickets/0012-…/` with no row on the board, or the reverse. Add the row, or fix the folder name. |
 | **Mark ready** missing | The ready check is failing. Open the ticket to see which rule. |
@@ -324,7 +349,7 @@ Layout:
 .claude-plugin/plugin.json      manifest and settings
 .claude-plugin/marketplace.json so the repo installs as a marketplace
 hooks/register.tsx              the hooks: /board, the pane, the AI writer guard, job completion
-hooks/views.tsx                 the pane's views
+hooks/views.tsx                 the pane's views (terminal), the Start screen's logic
 hooks/store.ts                  reading and writing the board and tickets
 hooks/ai.ts                     ticket-writer jobs and answer suggestions
 hooks/core/                     pure parsing/editing (board table, questions, ready check, filters, roadmap parser and progress)
@@ -340,7 +365,7 @@ examples/demo-board/            a demo project
 tests/                          claude plugin test suites
 ```
 
-The parsing and editing code in `hooks/core/` has no side effects and is covered by `tests/core.test.ts`. `tests/roadmap.test.ts` covers the roadmap parser (`hooks/core/roadmap.ts`) and the rd.md `Plan:` / `Design:` readers on three fixtures: a blank project, a full design and plan with every build state, coverage state, hill position and roadmap check, and a copy of the factory's phase-less `F1…` plan shape. `tests/pane.test.tsx` drives the real pane over an in-memory board on both surfaces: answer a question, mark ready, and run a ticket.
+The parsing and editing code in `hooks/core/` has no side effects and is covered by `tests/core.test.ts`. `tests/roadmap.test.ts` covers the roadmap parser (`hooks/core/roadmap.ts`) and the rd.md `Plan:` / `Design:` readers on three fixtures: a blank project, a full design and plan with every build state, coverage state, hill position and roadmap check, and a copy of the factory's phase-less `F1…` plan shape. `tests/pane.test.tsx` drives the real pane over an in-memory board on both surfaces: answer a question, mark ready, run a ticket, and the Start screen (a blank folder, the banner on a board with tickets, the stepper resuming from files, Skip remembered, and every Start button only filling the prompt). The Start screen's git and step detection is covered in `tests/core.test.ts`.
 
 ## License
 
