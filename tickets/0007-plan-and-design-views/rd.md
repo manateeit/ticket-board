@@ -50,6 +50,10 @@ Out:
 ## Open questions
 
 - Split out: this is L. Should it be two tickets, Plan view (with Run) and Design view (with approve gate, brainstorm on ticket)? [split in two / keep one]
+  **Resolved 2026-11-10 (human): Keep one ticket for now, since the Plan and Design views share the tabs, view kinds, store changes and test harness, and splitting would duplicate that groundwork. Revisit the split only if the ticket outgrows a single review.**
 - Blocked by 0006 only on the board, but Brainstorm buttons need the 0005 skills and Create tickets needs 0008. Add 0005 as a blocker? [add 0005 / buttons fill the prompt anyway, no blocker]
+  **Resolved 2026-11-10 (human): Add 0005 as a blocker: the Brainstorm buttons can't do anything useful until the skills exist, and Create tickets stays hidden until 0008 lands, so the Plan and Design views should wait for 0005 rather than ship buttons that fill a prompt for a skill that isn't there.**
 - Approve design: should it also fill `/planning` automatically, or only set `status: approved`? [fill prompt / status only]
+  **Resolved 2026-11-10 (human): The ticket says Approve "sets `status: approved` and fills `/planning`," so the answer is fill prompt: set the status and also fill `/planning` into the prompt, without sending it.**
 - Run for a phase: include ready tickets whose blockers are outside the phase but done? [yes / only within phase]
+  **Resolved 2026-11-10 (human): Yes: include a ready ticket whose blockers sit outside the phase as long as those blockers are done, since the ticket is runnable under the same rule as `runnable()` (status `ready`, no open blockers).**

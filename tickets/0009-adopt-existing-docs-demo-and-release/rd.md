@@ -34,4 +34,6 @@ IN: adopt flow and its review screen, demo-roadmap, README, version bump, a loca
 
 ## Open questions
 - Try it on thalix-sdlc-factory by adopting its `design/factory/` (add the BOARD.md binding line and Covers/Ticket columns)? [ask first, after the person reviews the change (default) | do it in this ticket | leave out]
+  **Resolved 2026-11-10 (human): Leave it out of this ticket: the default is to ask first, after the person has reviewed the change, so nothing is adopted into thalix-sdlc-factory here.**
 - Publishing 0.5.0 to the public repo manateeit/ticket-board pushes to GitHub: include the push/publish in this ticket, or stop at a local release commit? [stop at a local release commit (safe) | push and publish here]
+  **Resolved 2026-11-10 (human): Stop at a local release commit; do not push or publish anything to manateeit/ticket-board in this ticket. Publishing stays out of scope and can be done separately once the person has reviewed the commit.**

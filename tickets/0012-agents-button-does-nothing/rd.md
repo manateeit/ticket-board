@@ -41,8 +41,14 @@ Out: redesigning the panel; changing what agents are listed; fixing 0010 / 0011 
 ## Open questions
 
 - Fix all three in one ticket (0010, 0011, 0012)? [yes, merge into one ticket, no, keep three but fix the shared cause once under the lowest-numbered ticket]
+  **Resolved 2026-11-10 (human): Keep the three tickets separate, but fix the shared cause once under 0010, the lowest-numbered ticket. The scope already limits this ticket to the shared cause, so 0011 and 0010 only need the layout fix, not separate work.**
 - Which surface fails? [desktop, terminal, both]
+  **Resolved 2026-11-10 (human): assume both**
 - How is it pressed? [mouse click, Enter on focus, the `a` hotkey, all fail]
+  **Resolved 2026-11-10 (human): both**
 - Which plugin version is running? [0.4.12, older, `--plugin-dir` worktree checkout]
+  **Resolved 2026-11-10 (human): don't know**
 - What happens on press? [nothing at all, the panel flashes then closes, the button toggles but no panel shows, an error]
+  **Resolved 2026-11-10 (human): nothing at all**
 - Is the session in a linked git worktree? [yes, no]
+  **Resolved 2026-11-10 (human): i don't know**

@@ -49,6 +49,10 @@ Out: the planner agent and design skill themselves (0005); the Plan and Design v
 ## Open questions
 
 - Split out: this is large; split into (a) create tickets from builds, (b) redesign notes and stale detection, (c) replan review and apply? [one ticket / three tickets]
+  **Resolved 2026-11-10 (human): Split it into three tickets: (a) create tickets from builds, (b) redesign notes and stale detection, and (c) replan review and apply, since each depends on the one before it and the ticket is too large to review as one change.**
 - Where is the replan proposal stored and what is its format? [markdown with one `- [ ]` line per item in `design/changes/<date>-replan.md` / separate JSON]
+  **Resolved 2026-11-10 (human): The replan proposal is stored as markdown at `design/changes/<date>-replan.md`, with one `- [ ]` line per item grouped under Add, Change, Drop and Follow-up headings, each followed by its reason. This keeps it human-readable and matches the design change note format, and the review screen can parse the checkboxes directly.**
 - When a needed build is not selected, should Blocked by wait for it? [create it too / leave blocked-by empty and note it / refuse the batch]
+  **Resolved 2026-11-10 (human): No. Leave that build out of Blocked by and record the missing dependency in the row's Notes, as the ticket already specifies for unselected needed builds.**
 - Should the stale "Review" action open the ticket page only, or also start an AI enhance job against the new section? [open page only / offer enhance job]
+  **Resolved 2026-11-10 (human): Open the ticket page only. The stale flag already states what changed, and starting an AI job from a click would add cost and a queue entry the user didn't ask for.**

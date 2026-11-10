@@ -42,6 +42,10 @@ Why the existing test passes: `tests/pane.test.tsx` ("desktop header names the p
 ## Open questions
 
 - Which surface does the failure happen on? [Claude desktop app / terminal / both]
+  **Resolved 2026-11-10 (human): Both surfaces are unconfirmed, but the ticket's own evidence points at the desktop app: the report says "desktop clicks" and the 0.4.11 fix targeted desktop clicks, so the simplest sensible answer is Claude desktop app, with the terminal README button to be checked as well.**
 - What exactly happens on press? [nothing at all / view flashes and returns to the board / pane scrolls or loses focus / error toast]
+  **Resolved 2026-11-10 (human): nothing at all**
 - Does the `o` hotkey work when the click does not? [yes / no / not tried]
+  **Resolved 2026-11-10 (human): no**
 - Which plugin version is installed? [0.4.11 / 0.4.12 / other]
+  **Resolved 2026-11-10 (human): i don't know the version**

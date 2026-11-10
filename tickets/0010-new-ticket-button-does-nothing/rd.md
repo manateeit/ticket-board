@@ -39,8 +39,14 @@ Reproduce (to be confirmed, see Open questions): open `/board` on a project with
 ## Open questions
 
 - Which surface shows the problem? [desktop app, terminal, both]
+  **Resolved 2026-11-10 (human): Assume both surfaces until reproduced, since the report doesn't say which one fails and the fix needs a pane test on each. Start with the desktop `deskNew` path and the terminal `newView` path, and fix whichever one doesn't switch to the form.**
 - How is the button pressed? [mouse click, Enter on focus, the `n` hotkey, all of them]
+  **Resolved 2026-11-10 (human): All of them: the ticket says the press fails for click, Enter and `n` alike, and it is wired through the same `go($, { kind: 'new' })` call, so the fix should cover all three, with the pane test pressing the button on each surface.**
 - Which plugin version is running? [0.4.12 (current), older, a worktree checkout via `--plugin-dir`]
+  **Resolved 2026-11-10 (human): you need to check .. i don't know**
 - What exactly happens on press? [nothing at all, the board flickers and stays, the form flashes then returns, an error toast, the setup view appears]
+  **Resolved 2026-11-10 (human): nothing at all**
 - Does `/board new <idea>` or the `+ Create the first ticket` button open the form for you? [yes, no, not tried]
+  **Resolved 2026-11-10 (human): i have not tried that yet.**
 - Does the project have a `tickets/BOARD.md` with a ticket table when it fails? [yes, no board yet, board without a table]
+  **Resolved 2026-11-10 (human): yes.. its this project.**
