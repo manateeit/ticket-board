@@ -140,15 +140,16 @@ export function today(nowMs: number): string {
 
 /** A one-word outcome from a board row's notes ("merged f681c3c (local…)" → Merged); the full notes live on the ticket page. */
 const RESULTS: [RegExp, string, string][] = [
-  [/\bmerged\b/i, 'Merged', '#34D399'],
-  [/\b(abandon|dropped|won'?t do|wontfix)/i, 'Dropped', '#94A3B8'],
-  [/\b(fail|red|broken)\b/i, 'Failing', '#F87171'],
-  [/\bblocked\b/i, 'Blocked', '#F87171'],
-  [/\b(decided|scope)\b/i, 'Decided', '#A78BFA'],
-  [/\bmoved from github issue\b/i, 'From GitHub', '#7DD3FC'],
+  [/\bmerged\b/i, 'Merged', 'green'],
+  [/\b(abandon|dropped|won'?t do|wontfix)/i, 'Dropped', 'slate'],
+  [/\b(fail|red|broken)\b/i, 'Failing', 'red'],
+  [/\bblocked\b/i, 'Blocked', 'red'],
+  [/\b(decided|scope)\b/i, 'Decided', 'violet'],
+  [/\bmoved from github issue\b/i, 'From GitHub', 'sky'],
 ]
-export function resultOf(notes: string): { label: string; hex: string } | undefined {
+/** `hue` names a color of the pane's palette (HUE in hooks/glass.tsx), so it follows the color scheme. */
+export function resultOf(notes: string): { label: string; hue: string } | undefined {
   if (notes.trim() === '' || notes.trim() === '—') return undefined
-  for (const [re, label, hex] of RESULTS) if (re.test(notes)) return { label, hex }
+  for (const [re, label, hue] of RESULTS) if (re.test(notes)) return { label, hue }
   return undefined
 }

@@ -7,11 +7,30 @@ import type { UI } from './views'
 
 /** Accent hues per scheme: pastel on the dark glass, deeper tones that keep 4.5:1 contrast on white. */
 const HUES = {
+  /** Mid tones that read on the app's own light and dark backgrounds alike. */
+  auto: { amber: '#D97706', green: '#059669', blue: '#3B82F6', purple: '#A855F7', slate: '#64748B', red: '#EF4444', violet: '#8B5CF6', rose: '#F43F5E', orange: '#EA580C', teal: '#0D9488', sky: '#0EA5E9' },
   dark: { amber: '#FBBF24', green: '#34D399', blue: '#60A5FA', purple: '#C084FC', slate: '#94A3B8', red: '#F87171', violet: '#A78BFA', rose: '#FB7185', orange: '#FDBA74', teal: '#5EEAD4', sky: '#7DD3FC' },
   light: { amber: '#B45309', green: '#047857', blue: '#1D4ED8', purple: '#7E22CE', slate: '#475569', red: '#B91C1C', violet: '#6D28D9', rose: '#BE123C', orange: '#C2410C', teal: '#0F766E', sky: '#0369A1' },
 }
 
 const SURFACES = {
+  /**
+   * Follows the app: no painted backdrop, text in the app's own theme colors (theme keys), neutral
+   * see-through cards. The desktop draws its native buttons in the app's colors, so only a pane that
+   * sits on the app's own background keeps every label readable in both light and dark mode.
+   */
+  auto: {
+    base: '',
+    ink: 'text',
+    soft: 'subtle',
+    faint: 'inactive',
+    accent: '#0EA5E9',
+    card: 'rgba(128,128,128,0.07)',
+    cardHover: 'rgba(128,128,128,0.16)',
+    edge: 'rgba(128,128,128,0.32)',
+    edgeHover: 'rgba(14,165,233,0.6)',
+    wash: '128,128,128',
+  },
   dark: {
     /** The container's own backdrop, so the pane never depends on the app's theme. */
     base: '#0A0F1E',
@@ -40,11 +59,11 @@ const SURFACES = {
   },
 }
 
-export type Scheme = 'dark' | 'light'
-export const SCHEMES: Scheme[] = ['dark', 'light']
+export type Scheme = 'auto' | 'dark' | 'light'
+export const SCHEMES: Scheme[] = ['auto', 'dark', 'light']
 
-export const G = { ...SURFACES.dark, scheme: 'dark' as Scheme }
-export const HUE = { ...HUES.dark }
+export const G = { ...SURFACES.auto, scheme: 'auto' as Scheme }
+export const HUE = { ...HUES.auto }
 
 const statusHex = () => ({
   draft: HUE.amber,
@@ -83,7 +102,7 @@ export function setScheme(scheme: Scheme) {
 }
 
 /** A see-through layer for stripes and insets: white on dark, ink on light. */
-export const wash = (alpha: number) => `rgba(${G.wash},${G.scheme === 'light' ? Math.min(1, alpha * 1.4) : alpha})`
+export const wash = (alpha: number) => `rgba(${G.wash},${G.scheme === 'dark' ? alpha : Math.min(1, alpha * 1.6)})`
 
 export const tint = (hex: string, alpha: number) => {
   const n = parseInt(hex.slice(1), 16)
@@ -115,16 +134,7 @@ export function glassUI(ui: UI): UI {
     } as never)
   }) as unknown as UI['Box']
   const Markdown = ((p: { key?: string; text: string }) => ui.Box({ flexDirection: 'column', gap: 1, children: markdown(ui, p.text) } as never)) as unknown as UI['Markdown']
-  // The surface draws a Button's own label in the app's text color, which is unreadable when the
-  // app's light/dark mode differs from the pane's. Draw the label as our own Text instead
-  // (the label still names the control). Primary buttons keep the surface's filled look.
-  const Button = ((p: Record<string, unknown>) => {
-    const hasChildren = p.children !== undefined && p.children !== null && !(Array.isArray(p.children) && p.children.length === 0)
-    if (p.variant === 'primary' || hasChildren || typeof p.label !== 'string') return ui.Button(p as never)
-    const { dimColor: dim, ...rest } = p
-    return ui.Button({ ...rest, children: ui.Text({ color: dim === true ? G.soft : G.ink, children: p.label } as never) } as never)
-  }) as unknown as UI['Button']
-  return { ...ui, Text, Box, Markdown, Button }
+  return { ...ui, Text, Box, Markdown }
 }
 
 /** A small markdown reader for the glass look: headings, paragraphs (hard-wrapped lines joined), "Label: text" leads, decision callouts, lists, quotes, tables, code, inline `code` (status names as pills), **bold**, *italic* and [links](url). */
@@ -400,7 +410,7 @@ export function heroSvg(h: HeroInput): string {
 <text x="32" y="118" fill="#a5b4cf" font-size="12.5" font-family="ui-monospace, 'SF Mono', Menlo, monospace">${esc(h.path)} · ${h.total} ticket${h.total === 1 ? '' : 's'}${h.needsMe > 0 ? ` · ${h.needsMe} need you` : ''}</text>
 ${pills}
 <g transform="translate(${W - 84},${H / 2})">
-  <circle r="${R + 12}" fill="${G.ink}" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.18"/>
+  <circle r="${R + 12}" fill="#808080" fill-opacity="0.18" stroke="#ffffff" stroke-opacity="0.18"/>
   <circle r="${R}" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="7"/>
   <circle r="${R}" fill="none" stroke="url(#ring)" stroke-width="7" stroke-linecap="round" transform="rotate(-90)" stroke-dasharray="${(C * pct).toFixed(1)} ${C.toFixed(1)}">
     <animate attributeName="stroke-dasharray" from="0 ${C.toFixed(1)}" to="${(C * pct).toFixed(1)} ${C.toFixed(1)}" dur="1.2s" fill="freeze"/>
@@ -423,7 +433,7 @@ export function barSvg(counts: ReadonlyArray<readonly [string, number]>, total: 
       return r
     })
     .join('')
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="6" viewBox="0 0 ${W} 6"><rect width="${W}" height="6" rx="3" fill="${G.ink}" fill-opacity="0.08"/>${segs}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="6" viewBox="0 0 ${W} 6"><rect width="${W}" height="6" rx="3" fill="#808080" fill-opacity="0.2"/>${segs}</svg>`
 }
 
 

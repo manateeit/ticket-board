@@ -178,7 +178,7 @@ test('desktop draws a glass container with a sortable ticket table', async ($, o
   const { ui } = await boot($, on, 'desktop')
   await ui.find({ type: 'Text', text: /Dark mode/ })
   const drawn = JSON.stringify(await ui.drawn())
-  expect(drawn).toContain('#0A0F1E')
+  expect(drawn).not.toContain('#0A0F1E') // follows the app by default: no painted backdrop
   expect(drawn).toContain('DEPENDS ON')
   expect(drawn).toContain('Need you')
   expect(drawn).not.toContain('isInteractive')
@@ -288,19 +288,24 @@ test('terminal shows the project line and README; no git falls back to the folde
   await ui.unmount()
 })
 
-test('light scheme: switch is remembered and every button label is drawn in the pane ink', async ($, on) => {
+test('colors follow the app by default; dark and light glass are one press away', async ($, on) => {
   const { ui } = await boot($, on, 'desktop')
   await ui.find({ type: 'Text', text: /Dark mode/ })
-  // Dark first: button labels are our own light text, not the app's color.
+  // Default: no painted backdrop, text in the app's own theme colors.
   let drawn = JSON.stringify(await ui.drawn())
-  expect(drawn).toContain('#EEF2FF')
-  await ui.press({ key: 'scheme' })
-  await ui.find({ type: 'Text', text: /☾ Dark/ })
-  drawn = JSON.stringify(await ui.drawn())
-  expect(drawn).toContain('#F8FAFC') // light backdrop
-  expect(drawn).toContain('#0F172A') // dark ink
+  expect(drawn).not.toContain('#0A0F1E')
   expect(drawn).not.toContain('#EEF2FF')
   await ui.press({ key: 'scheme' })
-  await ui.find({ type: 'Text', text: /☀ Light/ })
+  await ui.find({ type: 'Text', text: /Colors: dark/ })
+  drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('#0A0F1E')
+  expect(drawn).toContain('#EEF2FF')
+  await ui.press({ key: 'scheme' })
+  await ui.find({ type: 'Text', text: /Colors: light/ })
+  drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('#F8FAFC')
+  expect(drawn).toContain('#0F172A')
+  await ui.press({ key: 'scheme' })
+  await ui.find({ type: 'Text', text: /Colors: app/ })
   await ui.unmount()
 })

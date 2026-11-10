@@ -125,7 +125,7 @@ export const register: Register = (on, options) => {
       const base = $.ui.resolve(e)
       const ui = { ...glassUI(base as unknown as UI), Svg: base.Svg }
       return (
-        <base.Box flexDirection="column" flexGrow={1} backgroundColor={G.base} borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
+        <base.Box flexDirection="column" flexGrow={1} {...(G.base !== '' ? { backgroundColor: G.base } : {})} borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
           {drawPane($, ui, { ...frame, glass: true })}
         </base.Box>
       )

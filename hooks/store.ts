@@ -3,6 +3,7 @@ import type { AgentInfo, EngineInterface } from 'claude-code'
 
 import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
 import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
+import type { Scheme } from './glass'
 import { README_NAMES, originUrl, parseGitFile, parseHead, parseRemote, projectName, type Project } from './core/project'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
 
@@ -71,7 +72,7 @@ export const S = {
   /** The project and repo this session works in (shown at the top of the pane). */
   project: undefined as Project | undefined,
   /** Desktop pane colors. The app's light/dark mode can't be read, so the person picks; remembered across sessions. */
-  scheme: 'dark' as 'dark' | 'light',
+  scheme: 'auto' as Scheme,
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -389,18 +390,18 @@ export async function loadFilters($: $) {
 
 export async function loadScheme($: $) {
   try {
-    const saved = await $.store.get('scheme')
-    if (saved === 'light' || saved === 'dark') S.scheme = saved
+    const saved = await $.store.get('colors')
+    if (saved === 'auto' || saved === 'light' || saved === 'dark') S.scheme = saved
   } catch {
     // default dark
   }
 }
 
-export async function setSchemeChoice($: $, scheme: 'dark' | 'light') {
+export async function setSchemeChoice($: $, scheme: Scheme) {
   S.scheme = scheme
   redraw($)
   try {
-    await $.store.set('scheme', scheme)
+    await $.store.set('colors', scheme)
   } catch {
     // a convenience
   }

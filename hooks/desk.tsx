@@ -8,7 +8,7 @@ import { startJob, suggestAnswer } from './ai'
 import { STATUSES } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
-import { G, HUE, STATUS_HEX, barSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
+import { G, HUE, SCHEMES, STATUS_HEX, barSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
 import { S, setSchemeChoice, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf } from './store'
 import {
   blockersOpen,
@@ -391,7 +391,7 @@ function tableRow($: $, ui: UI, i: Row, n: number): RenderChildren {
         'result',
         (() => {
           const r = resultOf(i.notes)
-          return r === undefined ? <Text color={G.faint}>—</Text> : Pill(ui, r.label, r.hex)
+          return r === undefined ? <Text color={G.faint}>—</Text> : Pill(ui, r.label, (HUE as Record<string, string>)[r.hue] ?? HUE.slate)
         })(),
       )}
       {cell(
@@ -891,7 +891,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
                 title: 'Progress notes · BOARD.md',
                 right: (() => {
                   const r = resultOf(row.notes)
-                  return r === undefined ? undefined : Pill(ui, r.label, r.hex)
+                  return r === undefined ? undefined : Pill(ui, r.label, (HUE as Record<string, string>)[r.hue] ?? HUE.slate)
                 })(),
               })
             : null}
@@ -1152,6 +1152,9 @@ export { statusOf }
 
 // ---------- Project bar + README ----------
 
+/** What the colors button says: the current choice; a press moves to the next one. */
+const SCHEME_LABEL: Record<string, string> = { auto: '◐ Colors: app', dark: '☾ Colors: dark', light: '☀ Colors: light' }
+
 /** Top of the pane: the project's general name, its repo and branch, and the README button. */
 export function ProjectBar($: $, ui: UI): RenderChildren {
   const { Box, Text, Button } = ui
@@ -1203,8 +1206,8 @@ export function ProjectBar($: $, ui: UI): RenderChildren {
       <Box flexDirection="row" gap={1} alignItems="center">
       <Button
         key="scheme"
-        label={S.scheme === 'dark' ? '☀ Light' : '☾ Dark'}
-        onPress={() => void setSchemeChoice($, S.scheme === 'dark' ? 'light' : 'dark')}
+        label={SCHEME_LABEL[S.scheme]}
+        onPress={() => void setSchemeChoice($, SCHEMES[(SCHEMES.indexOf(S.scheme) + 1) % SCHEMES.length]!)}
       />
       <Button
         key="readme"
