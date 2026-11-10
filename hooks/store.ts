@@ -70,6 +70,8 @@ export const S = {
   hasRouter: false,
   /** The project and repo this session works in (shown at the top of the pane). */
   project: undefined as Project | undefined,
+  /** Desktop pane colors. The app's light/dark mode can't be read, so the person picks; remembered across sessions. */
+  scheme: 'dark' as 'dark' | 'light',
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -382,6 +384,25 @@ export async function loadFilters($: $) {
     if (saved !== undefined && saved !== null && typeof saved === 'object') S.filters = { ...DEFAULT_FILTERS, ...saved, search: '' }
   } catch {
     // defaults
+  }
+}
+
+export async function loadScheme($: $) {
+  try {
+    const saved = await $.store.get('scheme')
+    if (saved === 'light' || saved === 'dark') S.scheme = saved
+  } catch {
+    // default dark
+  }
+}
+
+export async function setSchemeChoice($: $, scheme: 'dark' | 'light') {
+  S.scheme = scheme
+  redraw($)
+  try {
+    await $.store.set('scheme', scheme)
+  } catch {
+    // a convenience
   }
 }
 

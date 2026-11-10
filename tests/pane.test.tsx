@@ -287,3 +287,20 @@ test('terminal shows the project line and README; no git falls back to the folde
   await ui.find({ type: 'Text', text: /no README.md yet/ })
   await ui.unmount()
 })
+
+test('light scheme: switch is remembered and every button label is drawn in the pane ink', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  // Dark first: button labels are our own light text, not the app's color.
+  let drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('#EEF2FF')
+  await ui.press({ key: 'scheme' })
+  await ui.find({ type: 'Text', text: /☾ Dark/ })
+  drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('#F8FAFC') // light backdrop
+  expect(drawn).toContain('#0F172A') // dark ink
+  expect(drawn).not.toContain('#EEF2FF')
+  await ui.press({ key: 'scheme' })
+  await ui.find({ type: 'Text', text: /☀ Light/ })
+  await ui.unmount()
+})

@@ -8,8 +8,8 @@ import { startJob, suggestAnswer } from './ai'
 import { STATUSES } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
-import { G, STATUS_HEX, barSvg, spinnerSvg, tint, workingSvg } from './glass'
-import { S, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf } from './store'
+import { G, HUE, STATUS_HEX, barSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
+import { S, setSchemeChoice, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf } from './store'
 import {
   blockersOpen,
   checksFor,
@@ -31,9 +31,9 @@ type $ = EngineInterface
 // ---------- Vocabulary ----------
 
 const KIND: Record<Kind, { label: string; icon: string; hex: string }> = {
-  feature: { label: 'Feature', icon: '✦', hex: '#A78BFA' },
-  bug: { label: 'Bug', icon: '●', hex: '#FB7185' },
-  chore: { label: 'Chore', icon: '◆', hex: '#94A3B8' },
+  feature: { label: 'Feature', icon: '✦', get hex() { return HUE.violet } },
+  bug: { label: 'Bug', icon: '●', get hex() { return HUE.rose } },
+  chore: { label: 'Chore', icon: '◆', get hex() { return HUE.slate } },
 }
 
 const STATUS_NAME: Record<string, string> = {
@@ -139,13 +139,13 @@ function Kpi(ui: UI, key: string, value: string, label: string, hex: string, sub
 // ---------- Agents ----------
 
 const AGENT_HEX: Record<string, string> = {
-  pending: '#FBBF24',
-  running: '#60A5FA',
-  waiting: '#C084FC',
-  idle: '#94A3B8',
-  completed: '#34D399',
-  failed: '#F87171',
-  killed: '#F87171',
+  get pending() { return HUE.amber },
+  get running() { return HUE.blue },
+  get waiting() { return HUE.purple },
+  get idle() { return HUE.slate },
+  get completed() { return HUE.green },
+  get failed() { return HUE.red },
+  get killed() { return HUE.red },
 }
 
 function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
@@ -158,7 +158,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
     const t = ticketOfAgent(a)
     const title = t === undefined ? undefined : all.find(i => i.number === t)?.title
     return (
-      <Box key={`agent-${a.id}`} flexDirection="row" alignItems="center" gap={1} paddingX={1} paddingY={dim ? 0 : 1} backgroundColor={dim ? undefined : 'rgba(255,255,255,0.03)'}>
+      <Box key={`agent-${a.id}`} flexDirection="row" alignItems="center" gap={1} paddingX={1} paddingY={dim ? 0 : 1} backgroundColor={dim ? undefined : wash(0.03)}>
         <Box width="12%" flexShrink={0}>
           {Pill(ui, `● ${a.status}`, hex)}
         </Box>
@@ -248,7 +248,7 @@ export function ActivityBar($: $, ui: UI): RenderChildren {
   const live = S.agents.filter(isLive)
   const writing = S.jobs.size
   const isBusy = S.busySince !== 0
-  const hex = isBusy ? G.accent : '#A78BFA'
+  const hex = isBusy ? G.accent : HUE.violet
   if (!isBusy && live.length === 0 && writing === 0) {
     return (
       <Box key="activity" flexDirection="row" gap={1} alignItems="center">
@@ -364,7 +364,7 @@ function tableRow($: $, ui: UI, i: Row, n: number): RenderChildren {
       alignItems="center"
       paddingX={1}
       paddingY={1}
-      backgroundColor={n % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0)'}
+      backgroundColor={n % 2 === 0 ? wash(0.025) : wash(0)}
       hover={{ backgroundColor: tint(hex, 0.12) }}
     >
       {cell(
@@ -546,8 +546,8 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
       </Box>
 
       {/* Table */}
-      <Box flexDirection="column" backgroundColor="rgba(255,255,255,0.03)" borderStyle="round" borderColor={G.edge}>
-        <Box flexDirection="row" alignItems="center" paddingX={1} paddingY={1} backgroundColor="rgba(255,255,255,0.05)">
+      <Box flexDirection="column" backgroundColor={wash(0.03)} borderStyle="round" borderColor={G.edge}>
+        <Box flexDirection="row" alignItems="center" paddingX={1} paddingY={1} backgroundColor={wash(0.05)}>
           {COLS.map(c => (
             <Box key={`h-${c.id}`} width={c.width} flexShrink={0} paddingRight={1}>
               {sortHeader($, ui, c)}
@@ -686,7 +686,7 @@ function QuestionsCard($: $, ui: UI, number: string, focus: boolean): RenderChil
         const key = `q-${number}-${q.index}`
         const draft = S.drafts.get(key) ?? ''
         return (
-          <Box key={`box-${key}`} flexDirection="column" gap={1} backgroundColor="rgba(255,255,255,0.03)" borderStyle="round" borderColor={tint(STATUS_HEX.draft!, 0.35)} paddingX={2} paddingY={1}>
+          <Box key={`box-${key}`} flexDirection="column" gap={1} backgroundColor={wash(0.03)} borderStyle="round" borderColor={tint(STATUS_HEX.draft!, 0.35)} paddingX={2} paddingY={1}>
             <Text color={G.ink} weight="semibold">
               {`${n + 1}. ${q.text}`}
             </Text>
@@ -1200,6 +1200,12 @@ export function ProjectBar($: $, ui: UI): RenderChildren {
           )}
         </Box>
       </Box>
+      <Box flexDirection="row" gap={1} alignItems="center">
+      <Button
+        key="scheme"
+        label={S.scheme === 'dark' ? '☀ Light' : '☾ Dark'}
+        onPress={() => void setSchemeChoice($, S.scheme === 'dark' ? 'light' : 'dark')}
+      />
       <Button
         key="readme"
         hotkey="o"
@@ -1207,6 +1213,7 @@ export function ProjectBar($: $, ui: UI): RenderChildren {
         label={p !== undefined && p.readme === undefined ? 'README (none)' : 'README'}
         onPress={() => void openReadme($)}
       />
+      </Box>
     </Box>
   )
 }

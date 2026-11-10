@@ -2,8 +2,8 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
-import { S, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
-import { G, glassUI } from './glass'
+import { S, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { G, glassUI, setScheme } from './glass'
 import { drawPane, go, type UI } from './views'
 
 const PANE = 'ticket-board'
@@ -65,6 +65,7 @@ export const register: Register = (on, options) => {
       argumentHint: '[ticket number | new <idea>]',
     })
     await loadFilters($)
+    await loadScheme($)
     await loadJobs($)
     await refresh($)
     if (S.options.autoOpen && e.isInteractive && S.snap?.hasBoard === true) bg(open($, false))
@@ -120,6 +121,7 @@ export const register: Register = (on, options) => {
     const frame = { rows: e.viewport?.rows ?? 30, columns: e.props.bodyColumns }
     if (e.surface === 'desktop') {
       // One self-painted glass container: the pane never shows the app's own background through it.
+      setScheme(S.scheme)
       const base = $.ui.resolve(e)
       const ui = { ...glassUI(base as unknown as UI), Svg: base.Svg }
       return (

@@ -5,43 +5,85 @@ import type { RenderChildren } from 'claude-code'
 
 import type { UI } from './views'
 
-export const G = {
-  /** The container's own backdrop, so the pane never depends on the app's theme. */
-  base: '#0A0F1E',
-  ink: '#EEF2FF',
-  soft: '#A5B4CF',
-  faint: '#6B7A99',
-  accent: '#7DD3FC',
-  card: 'rgba(255,255,255,0.055)',
-  cardHover: 'rgba(255,255,255,0.11)',
-  edge: 'rgba(255,255,255,0.14)',
-  edgeHover: 'rgba(125,211,252,0.55)',
+/** Accent hues per scheme: pastel on the dark glass, deeper tones that keep 4.5:1 contrast on white. */
+const HUES = {
+  dark: { amber: '#FBBF24', green: '#34D399', blue: '#60A5FA', purple: '#C084FC', slate: '#94A3B8', red: '#F87171', violet: '#A78BFA', rose: '#FB7185', orange: '#FDBA74', teal: '#5EEAD4', sky: '#7DD3FC' },
+  light: { amber: '#B45309', green: '#047857', blue: '#1D4ED8', purple: '#7E22CE', slate: '#475569', red: '#B91C1C', violet: '#6D28D9', rose: '#BE123C', orange: '#C2410C', teal: '#0F766E', sky: '#0369A1' },
 }
 
-export const STATUS_HEX: Record<string, string> = {
-  draft: '#FBBF24',
-  ready: '#34D399',
-  'in-progress': '#60A5FA',
-  'in-check': '#C084FC',
-  done: '#94A3B8',
-  blocked: '#F87171',
-  unlisted: '#F87171',
+const SURFACES = {
+  dark: {
+    /** The container's own backdrop, so the pane never depends on the app's theme. */
+    base: '#0A0F1E',
+    ink: '#EEF2FF',
+    soft: '#A5B4CF',
+    faint: '#6B7A99',
+    accent: '#7DD3FC',
+    card: 'rgba(255,255,255,0.055)',
+    cardHover: 'rgba(255,255,255,0.11)',
+    edge: 'rgba(255,255,255,0.14)',
+    edgeHover: 'rgba(125,211,252,0.55)',
+    /** Overlay color for row stripes and inset panels. */
+    wash: '255,255,255',
+  },
+  light: {
+    base: '#F8FAFC',
+    ink: '#0F172A',
+    soft: '#334155',
+    faint: '#64748B',
+    accent: '#0369A1',
+    card: '#FFFFFF',
+    cardHover: '#EFF6FF',
+    edge: 'rgba(15,23,42,0.16)',
+    edgeHover: 'rgba(3,105,161,0.55)',
+    wash: '15,23,42',
+  },
 }
+
+export type Scheme = 'dark' | 'light'
+export const SCHEMES: Scheme[] = ['dark', 'light']
+
+export const G = { ...SURFACES.dark, scheme: 'dark' as Scheme }
+export const HUE = { ...HUES.dark }
+
+const statusHex = () => ({
+  draft: HUE.amber,
+  ready: HUE.green,
+  'in-progress': HUE.blue,
+  'in-check': HUE.purple,
+  done: HUE.slate,
+  blocked: HUE.red,
+  unlisted: HUE.red,
+})
+export const STATUS_HEX: Record<string, string> = statusHex()
 
 /** Theme keys the views use, mapped onto the glass palette. */
-const KEY_HEX: Record<string, string> = {
+const keyHex = (): Record<string, string> => ({
   text: G.ink,
   subtle: G.soft,
-  suggestion: '#60A5FA',
-  success: '#34D399',
-  warning: '#FBBF24',
-  error: '#F87171',
-  permission: '#C084FC',
-  claude: '#FDBA74',
-  merged: '#C084FC',
-  planMode: '#5EEAD4',
+  inactive: G.faint,
+  suggestion: HUE.blue,
+  success: HUE.green,
+  warning: HUE.amber,
+  error: HUE.red,
+  permission: HUE.purple,
+  claude: HUE.orange,
+  merged: HUE.purple,
+  planMode: HUE.teal,
   promptBorder: G.edge,
+})
+let KEY_HEX = keyHex()
+
+/** Switches every palette in place; views read G / HUE / STATUS_HEX at draw time. */
+export function setScheme(scheme: Scheme) {
+  Object.assign(G, SURFACES[scheme], { scheme })
+  Object.assign(HUE, HUES[scheme])
+  Object.assign(STATUS_HEX, statusHex())
+  KEY_HEX = keyHex()
 }
+
+/** A see-through layer for stripes and insets: white on dark, ink on light. */
+export const wash = (alpha: number) => `rgba(${G.wash},${G.scheme === 'light' ? Math.min(1, alpha * 1.4) : alpha})`
 
 export const tint = (hex: string, alpha: number) => {
   const n = parseInt(hex.slice(1), 16)
@@ -73,7 +115,16 @@ export function glassUI(ui: UI): UI {
     } as never)
   }) as unknown as UI['Box']
   const Markdown = ((p: { key?: string; text: string }) => ui.Box({ flexDirection: 'column', gap: 1, children: markdown(ui, p.text) } as never)) as unknown as UI['Markdown']
-  return { ...ui, Text, Box, Markdown }
+  // The surface draws a Button's own label in the app's text color, which is unreadable when the
+  // app's light/dark mode differs from the pane's. Draw the label as our own Text instead
+  // (the label still names the control). Primary buttons keep the surface's filled look.
+  const Button = ((p: Record<string, unknown>) => {
+    const hasChildren = p.children !== undefined && p.children !== null && !(Array.isArray(p.children) && p.children.length === 0)
+    if (p.variant === 'primary' || hasChildren || typeof p.label !== 'string') return ui.Button(p as never)
+    const { dimColor: dim, ...rest } = p
+    return ui.Button({ ...rest, children: ui.Text({ color: dim === true ? G.soft : G.ink, children: p.label } as never) } as never)
+  }) as unknown as UI['Button']
+  return { ...ui, Text, Box, Markdown, Button }
 }
 
 /** A small markdown reader for the glass look: headings, paragraphs (hard-wrapped lines joined), "Label: text" leads, decision callouts, lists, quotes, tables, code, inline `code` (status names as pills), **bold**, *italic* and [links](url). */
@@ -130,7 +181,7 @@ export function markdown(ui: UI, text: string): RenderChildren {
     const l = lead(p)
     if (l !== undefined && /^(decision|decided|note|warning|important|todo)\b/i.test(l.label)) {
       const warn = /^(warning|important|todo)/i.test(l.label)
-      const hex = warn ? STATUS_HEX.draft! : '#A78BFA'
+      const hex = warn ? STATUS_HEX.draft! : HUE.violet
       out.push(
         <Box flexDirection="column" backgroundColor={tint(hex, 0.08)} borderStyle="round" borderColor={tint(hex, 0.45)} paddingX={2} paddingY={1}>
           <Text color={hex} size="footnote" weight="bold">
@@ -179,7 +230,7 @@ export function markdown(ui: UI, text: string): RenderChildren {
     return (
       <Box flexDirection="column" borderStyle="round" borderColor={G.edge}>
         {rows.map((r, n) => (
-          <Box flexDirection="row" paddingX={1} paddingY={n === 0 ? 1 : 0} backgroundColor={n === 0 ? 'rgba(255,255,255,0.05)' : n % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0)'}>
+          <Box flexDirection="row" paddingX={1} paddingY={n === 0 ? 1 : 0} backgroundColor={n === 0 ? wash(0.05) : n % 2 === 0 ? wash(0.02) : wash(0)}>
             {Array.from({ length: cols }, (_, c) => (
               <Box width={w} paddingRight={1} flexShrink={0}>
                 {n === 0 ? (
@@ -256,7 +307,7 @@ export function markdown(ui: UI, text: string): RenderChildren {
     if (/^\s*>/.test(line)) {
       flush()
       out.push(
-        <Box paddingLeft={2} backgroundColor="rgba(255,255,255,0.03)">
+        <Box paddingLeft={2} backgroundColor={wash(0.03)}>
           <Text color={G.soft} italic>
             {line.replace(/^\s*>\s?/, '')}
           </Text>
@@ -349,7 +400,7 @@ export function heroSvg(h: HeroInput): string {
 <text x="32" y="118" fill="#a5b4cf" font-size="12.5" font-family="ui-monospace, 'SF Mono', Menlo, monospace">${esc(h.path)} · ${h.total} ticket${h.total === 1 ? '' : 's'}${h.needsMe > 0 ? ` · ${h.needsMe} need you` : ''}</text>
 ${pills}
 <g transform="translate(${W - 84},${H / 2})">
-  <circle r="${R + 12}" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.18"/>
+  <circle r="${R + 12}" fill="${G.ink}" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.18"/>
   <circle r="${R}" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="7"/>
   <circle r="${R}" fill="none" stroke="url(#ring)" stroke-width="7" stroke-linecap="round" transform="rotate(-90)" stroke-dasharray="${(C * pct).toFixed(1)} ${C.toFixed(1)}">
     <animate attributeName="stroke-dasharray" from="0 ${C.toFixed(1)}" to="${(C * pct).toFixed(1)} ${C.toFixed(1)}" dur="1.2s" fill="freeze"/>
@@ -372,7 +423,7 @@ export function barSvg(counts: ReadonlyArray<readonly [string, number]>, total: 
       return r
     })
     .join('')
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="6" viewBox="0 0 ${W} 6"><rect width="${W}" height="6" rx="3" fill="#ffffff" fill-opacity="0.06"/>${segs}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="6" viewBox="0 0 ${W} 6"><rect width="${W}" height="6" rx="3" fill="${G.ink}" fill-opacity="0.08"/>${segs}</svg>`
 }
 
 
