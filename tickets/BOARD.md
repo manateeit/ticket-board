@@ -22,13 +22,13 @@ the checker fails the ticket if they are stale.
 | 0006 | Plan progress on the board | done | solo | 0003 | — | merged 2393c6a, all 7 checks PASS, 101/101 tests |
 | 0007 | Plan and Design views | done | solo | 0006, 0005 | — | merged 3524f5a, all 9 checks PASS, 179/179 tests · Create tickets hidden until 0008 · live check: do p/d hotkeys fire while typing in an input? |
 | 0008 | Tickets from the plan | done | solo | 0005, 0007 | — | merged db4475d, all 6 checks PASS, 194/194 tests · low risk noted: agent.list fallback could match a finished same-description agent on hosts that omit agentId |
-| 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | ready | solo | 0008, 0015, 0016 | — | AI draft done · 2 open questions |
+| 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | ready | solo | 0008, 0015, 0016 | — | queued: runs after 0015 and 0016 are done · both questions answered (no factory adopt; 0.5.0 is a local release commit only, no push) |
 | 0010 | New ticket button does nothing | done | solo | — | — | merged 353ef2c, all 6 checks PASS, 112/112 tests · not reproduced on 0.4.14 (likely 0013); 11 regression tests added · needs a person to press it in the real app |
 | 0011 | README button does nothing | done | solo | — | — | merged 33b4229, checks 1-4,6 PASS, 139/139 · check 5 (live click) waived by human 2026-11-10, to test after release · terminal `o` fix; desktop not reproduced (likely 0013) |
 | 0012 | Agents button does nothing | done | solo | — | — | merged 4617943, all 6 checks PASS, 123/123 tests · desktop not reproduced (likely 0013); terminal Agents button added; title-bar hardening · needs a person to click it in the real app |
 | 0013 | Pane does not draw when a resumed agent is listed twice | done | solo | — | — | merged 2d441d3 (no rebase), 5 checks PASS, 37/37 tests · needs a release to reach the installed plugin |
 | 0014 | Show the plugin version on the board | done | solo | — | — | merged 913a4d2, all 6 checks PASS, 151/151 tests · not released yet |
-| 0015 | Redesign notes and stale tickets | ready | solo | 0008 | — | split from 0008 (part b) · 1 question answered |
+| 0015 | Redesign notes and stale tickets | in-progress | solo | 0008 | worker | split from 0008 (part b) · question answered · first of 0015 → 0016 → 0009 |
 | 0016 | Replan review and apply | ready | solo | 0008, 0015 | — | split from 0008 (part c) · 1 question answered |
 | 0017 | If a run is in failed state | ready | solo | — | — | AI draft done · all 4 questions answered (no retry button; blocked-ticket explain is a separate ticket) |
 
