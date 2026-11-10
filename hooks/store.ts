@@ -350,12 +350,13 @@ export async function refresh($: $, force = false): Promise<boolean> {
   }
 }
 
-/** The `changes/` folder beside DESIGN.md (design/changes/): its .md names, or undefined when it does not exist. */
+/** The `changes/` folder beside DESIGN.md (design/changes/): its .md names, or undefined when it does not exist or is empty. */
 async function listChanges($: $, designPath: string): Promise<string[] | undefined> {
   const folder = `${designPath.includes('/') ? designPath.slice(0, designPath.lastIndexOf('/')) : '.'}/changes`
   try {
     const entries = await $.fs.list(abs(folder))
-    return entries.filter(e => e.kind === 'file' && /\.md$/i.test(e.name)).map(e => e.name).sort()
+    const names = entries.filter(e => e.kind === 'file' && /\.md$/i.test(e.name)).map(e => e.name).sort()
+    return names.length === 0 ? undefined : names
   } catch {
     return undefined
   }

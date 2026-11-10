@@ -471,3 +471,109 @@ export function workingSvg(hex: string): string {
 export function spinnerSvg(hex: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="8" fill="none" stroke="${hex}" stroke-opacity="0.2" stroke-width="2.5"/><path d="M11 3 a8 8 0 0 1 8 8" fill="none" stroke="${hex}" stroke-width="2.5" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 11 11" to="360 11 11" dur="0.9s" repeatCount="indefinite"/></path><circle cx="11" cy="11" r="2.5" fill="${hex}"><animate attributeName="r" values="1.5;3;1.5" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.5;1;0.5" dur="1.2s" repeatCount="indefinite"/></circle></svg>`
 }
+
+// ---------- Plan view (0007): static drawings, no script, no animation, not interactive ----------
+
+/** One phase's progress bar. */
+export function phaseBarSvg(pct: number, hex: string): string {
+  const W = 160
+  const H = 8
+  const fill = (W * Math.max(0, Math.min(100, pct))) / 100
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" rx="4" fill="#808080" fill-opacity="0.2"/><rect width="${fill.toFixed(1)}" height="${H}" rx="4" fill="${hex}" fill-opacity="0.85"/></svg>`
+}
+
+export type TimelineInput = {
+  phases: { id: string; builds: { id: string; name: string; needs: string[]; hex: string }[] }[]
+}
+
+/**
+ * Lanes per phase, one box per build placed by its depth in the `Needs` graph, and one arrow per
+ * `Needs` pair whose builds are both in the plan.
+ */
+export function timelineSvg(t: TimelineInput, ink: string, faint: string): string {
+  const all = t.phases.flatMap(p => p.builds)
+  const byId = new Map(all.map(b => [b.id, b]))
+  const depth = new Map<string, number>()
+  const depthOf = (id: string, seen: Set<string>): number => {
+    if (depth.has(id)) return depth.get(id)!
+    if (seen.has(id)) return 0
+    seen.add(id)
+    const b = byId.get(id)
+    const d = b === undefined ? 0 : Math.max(0, ...b.needs.filter(n => byId.has(n)).map(n => depthOf(n, seen) + 1))
+    depth.set(id, d)
+    return d
+  }
+  for (const b of all) depthOf(b.id, new Set())
+  const LABEL = 70
+  const BOX_W = 104
+  const COL = 124
+  const ROW = 30
+  const PAD = 8
+  const pos = new Map<string, { x: number; y: number }>()
+  let y = 0
+  const lanes: string[] = []
+  t.phases.forEach((p, i) => {
+    const perDepth = new Map<number, number>()
+    for (const b of p.builds) {
+      const d = depth.get(b.id) ?? 0
+      const row = perDepth.get(d) ?? 0
+      perDepth.set(d, row + 1)
+      pos.set(b.id, { x: LABEL + d * COL, y: y + PAD + row * ROW })
+    }
+    const rows = Math.max(1, ...perDepth.values())
+    const h = rows * ROW + PAD * 2 - 6
+    lanes.push(
+      `<rect class="lane" data-phase="${esc(p.id)}" x="0" y="${y}" width="100%" height="${h}" rx="6" fill="#808080" fill-opacity="${i % 2 === 0 ? 0.08 : 0.04}"/><text x="8" y="${y + h / 2 + 4}" font-family="system-ui,sans-serif" font-size="12" font-weight="700" fill="${faint}">${esc(p.id || 'Plan')}</text>`,
+    )
+    y += h + 6
+  })
+  const maxDepth = Math.max(0, ...depth.values())
+  const W = Math.max(640, LABEL + (maxDepth + 1) * COL)
+  const boxes = all
+    .map(b => {
+      const at = pos.get(b.id)!
+      const label = `${b.id} ${b.name}`
+      const short = label.length > 15 ? `${label.slice(0, 14)}…` : label
+      return `<g class="build" data-build="${esc(b.id)}"><rect x="${at.x}" y="${at.y}" width="${BOX_W}" height="22" rx="5" fill="${b.hex}" fill-opacity="0.18" stroke="${b.hex}" stroke-opacity="0.7"/><text x="${at.x + 6}" y="${at.y + 15}" font-family="system-ui,sans-serif" font-size="11" fill="${ink}">${esc(short)}</text></g>`
+    })
+    .join('')
+  const arrows = all
+    .flatMap(b =>
+      b.needs
+        .filter(n => byId.has(n))
+        .map(n => {
+          const from = pos.get(n)!
+          const to = pos.get(b.id)!
+          const x1 = from.x + BOX_W
+          const y1 = from.y + 11
+          const x2 = to.x - 2
+          const y2 = to.y + 11
+          const mid = (x1 + x2) / 2
+          return `<path class="dep" data-need="${esc(n)}>${esc(b.id)}" d="M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}" fill="none" stroke="${faint}" stroke-width="1.5" marker-end="url(#arrow)"/>`
+        }),
+    )
+    .join('')
+  const H = Math.max(20, y)
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs><marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="${faint}"/></marker></defs>${lanes.join('')}${arrows}${boxes}</svg>`
+}
+
+/** The hill chart: one dot per phase at its position (0–50 uphill, 50 the top, 50–100 downhill). */
+export function hillSvg(dots: { id: string; position: number }[], hex: string, faint: string): string {
+  const W = 640
+  const H = 120
+  const base = 100
+  const top = 20
+  const yAt = (p: number) => base - (base - top) * Math.sin((Math.max(0, Math.min(100, p)) / 100) * Math.PI)
+  const curve = Array.from({ length: 41 }, (_, i) => {
+    const p = i * 2.5
+    return `${i === 0 ? 'M' : 'L'}${((p / 100) * (W - 40) + 20).toFixed(1)} ${yAt(p).toFixed(1)}`
+  }).join(' ')
+  const marks = dots
+    .map((d, i) => {
+      const x = (Math.max(0, Math.min(100, d.position)) / 100) * (W - 40) + 20
+      const y = yAt(d.position)
+      return `<circle class="hill-dot" data-phase="${esc(d.id)}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6" fill="${hex}"/><text x="${x.toFixed(1)}" y="${(y - 10 - (i % 2) * 11).toFixed(1)}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="${hex}">${esc(d.id || 'Plan')}</text>`
+    })
+    .join('')
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><path d="${curve}" fill="none" stroke="${faint}" stroke-width="2"/><line x1="${W / 2}" y1="${top - 6}" x2="${W / 2}" y2="${base + 8}" stroke="${faint}" stroke-dasharray="3 4" stroke-opacity="0.6"/><text x="20" y="${H - 4}" font-family="system-ui,sans-serif" font-size="10" fill="${faint}">figuring it out</text><text x="${W - 20}" y="${H - 4}" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="${faint}">making it happen</text>${marks}</svg>`
+}
