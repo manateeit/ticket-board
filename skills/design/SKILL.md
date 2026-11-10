@@ -20,8 +20,9 @@ Arguments: `$ARGUMENTS`.
 | empty | no design file: **new design**. Design with `status: draft`: continue it. Design with `status: approved`: **redesign** of the whole file. |
 | `D<n>` (e.g. `D3`) | **redesign** of that one section |
 | a path to a brief (`design/brainstorms/….md` or `design/brief.md`) | fold that brief in: new design if none exists, else a redesign of the whole file |
+| any other text, when there is no design file yet | **new design**, with the text as the person's idea or notes (the pane's "Go straight to design" and "Draft a design from the code" send this) |
 
-Any other argument: reply with exactly one line and stop:
+Any other argument (other text when a design file already exists): reply with exactly one line and stop:
 `Unknown argument "<arg>". Use: /ticket-board:design, /ticket-board:design D<n>, or /ticket-board:design <brief path>.`
 
 The design path comes from the binding line under the title of `tickets/BOARD.md`

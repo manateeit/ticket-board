@@ -162,11 +162,11 @@ export function retryBuild($: $, id: string) {
 }
 
 export function brainstorm($: $, id: string) {
-  void fill($, `/brainstorm ${id}`, START_NOTE)
+  void fill($, `/ticket-board:brainstorm ${id}`, START_NOTE)
 }
 
 export function redesign($: $, id: string) {
-  void fill($, `/design ${id}`, START_NOTE)
+  void fill($, `/ticket-board:design ${id}`, START_NOTE)
 }
 
 function isPhaseOpen(rm: Roadmap, p: Phase, focus: string | undefined): boolean {
@@ -215,9 +215,9 @@ function planProblem(): { warning?: string; text: string; hasDesign: boolean } {
   const rv = roadmapView()
   const b = S.snap?.binding
   const hasDesign = b?.design !== undefined
-  if (rv?.warning !== undefined && b?.plan !== undefined) return { warning: rv.warning, text: 'Fix PLAN.md (format in docs/STANDARD.md), or plan it again with /planning.', hasDesign }
+  if (rv?.warning !== undefined && b?.plan !== undefined) return { warning: rv.warning, text: 'Fix PLAN.md (format in docs/STANDARD.md), or plan it again with /ticket-board:planning.', hasDesign }
   return {
-    text: hasDesign ? 'No plan yet. Plan the builds from the design with /planning.' : 'No plan yet. Start from an idea on the Start screen, or write a design with /design and plan it with /planning.',
+    text: hasDesign ? 'No plan yet. Plan the builds from the design with /ticket-board:planning.' : 'No plan yet. Start from an idea on the Start screen, or write a design with /ticket-board:design and plan it with /ticket-board:planning.',
     hasDesign,
   }
 }
@@ -248,7 +248,7 @@ async function approve($: $, rm: Roadmap) {
   if (open.length > 0) return say($, approveBlockedWhy(open), 'warning')
   try {
     await approveDesign($)
-    await fill($, '/planning', 'Design approved. /planning is in your prompt box — press Enter to plan the builds')
+    await fill($, '/ticket-board:planning', 'Design approved. /ticket-board:planning is in your prompt box — press Enter to plan the builds')
   } catch (err) {
     fail($, err)
   }
@@ -549,7 +549,7 @@ export function deskPlan($: $, ui: UI, v: PlanView): RenderChildren {
           pb.warning,
           <>
             <Button key="empty-start" label="Open Start" onPress={() => go($, { kind: 'start' })} />
-            {pb.hasDesign ? <Button key="empty-planning" label="Plan it with /planning" variant="primary" onPress={() => void fill($, '/planning', START_NOTE)} /> : null}
+            {pb.hasDesign ? <Button key="empty-planning" label="Plan it with /ticket-board:planning" variant="primary" onPress={() => void fill($, '/ticket-board:planning', START_NOTE)} /> : null}
           </>,
         )}
       </Box>
@@ -929,7 +929,7 @@ export function planView($: $, ui: UI, v: PlanView): RenderChildren {
         </Text>
         <Box key="plan-empty-actions" flexDirection="row" columnGap={1}>
           <Button key="empty-start" label="Open Start" onPress={() => go($, { kind: 'start' })} />
-          {pb.hasDesign ? <Button key="empty-planning" label="Plan it with /planning" onPress={() => void fill($, '/planning', START_NOTE)} /> : null}
+          {pb.hasDesign ? <Button key="empty-planning" label="Plan it with /ticket-board:planning" onPress={() => void fill($, '/ticket-board:planning', START_NOTE)} /> : null}
         </Box>
       </Box>
     )

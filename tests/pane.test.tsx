@@ -730,12 +730,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
     // The code button needs no text.
     await ui.press({ key: 'start-code' })
     expect(filled.length).toBe(3)
-    expect(filled[2]).toContain('/design Draft a design from the existing code')
+    expect(filled[2]).toContain('/ticket-board:design Draft a design from the existing code')
     await ui.input({ key: 'start-idea', text: 'A booking app for small salons', kind: 'submit' } as any)
     await ui.press({ key: 'start-brainstorm' })
-    expect(filled[3]).toBe('/brainstorm A booking app for small salons')
+    expect(filled[3]).toBe('/ticket-board:brainstorm whole A booking app for small salons')
     await ui.press({ key: 'start-design' })
-    expect(filled[4]).toBe('/design A booking app for small salons')
+    expect(filled[4]).toBe('/ticket-board:design A booking app for small salons')
     expect(filled.length).toBe(5)
     expect(writes).toEqual([])
     // Set up board only: the one button that writes, then the board.
@@ -782,11 +782,11 @@ for (const surface of ['terminal', 'desktop'] as const)
       expect(drawn).toMatch(new RegExp(`● ${stage.step}`))
       if (stage.step === 'Design') {
         await ui.press({ key: 'start-from-idea' })
-        expect(filled).toEqual(['/design design/brief.md'])
+        expect(filled).toEqual(['/ticket-board:design design/brief.md'])
       }
       if (stage.step === 'Plan') {
         await ui.press({ key: 'start-plan' })
-        expect(filled).toEqual(['/planning design/DESIGN.md'])
+        expect(filled).toEqual(['/ticket-board:planning'])
       }
       await ui.unmount()
     })
@@ -1630,14 +1630,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'pill-P1.2-0007' })
     expect(await hotkeyed(ui, 'b')).toEqual(['brainstorm'])
     await ui.press({ key: 'brainstorm' })
-    expect(filled).toEqual(['/brainstorm 0007'])
+    expect(filled).toEqual(['/ticket-board:brainstorm 0007'])
     await ui.press({ key: 'chip-D3' })
     await ui.press({ key: 'brainstorm-section' })
     await ui.press({ key: 'redesign-section' })
-    expect(filled.slice(1)).toEqual(['/brainstorm D3', '/design D3'])
+    expect(filled.slice(1)).toEqual(['/ticket-board:brainstorm D3', '/ticket-board:design D3'])
     await ui.press({ key: 'tab-plan' })
     await ui.press({ key: 'phase-brainstorm-P2' })
-    expect(filled[3]).toBe('/brainstorm P2')
+    expect(filled[3]).toBe('/ticket-board:brainstorm P2')
     expect(writes).toEqual([])
     await ui.unmount()
   })
@@ -1680,7 +1680,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     md = fs.files.get('/repo/design/DESIGN.md')!
     expect(md).toContain('status: approved')
     expect(md).not.toContain('status: draft')
-    expect(filled).toEqual(['/planning'])
+    expect(filled).toEqual(['/ticket-board:planning'])
     expect([...new Set(writes)]).toEqual(['/repo/design/DESIGN.md'])
     // Approved: the gate is gone.
     expect(await drawnText(ui)).not.toContain('approve-design')
@@ -1722,9 +1722,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await ui.find({ key: 'tab-plan' })).props.dimColor).toBe(true)
     await ui.press({ key: 'tab-plan' })
     await ui.find({ key: 'empty-planning' })
-    expect(await drawnText(ui)).toContain('No plan yet. Plan the builds from the design with /planning.')
+    expect(await drawnText(ui)).toContain('No plan yet. Plan the builds from the design with /ticket-board:planning.')
     await ui.press({ key: 'empty-planning' })
-    expect(filled).toEqual(['/planning'])
+    expect(filled).toEqual(['/ticket-board:planning'])
     // The Design view still works without a plan.
     await ui.press({ key: 'tab-design' })
     await ui.find({ key: 'sec-D1' })

@@ -1101,11 +1101,11 @@ export const startPrompt = {
   github: () =>
     `Create a private GitHub repository for this project with \`gh repo create --private\`, add it as origin and push${startFacts().hasCommit ? '' : ' (make the first commit first)'}.`,
   firstPush: () => (startFacts().hasOrigin ? 'Make the first commit and push it to origin.' : 'Make the first commit.'),
-  brainstorm: (idea: string) => `/brainstorm ${idea}`,
-  design: (idea: string) => `/design ${idea}`,
-  fromCode: () => '/design Draft a design from the existing code in this repository.',
-  fromIdea: () => `/design ${S.project?.ideaPath ?? ''}`.trim(),
-  plan: () => `/planning ${S.project?.designPath ?? ''}`.trim(),
+  brainstorm: (idea: string) => `/ticket-board:brainstorm whole ${idea}`.trim(),
+  design: (idea: string) => `/ticket-board:design ${idea}`.trim(),
+  fromCode: () => '/ticket-board:design Draft a design from the existing code in this repository.',
+  fromIdea: () => `/ticket-board:design ${S.project?.ideaPath ?? ''}`.trim(),
+  plan: () => '/ticket-board:planning',
 }
 
 const IDEA_KEY = 'start-idea'
