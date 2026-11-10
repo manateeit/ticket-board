@@ -68,7 +68,7 @@ The plugin includes:
 
 1. Open a project that has `tickets/BOARD.md`, or any project.
 2. Run `/board`.
-   - In a new project (no design, no plan and no tickets yet) the pane opens on the [Start screen](#start-screen), which walks you from git and GitHub to an idea, a design, a plan and tickets. Its small **Set up board only** button creates `tickets/BOARD.md` (an empty table with the usual legend) and `tickets/TEMPLATE/` and takes you straight to the board.
+   - In a new project (no design, no plan and no tickets yet) `/board` opens the [Start screen](#start-screen), which walks you from git and GitHub to an idea, a design, a plan and tickets. Its small **Set up board only** button creates `tickets/BOARD.md` (an empty table with the usual legend) and `tickets/TEMPLATE/` and takes you straight to the board.
 3. Press **+ New ticket**, describe what you want, and press **Create draft + enhance with AI**.
 4. When the AI finishes, answer its open questions in the pane, press **✓ Mark ready**, then **▶ Run this ticket**.
 
@@ -82,7 +82,7 @@ Then run `/board`. The demo has one ticket of each kind: done, ready (waiting on
 
 ## The pane, view by view
 
-The pane opens beside the chat. When a session starts, it opens on its own: on the board in a project that has one, and on the [Start screen](#start-screen) in a project that has no design, no plan and no tickets yet (you can turn that off in [Settings](#settings)). On a surface with no room for a side panel, it only opens when you run `/board`.
+The pane opens beside the chat. When a session starts, it opens on its own only in a project that has a `tickets/` folder (with or without `BOARD.md`): on the board when there is one, and on the [Start screen](#start-screen) when there is no `BOARD.md` yet or no design, no plan and no tickets. A folder without `tickets/` never opens the pane on its own, even when it is blank; run `/board` there to see Start. You can turn auto-open off in [Settings](#settings). On a surface with no room for a side panel, it only opens when you run `/board`.
 
 It re-reads the board every few seconds while it is open, and right after any tool writes into `tickets/`, so changes from the router, workers or your editor show up without a refresh.
 
@@ -309,7 +309,7 @@ Change these in `/plugin` → ticket-board → configure:
 |---|---|---|
 | Tickets folder | `tickets` | Folder, relative to the project, that holds `BOARD.md` and the ticket folders |
 | Refresh every (seconds) | `3` | How often the open pane re-reads the board |
-| Open at start | on | Open the pane automatically when a session starts in a project with a board, or on the Start screen in a project with no design, plan or tickets yet |
+| Open at start | on | Open the pane automatically when a session starts in a project that has a `tickets/` folder: on the board, or on the Start screen when there is no `BOARD.md` yet or no design, plan or tickets. Projects without `tickets/` never open it on their own; run `/board` there to see Start |
 | Ticket writer model | *(session's)* | Model for the AI writer, e.g. `opus` or `sonnet` |
 
 ## How it edits your files

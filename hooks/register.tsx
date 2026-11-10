@@ -2,7 +2,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
-import { S, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadStartFlags, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadStartFlags, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
 import { drawPane, go, isStartState, type UI } from './views'
 
@@ -48,6 +48,14 @@ async function open($: $, byCommand: boolean) {
   return r
 }
 
+async function hasTicketsFolder($: $): Promise<boolean> {
+  try {
+    return await $.fs.exists(abs(dir()))
+  } catch {
+    return false
+  }
+}
+
 function touchesTickets(path: unknown): boolean {
   if (typeof path !== 'string') return false
   const d = dir()
@@ -69,8 +77,9 @@ export const register: Register = (on, options) => {
     await loadJobs($)
     await loadStartFlags($)
     await refresh($)
-    // A project with a board opens on it; a project with nothing yet (no design, plan or tickets) opens on Start.
-    if (S.options.autoOpen && e.isInteractive && (S.snap?.hasBoard === true || isStartState())) bg(open($, false))
+    // Opens on its own only where a tickets/ folder exists: on the board, or on Start when there is no
+    // BOARD.md yet or nothing at all (no design, plan or tickets). Elsewhere /board opens Start.
+    if (S.options.autoOpen && e.isInteractive && (S.snap?.hasBoard === true || ((await hasTicketsFolder($)) && isStartState()))) bg(open($, false))
     $.clock.every(S.options.pollSeconds * 1000, () => {
       if (S.isOpen) bg(refresh($))
     })

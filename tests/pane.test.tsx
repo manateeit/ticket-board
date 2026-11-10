@@ -88,7 +88,7 @@ const PANE = {
   props: { title: 'Tickets', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
-type BootOptions = { blank?: boolean; store?: Map<string, unknown> }
+type BootOptions = { blank?: boolean; store?: Map<string, unknown>; dirs?: string[] }
 
 async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | 'desktop', extra: Record<string, string> = {}, opts: BootOptions = {}) {
   const fs = fakeFs()
@@ -97,10 +97,12 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
   const filled: string[] = []
   const calls: string[] = []
   const writes: string[] = []
+  const opened: string[] = []
+  const dirs = new Set(opts.dirs ?? [])
   const store = opts.store ?? new Map<string, unknown>()
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'board' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', (_: unknown, e: { id: string }) => (opened.push(e.id), { value: { isPlaced: true } }))
   on('clock.every', () => ({ deny: 'no timers in tests' }))
   on('agent.list', () => ({ value: AGENTS_OVERRIDE ?? [
     { id: 'a1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
@@ -112,7 +114,7 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
     calls.push(`list ${e.path} -> ${fs.list(e.path).map(x => x.name).join(',')}`)
     return { value: fs.list(e.path) }
   })
-  on('fs.exists', (_: unknown, e: { path: string }) => ({ value: fs.files.has(fs.clean(e.path)) || fs.list(e.path).length > 0 }))
+  on('fs.exists', (_: unknown, e: { path: string }) => ({ value: dirs.has(fs.clean(e.path)) || fs.files.has(fs.clean(e.path)) || fs.list(e.path).length > 0 }))
   on('fs.read', (_: unknown, e: { path: string }) => {
     // The plugin's own templates, for Set up board.
     const template = /\/templates\/BOARD\.md$/.test(e.path) ? BLANK_BOARD : /\/skills\/ticket\/TEMPLATE\/(rd|eval)\.md$/.test(e.path) ? '# template\n' : undefined
@@ -131,8 +133,11 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
     return { isFilled: true }
   })
   await $.session.start({ cwd: '/repo', surface, isInteractive: true })
+  // Auto-open runs in the background: let it settle before reading what opened.
+  await new Promise(r => setTimeout(r, 20))
+  const openedAtStart = [...opened]
   const ui = await $.ui.mount({ ...PANE, surface } as any)
-  return { ui, fs, filled, calls, writes, store }
+  return { ui, fs, filled, calls, writes, store, openedAtStart }
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -528,5 +533,29 @@ test('a saved Skip shows "skipped" on the next start (desktop)', async ($, on) =
 test('an unreadable .git shows "git status unknown"', async ($, on) => {
   const { ui } = await boot($, on, 'terminal', { '/repo/.git/objects/x': 'x' }, { blank: true })
   await ui.find({ type: 'Text', text: /git status unknown/ })
+  await ui.unmount()
+})
+
+// ---------- Auto-open: only where a tickets/ folder exists ----------
+
+test('a blank folder with no tickets/ does not auto-open, and /board there still shows Start', async ($, on) => {
+  const { ui, openedAtStart } = await boot($, on, 'terminal', {}, { blank: true })
+  expect(openedAtStart).toEqual([])
+  await $.command.run({ command: 'board', args: '' } as any)
+  await ui.find({ type: 'Text', text: /Start a project/ })
+  await ui.unmount()
+})
+
+test('an empty tickets/ folder (no BOARD.md) auto-opens on Start', async ($, on) => {
+  const { ui, openedAtStart } = await boot($, on, 'desktop', {}, { blank: true, dirs: ['tickets'] })
+  expect(openedAtStart).toEqual(['ticket-board'])
+  await ui.find({ type: 'Text', text: /Start a project/ })
+  await ui.unmount()
+})
+
+test('a folder with a board still auto-opens', async ($, on) => {
+  const { ui, openedAtStart } = await boot($, on, 'terminal')
+  expect(openedAtStart).toEqual(['ticket-board'])
+  await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
   await ui.unmount()
 })
