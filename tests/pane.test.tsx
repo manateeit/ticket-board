@@ -79,6 +79,8 @@ function fakeFs() {
   return { files, clean, list, mtimes, tick: { n: tick } }
 }
 
+let AGENTS_OVERRIDE: any[] | undefined
+
 const PANE = {
   plugin: 'ticket-board',
   component: 'Pane',
@@ -95,7 +97,7 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
   on('command.register', () => ({ value: { command: 'board' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('clock.every', () => ({ deny: 'no timers in tests' }))
-  on('agent.list', () => ({ value: [
+  on('agent.list', () => ({ value: AGENTS_OVERRIDE ?? [
     { id: 'a1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
     { id: 'a2', description: 'Check 0001', type: 'checker', status: 'completed' },
   ] }))
@@ -323,4 +325,36 @@ test('in a linked worktree the board is read from the main checkout', async ($, 
   await ui.find({ type: 'Text', text: /read from the main checkout: \/main/ })
   expect(calls.some(c => c.startsWith('list /main/tickets'))).toBe(true)
   await ui.unmount()
+})
+
+// Resumed agents can show up in agent.list twice with the same id, or with an unknown status and no name.
+function manyAgents() {
+  const l: any[] = []
+  const types = ['worker', 'checker', 'merger', 'ticket-board:ticket-writer']
+  for (let i = 0; i < 25; i++)
+    l.push({ id: `g${i}`, description: i % 3 === 0 ? `Build ticket 00${10 + (i % 3)}` : `Task ${i}`, type: types[i % 4], status: i % 5 === 0 ? 'completed' : i % 7 === 0 ? 'weird-status' : 'completed', ...(i % 2 === 0 ? { name: `n${i}` } : {}) })
+  l.push({ id: 'dup', description: 'Build ticket 0001', type: 'worker', status: 'completed' })
+  l.push({ id: 'g3', description: 'Round 2', type: 'worker', status: 'running' })
+  l.push({ id: 'dup', description: 'Build ticket 0001', type: 'worker', status: 'running' })
+  l.push({ id: 'x', description: undefined, type: 'worker', status: 'running' })
+  return l
+}
+
+test('agents panel with resumed (duplicate-id) agents draws with unique keys', async ($, on) => {
+  AGENTS_OVERRIDE = manyAgents()
+  try {
+    const { ui } = await boot($, on, 'desktop')
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'agents' })
+    await ui.find({ type: 'Text', text: /AGENTS ·/ })
+    await ui.press({ key: 'agent-w-dup' })
+    const drawn = JSON.stringify(await ui.drawn())
+    const keys = [...drawn.matchAll(/"key":"([^"]+)"/g)].map(m => m[1]!)
+    const dups = keys.filter((k, i) => keys.indexOf(k) !== i)
+    expect(keys.length).toBeGreaterThan(5)
+    expect(dups).toEqual([])
+    await ui.unmount()
+  } finally {
+    AGENTS_OVERRIDE = undefined
+  }
 })
