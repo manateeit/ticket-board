@@ -30,7 +30,7 @@ the checker fails the ticket if they are stale.
 | 0014 | Show the plugin version on the board | done | solo | — | — | merged 913a4d2, all 6 checks PASS, 151/151 tests · not released yet |
 | 0015 | Redesign notes and stale tickets | ready | solo | 0008 | — | split from 0008 (part b) · 1 question answered |
 | 0016 | Replan review and apply | ready | solo | 0008, 0015 | — | split from 0008 (part c) · 1 question answered |
-| 0017 | If a run is in failed state   | ready  | solo | —          | —       | AI draft done · 2 open questions |
+| 0017 | If a run is in failed state | ready | solo | — | — | AI draft done · all 4 questions answered (no retry button; blocked-ticket explain is a separate ticket) |
 
 How to read this board:
 
