@@ -28,8 +28,8 @@ the checker fails the ticket if they are stale.
 | 0012 | Agents button does nothing | done | solo | — | — | merged 4617943, all 6 checks PASS, 123/123 tests · desktop not reproduced (likely 0013); terminal Agents button added; title-bar hardening · needs a person to click it in the real app |
 | 0013 | Pane does not draw when a resumed agent is listed twice | done | solo | — | — | merged 2d441d3 (no rebase), 5 checks PASS, 37/37 tests · needs a release to reach the installed plugin |
 | 0014 | Show the plugin version on the board | done | solo | — | — | merged 913a4d2, all 6 checks PASS, 151/151 tests · not released yet |
-| 0015 | Redesign notes and stale tickets | in-progress | solo | 0008 | worker | split from 0008 (part b) · question answered · first of 0015 → 0016 → 0009 |
-| 0016 | Replan review and apply | ready | solo | 0008, 0015 | — | split from 0008 (part c) · 1 question answered |
+| 0015 | Redesign notes and stale tickets | done | solo | 0008 | — | merged 4c8d431, all 5 checks PASS, 203/203 tests |
+| 0016 | Replan review and apply | in-progress | solo | 0008, 0015 | worker | split from 0008 (part c) · question answered · second of 0015 → 0016 → 0009 |
 | 0017 | If a run is in failed state | ready | solo | — | — | AI draft done · all 4 questions answered (no retry button; blocked-ticket explain is a separate ticket) |
 
 How to read this board:
