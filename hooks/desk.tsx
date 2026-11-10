@@ -176,7 +176,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
         <Box width="12%" flexShrink={0}>
           {Pill(ui, `● ${a.status}`, hex)}
         </Box>
-        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
           <Text color={dim ? G.soft : G.ink} weight={dim ? 'regular' : 'medium'} wrap="truncate">
             {a.name ?? (a.description || a.type)}
           </Text>
@@ -184,6 +184,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
             {[a.type, a.name !== undefined && a.description !== '' ? a.description : undefined, a.spawnedBy === 'ticket-board' ? 'ticket writer' : undefined].filter(Boolean).join(' · ')}
           </Text>
         </Box>
+        <Box flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
         {t !== undefined && (
           <Button key={`agent-t-${a.id}`} plain onPress={() => go($, { kind: 'ticket', number: t, tab: 'rd' })}>
             <Text color={G.accent} size="footnote">{`${t}${title ? ` ${title.slice(0, 28)}` : ''} ›`}</Text>
@@ -201,6 +202,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
         {a.teammateId === undefined && isLive(a) && (
           <Button key={`agent-v-${a.id}`} label="Open transcript ↗" plain onPress={() => void openTranscript($, a.id)} />
         )}
+        </Box>
       </Box>
     )
   }
@@ -1216,60 +1218,50 @@ export function ProjectBar($: $, ui: UI): RenderChildren {
   const name = p?.name ?? 'Loading project…'
   const repoText = p === undefined ? '' : p.repo !== '' ? p.repo : p.isGit ? 'local git · no origin remote' : 'not a git repository'
   const isReadme = S.view.kind === 'readme'
+  const summary =
+    p === undefined ? '' : p.summary !== '' ? p.summary : p.readme === undefined ? 'No README yet. Open README to have Claude write one, so this header can say what the project is.' : 'The README has a title but no description paragraph yet.'
+  // Buttons get their own row, never squeezed beside shrinking text: in the desktop a truncated
+  // text column can overlap a Button beside it and swallow its clicks.
   return (
-    <Box
-      key="project"
-      flexDirection="row"
-      justifyContent="space-between"
-      alignItems="center"
-      flexWrap="wrap"
-      gap={1}
-      paddingX={2}
-      paddingY={1}
-      backgroundColor={tint(G.accent, 0.07)}
-      borderStyle="round"
-      borderColor={tint(G.accent, 0.3)}
-    >
-      <Box flexDirection="column" flexShrink={1}>
+    <Box key="project" flexDirection="column" gap={1} paddingX={2} paddingY={1} backgroundColor={tint(G.accent, 0.07)} borderStyle="round" borderColor={tint(G.accent, 0.3)}>
+      <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
         <Text color={G.faint} size="caption" weight="bold">
           PROJECT
         </Text>
-        <Text color={G.ink} size="heading" weight="bold" wrap="truncate">
-          {name}
-        </Text>
-        <Box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center">
-          {p !== undefined && p.repoUrl !== '' && ui.Link !== undefined ? (
-            <ui.Link key="repo-link" href={p.repoUrl} label={`⎇ ${repoText}`} />
-          ) : (
-            <Text color={p?.repo === '' ? STATUS_HEX.draft! : G.soft} size="footnote" mono>
-              {`⎇ ${repoText}`}
-            </Text>
-          )}
-          {p !== undefined && p.branch !== '' && (
-            <Text color={G.soft} size="footnote" mono>
-              {`· ${p.branch}`}
-            </Text>
-          )}
-          {p !== undefined && (
-            <Text color={G.faint} size="footnote" mono wrap="truncate">
-              {`· ${p.folder}`}
-            </Text>
-          )}
+        <Box flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
+          <Button
+            key="scheme"
+            label={SCHEME_LABEL[S.scheme]}
+            onPress={() => void setSchemeChoice($, SCHEMES[(SCHEMES.indexOf(S.scheme) + 1) % SCHEMES.length]!)}
+          />
+          <Button
+            key="readme"
+            hotkey="o"
+            variant={isReadme ? 'primary' : 'secondary'}
+            label={p !== undefined && p.readme === undefined ? 'README (none)' : isReadme ? '‹ Board' : 'README'}
+            onPress={() => void openReadme($)}
+          />
         </Box>
       </Box>
-      <Box flexDirection="row" gap={1} alignItems="center">
-      <Button
-        key="scheme"
-        label={SCHEME_LABEL[S.scheme]}
-        onPress={() => void setSchemeChoice($, SCHEMES[(SCHEMES.indexOf(S.scheme) + 1) % SCHEMES.length]!)}
-      />
-      <Button
-        key="readme"
-        hotkey="o"
-        variant={isReadme ? 'primary' : 'secondary'}
-        label={p !== undefined && p.readme === undefined ? 'README (none)' : 'README'}
-        onPress={() => void openReadme($)}
-      />
+      <Text color={G.ink} size="heading" weight="bold">
+        {name}
+      </Text>
+      {summary !== '' && (
+        <Text color={p?.summary === '' ? STATUS_HEX.draft! : G.soft}>{summary}</Text>
+      )}
+      <Box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center">
+        {p !== undefined && p.repoUrl !== '' && ui.Link !== undefined ? (
+          <ui.Link key="repo-link" href={p.repoUrl} label={`⎇ ${repoText}`} />
+        ) : (
+          <Text color={p?.repo === '' ? STATUS_HEX.draft! : G.faint} size="footnote" mono>
+            {`⎇ ${repoText}`}
+          </Text>
+        )}
+        {p !== undefined && p.branch !== '' && (
+          <Text color={G.faint} size="footnote" mono>
+            {`· branch ${p.branch}`}
+          </Text>
+        )}
       </Box>
     </Box>
   )

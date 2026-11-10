@@ -4,7 +4,7 @@ import type { AgentInfo, EngineInterface } from 'claude-code'
 import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
 import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import type { Scheme } from './glass'
-import { README_NAMES, originUrl, parseGitFile, parseHead, parseRemote, projectName, type Project } from './core/project'
+import { README_NAMES, originUrl, parseGitFile, parseHead, parseRemote, projectName, type Project, readmeSummary } from './core/project'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
 
 type $ = EngineInterface
@@ -179,6 +179,7 @@ export async function loadProject($: $): Promise<Project> {
     isGit: config !== undefined || head !== undefined,
     readmePath,
     readme,
+    summary: readmeSummary(readme, pkg),
   }
 }
 

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { BoardEditError, addRow, parseBoard, setCells } from '../hooks/core/board'
-import { originUrl, parseGitFile, parseHead, parseRemote, projectName, readmeTitle } from '../hooks/core/project'
+import { originUrl, parseGitFile, parseHead, parseRemote, projectName, readmeSummary, readmeTitle } from '../hooks/core/project'
 import { kindOf, nextNumber, resultOf, query, runLine, slugify, titleFromIdea, type Item } from '../hooks/core/query'
 import { answerQuestion, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
@@ -202,4 +202,11 @@ test('agent activity lines name the file or command', () => {
   expect(toolDetail({ tool: 'Bash', command: 'bun test\necho done' })).toBe('bun test')
   logAgentTool('x1', { tool: 'Read', file_path: '/repo/README.md' })
   expect(S.agentLog.get('x1')?.[0]?.detail).toBe('README.md')
+})
+
+test('readme summary is the first prose paragraph, plain text', () => {
+  const md = '# Acme\n\n[![ci](x.svg)](y)\n\nA **tiny** shop that sells [hats](https://h). It ships fast.\n\n## Install\n\nnpm i'
+  expect(readmeSummary(md)).toBe('A tiny shop that sells hats. It ships fast.')
+  expect(readmeSummary('# Only a title\n', '{"description":"From package"}')).toBe('From package')
+  expect(readmeSummary(undefined)).toBe('')
 })

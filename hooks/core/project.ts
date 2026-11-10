@@ -13,6 +13,8 @@ export type Project = {
   isGit: boolean
   readmePath: string
   readme: string | undefined
+  /** What the project is: the README's first paragraph, else package.json's description, else ''. */
+  summary: string
 }
 
 export const README_NAMES = ['README.md', 'Readme.md', 'readme.md', 'README.markdown', 'README']
@@ -94,4 +96,64 @@ export function folderName(cwd: string): string {
 
 export function projectName(readme: string | undefined, pkgJson: string | undefined, cwd: string): string {
   return (readme !== undefined ? readmeTitle(readme) : '') || packageName(pkgJson) || folderName(cwd)
+}
+
+/**
+ * What the project is, in one paragraph: the README's first prose paragraph after its title, as
+ * plain text (badges, images, HTML, headings, lists, code and tables skipped; links and emphasis
+ * unwrapped), cut at a sentence end near `max` characters. Falls back to package.json's description.
+ */
+export function readmeSummary(readme: string | undefined, pkgJson?: string, max = 320): string {
+  const plain = (s: string) =>
+    s
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/[*_`]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  let found = ''
+  if (readme !== undefined) {
+    let inFence = false
+    let para: string[] = []
+    const lines = readme.split(/\r?\n/)
+    for (let n = 0; n < lines.length; n++) {
+      const line = lines[n]!
+      if (/^\s*(```|~~~)/.test(line)) {
+        inFence = !inFence
+        para = []
+        continue
+      }
+      if (inFence) continue
+      const isSetext = /^\s*(=+|-+)\s*$/.test(lines[n + 1] ?? '') && line.trim() !== ''
+      const skip = /^\s*(#|>|\||[-*+]\s|\d+[.)]\s|<|!\[|\[!\[)/.test(line) || /^\s*(=+|-+)\s*$/.test(line) || isSetext
+      if (line.trim() === '' || skip) {
+        const text = plain(para.join(' '))
+        if (text.length >= 20) {
+          found = text
+          break
+        }
+        para = []
+        if (isSetext) n++
+        continue
+      }
+      para.push(line)
+    }
+    if (found === '') {
+      const text = plain(para.join(' '))
+      if (text.length >= 20) found = text
+    }
+  }
+  if (found === '' && pkgJson !== undefined) {
+    try {
+      const d = (JSON.parse(pkgJson) as { description?: unknown }).description
+      if (typeof d === 'string') found = d.trim()
+    } catch {
+      // not JSON
+    }
+  }
+  if (found.length <= max) return found
+  const cut = found.slice(0, max)
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '))
+  return end > max * 0.5 ? cut.slice(0, end + 1) : `${cut.replace(/\s+\S*$/, '')}…`
 }
