@@ -879,3 +879,86 @@ for (const surface of ['terminal', 'desktop'] as const)
     expect(drawn).not.toContain('Off-plan')
     await ui.unmount()
   })
+
+// ---------- New ticket (0010: + New ticket did nothing) ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`+ New ticket opens the form; Back returns to the board (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    expect(await drawnText(ui)).toContain('Dark mode for settings page')
+    await ui.press({ key: 'new' })
+    await ui.find({ type: 'Text', text: /New ticket/ })
+    await ui.find({ key: 'new-idea' } as any)
+    await ui.find({ key: 'create-ai' } as any)
+    let drawn = await drawnText(ui)
+    expect(drawn).not.toContain('Health endpoint')
+    expect(drawn).not.toContain('Dark mode for settings page')
+    await ui.press({ key: 'back' })
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    drawn = await drawnText(ui)
+    expect(drawn).not.toContain('create-ai')
+    await ui.unmount()
+  })
+
+  test(`New ticket: Create skeleton writes the next ticket and shows it (${surface})`, async ($, on) => {
+    const { ui, fs } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    await ui.press({ key: 'new' })
+    await ui.input({ key: 'new-idea', text: 'Export button does nothing', kind: 'submit' } as any)
+    // Submitting the idea starts Create + AI on the terminal; on desktop it only saves the draft.
+    if (!fs.files.has('tickets/0004-export-button-does-nothing/rd.md')) await ui.press({ key: 'create-plain' })
+    expect(fs.files.has('tickets/0004-export-button-does-nothing/rd.md')).toBe(true)
+    expect(fs.files.get('tickets/BOARD.md')!).toContain('0004')
+    await ui.find({ type: 'Text', text: /Export button does nothing/ })
+    await ui.unmount()
+  })
+
+  test(`/board new <idea> opens the form with the idea filled in (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    await $.command.run({ command: 'board', args: 'new foo' } as any)
+    await ui.find({ key: 'new-idea' } as any)
+    const drawn = await drawnText(ui)
+    expect(drawn).toMatch(/"value":"foo"/)
+    expect(drawn).not.toContain('Dark mode for settings page')
+    await ui.unmount()
+  })
+
+  test(`+ New ticket opens the form with resumed (duplicate-id) agents listed (${surface})`, async ($, on) => {
+    AGENTS_OVERRIDE = manyAgents()
+    try {
+      const { ui } = await boot($, on, surface)
+      await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+      // The Agents panel (desktop) draws one row per agent: the 0013 duplicate keys showed up there.
+      if (surface === 'desktop') {
+        await ui.press({ key: 'agents' })
+        await ui.find({ type: 'Text', text: /AGENTS ·/ })
+      }
+      await ui.press({ key: 'new' })
+      await ui.find({ key: 'create-ai' } as any)
+      expect(await drawnText(ui)).not.toContain('Dark mode for settings page')
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+
+  test(`+ New ticket opens the form on a plan-bound board with a roadmap (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, roadmapFiles(), { blank: true })
+    await ui.find({ type: 'Text', text: /Accept once/ })
+    await ui.press({ key: 'new' })
+    await ui.find({ key: 'create-ai' } as any)
+    expect(await drawnText(ui)).not.toContain('Accept once')
+    await ui.unmount()
+  })
+}
+
+test('an empty desktop board: + Create the first ticket opens the form', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop', { ...GIT_READY, 'tickets/BOARD.md': BLANK_BOARD, '/repo/design/DESIGN.md': RM_DESIGN, '/repo/design/PLAN.md': RM_PLAN }, { blank: true })
+  await ui.find({ type: 'Text', text: /No tickets yet/ })
+  await ui.press({ key: 'new-empty' })
+  await ui.find({ key: 'create-ai' } as any)
+  await ui.find({ type: 'Text', text: /What happens next/ })
+  await ui.unmount()
+})

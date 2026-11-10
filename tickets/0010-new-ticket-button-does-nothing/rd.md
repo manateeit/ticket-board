@@ -50,3 +50,23 @@ Reproduce (to be confirmed, see Open questions): open `/board` on a project with
   **Resolved 2026-11-10 (human): i have not tried that yet.**
 - Does the project have a `tickets/BOARD.md` with a ticket table when it fails? [yes, no board yet, board without a table]
   **Resolved 2026-11-10 (human): yes.. its this project.**
+
+## Findings
+
+Worker, 2026-11-10, on main at 4fb7f16 (plugin 0.4.14): **not reproduced; no `hooks/` change.**
+
+What was tried. Every case passes on current code, on both surfaces:
+- **+ New ticket** on the board (`ui.press({ key: 'new' })`) opens the form: you see the `New ticket` text, `new-idea` and `create-ai`, and the board rows are gone. Back brings the board back. `create-plain` writes `tickets/0004-export-button-does-nothing/rd.md` and the pane shows the new ticket.
+- `/board new foo` opens the form with `foo` in the Description. On an empty desktop board, `+ Create the first ticket` (`new-empty`) opens the form.
+- The same press works with resumed agents listed twice (the 0013 fixture), with the desktop Agents panel open first.
+- It works on a plan-bound board with a roadmap card (the `Design: … · Plan: …` line).
+- It works in a throwaway run that used this repo's real `tickets/BOARD.md`, `design/` and every ticket folder. That run was not kept.
+- `go()`, `redraw()`, `drawPane`'s view routing (including the 0004 Start screen), and the `ui.render` handler all switch to `new` without anything in between. No other button on the board or Start uses the `n` hotkey, and no board Input has `autoFocus` that could take the `n` key.
+
+Most likely cause: **0013**, which shipped in 0.4.13. The report came from 0.4.12. In 0.4.12, `$.agent.list()` could return a resumed agent twice, the desktop Agents panel drew duplicate keys, and the host stopped drawing the pane. A pane that no longer redraws makes every button look dead. That fits this ticket and the matching README (0011) and Agents (0012) reports.
+
+The test harness does not model that: it still lets other keys be pressed when a drawing has duplicate keys. So the new tests cannot fail without the 0013 fix, and eval check 4 cannot be met by a test that fails today.
+
+Remaining hypothesis (not reproducible in the in-memory pane): a desktop layout overlap. In the board title bar, the title column sits beside the button group, which has no `flexShrink={0}`. 0.4.11 already moved the ProjectBar buttons onto their own row for this reason ("a truncated text column can overlap a Button beside it and swallow its clicks"). If a person still sees this on 0.4.14 in the desktop app, try that next.
+
+Regression tests were added in `tests/pane.test.tsx` under "New ticket (0010)". README needs no change: behaviour, keys and labels are as documented, and the cause (fixed in 0013) was not a user-fixable condition.
