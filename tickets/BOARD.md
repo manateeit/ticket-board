@@ -16,11 +16,11 @@ the checker fails the ticket if they are stale.
 |------|-------------------------------|--------|------|------------|---------|-------|
 | 0001 | Design and plan file standard | done | solo | — | — | merged 33a3b72 (no rebase), all 6 checks PASS, 36/36 tests |
 | 0002 | Ticket board's own design and plan in the standard | done | solo | 0001 | — | merged 2ab9878 (no rebase), 7 checks PASS + 1 N/A, 36/36 tests |
-| 0003 | Roadmap parser and progress computation | draft | solo | 0001 | — | AI draft done · no open questions |
-| 0004 | Start screen for new projects | draft | solo | 0003 | — | AI draft done · 2 open questions |
+| 0003 | Roadmap parser and progress computation | done | solo | 0001 | — | merged fd81dec, all 9 checks PASS, 53/53 tests |
+| 0004 | Start screen for new projects | in-progress | solo | 0003 | router · worker | questions answered; worker dispatched |
 | 0005 | Brainstorm, design and planning skills and agents | draft | solo | 0001 | — | AI draft done · 4 open questions |
 | 0006 | Plan progress on the board | draft | solo | 0003 | — | AI draft done · 2 open questions |
-| 0007 | Plan and Design views | draft | solo | 0006 | — | AI draft done · 4 open questions |
+| 0007 | Plan and Design views | draft | solo | 0006 | — | AI draft done · 4 open questions · note from 0003: a plan without phases has current phase "" |
 | 0008 | Tickets from the plan, redesign and replan | draft | solo | 0005, 0007 | — | AI draft done · 4 open questions |
 | 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | draft | solo | 0008 | — | AI draft done · 2 open questions |
 | 0010 | New ticket button does nothing | draft | solo | — | — | AI draft done · 6 open questions |

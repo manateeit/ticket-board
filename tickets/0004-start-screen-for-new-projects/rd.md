@@ -36,4 +36,6 @@ Out: running any command from the pane; the brainstorm, design and planning skil
 
 ## Open questions
 - The person asked for this to be "the first screen that comes up" when there is no design and plan; the proposal shows it only when there are also no tickets and gives existing projects a dismissible banner. Which? [Start screen whenever no design/plan | only when no tickets, banner otherwise]
+  **Resolved 2026-11-10 (human): Show the Start screen only when there is no design, no plan and no tickets; projects that already have tickets get the dismissible "No design or plan yet → Set up" banner instead.**
 - Should new GitHub repos be private by default? [private (default) | public | ask each time]
+  **Resolved 2026-11-10 (human): Private by default: the setup button's prompt should ask Claude to create the repo with `gh repo create --private`, and the person can change that in the prompt before approving.**
