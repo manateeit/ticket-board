@@ -20,7 +20,7 @@ the checker fails the ticket if they are stale.
 | 0004 | Start screen for new projects | done | solo | 0003 | — | merged 405f6f0 (3 rounds), all 8 checks PASS, 86/86 tests |
 | 0005 | Brainstorm, design and planning skills and agents | done | solo | 0001 | — | merged 5ea7423, all 9 checks PASS, 86/86 tests · live interactive session not yet tried by a person |
 | 0006 | Plan progress on the board | done | solo | 0003 | — | merged 2393c6a, all 7 checks PASS, 101/101 tests |
-| 0007 | Plan and Design views | in-progress | solo | 0006, 0005 | worker | all 4 questions answered (keep one ticket, 0005 added as blocker: done) · note from 0003: a plan without phases has current phase "" |
+| 0007 | Plan and Design views | done | solo | 0006, 0005 | — | merged 3524f5a, all 9 checks PASS, 179/179 tests · Create tickets hidden until 0008 · live check: do p/d hotkeys fire while typing in an input? |
 | 0008 | Tickets from the plan, redesign and replan | ready | solo | 0005, 0007 | — | AI draft done · 4 open questions |
 | 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | ready | solo | 0008 | — | AI draft done · 2 open questions |
 | 0010 | New ticket button does nothing | done | solo | — | — | merged 353ef2c, all 6 checks PASS, 112/112 tests · not reproduced on 0.4.14 (likely 0013); 11 regression tests added · needs a person to press it in the real app |
