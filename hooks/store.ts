@@ -4,7 +4,8 @@ import type { AgentInfo, EngineInterface } from 'claude-code'
 import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
 import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import type { Scheme } from './glass'
-import { README_NAMES, originUrl, parseGitFile, parseHead, parseRemote, projectName, type Project, readmeSummary } from './core/project'
+import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
+import { bindFromBoard } from './core/roadmap'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
 
 type $ = EngineInterface
@@ -36,10 +37,14 @@ export type View =
   | { kind: 'questions'; number: string }
   | { kind: 'new' }
   | { kind: 'readme' }
+  | { kind: 'start' }
 
 export type Job = { agentId: string; number: string; kind: 'draft' | 'enhance' | 'fold'; startedAt: number }
 
 export type Options = { ticketsDir: string; pollSeconds: number; autoOpen: boolean; writerModel: string }
+
+export type StartFlags = { isGithubSkipped: boolean; isBannerDismissed: boolean }
+const NO_START_FLAGS: StartFlags = { isGithubSkipped: false, isBannerDismissed: false }
 
 export const S = {
   options: { ticketsDir: 'tickets', pollSeconds: 3, autoOpen: true, writerModel: '' } as Options,
@@ -79,6 +84,10 @@ export const S = {
   project: undefined as Project | undefined,
   /** Desktop pane colors. The app's light/dark mode can't be read, so the person picks; remembered across sessions. */
   scheme: 'auto' as Scheme,
+  /** Start screen choices remembered per project: Skip on the GitHub line, the banner dismissed. */
+  startFlags: { ...NO_START_FLAGS } as StartFlags,
+  /** The person chose the board over the Start screen this session ("Set up board only", "Show the board"). */
+  showBoard: false,
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -101,6 +110,8 @@ export function resetSession(cwd: string) {
     busyTool: '',
     isRefreshing: false,
     project: undefined,
+    startFlags: { ...NO_START_FLAGS },
+    showBoard: false,
   })
   S.jobs.clear()
   S.agentLog.clear()
@@ -163,24 +174,40 @@ async function listOr($: $, path: string) {
   }
 }
 
-/** Name, repo, branch and README of the folder this session runs in. Reads files only: no git command needed. */
-export async function loadProject($: $): Promise<Project> {
+/**
+ * Design and plan the board is bound to (`Design: … · Plan: …` in BOARD.md), else `design/DESIGN.md`
+ * and `design/PLAN.md` in any case. `bindFromBoard` reads synchronously, so the paths it asks for
+ * are read first and handed back on a second pass.
+ */
+async function findDesignAndPlan($: $, boardText: string | undefined): Promise<{ designPath: string; planPath: string }> {
+  const wanted: string[] = []
+  bindFromBoard(boardText, p => (wanted.push(p), undefined))
+  const texts = new Map<string, string>()
+  for (const p of wanted) {
+    const t = await readOr($, p)
+    if (t !== undefined) texts.set(p, t)
+  }
+  const b = bindFromBoard(boardText, p => texts.get(p))
+  return { designPath: b.designPath ?? '', planPath: b.planPath ?? '' }
+}
+
+/**
+ * Name, repo, branch and README of the folder this session runs in, plus what the Start screen
+ * needs: commit presence, design/plan/idea files and whether there is code. Reads files only: no
+ * git command or other process.
+ */
+export async function loadProject($: $, boardText?: string): Promise<Project> {
   const cwd = S.cwd || '.'
-  let gitDir = `${cwd}/.git`
-  let config = await readOr($, `${gitDir}/config`)
-  let head = await readOr($, `${gitDir}/HEAD`)
-  if (config === undefined) {
-    // A worktree or submodule: .git is a file that points at the real git dir.
-    const pointer = await readOr($, `${cwd}/.git`)
-    const target = pointer === undefined ? '' : parseGitFile(pointer)
-    if (target !== '') {
-      gitDir = target.startsWith('/') ? target : `${cwd}/${target}`
-      head = await readOr($, `${gitDir}/HEAD`)
-      const common = ((await readOr($, `${gitDir}/commondir`)) ?? '').trim()
-      const commonDir = common === '' ? gitDir.replace(/\/worktrees\/[^/]+\/?$/, '') : common.startsWith('/') ? common : `${gitDir}/${common}`
-      config = (await readOr($, `${commonDir}/config`)) ?? (await readOr($, `${gitDir}/config`))
+  const read = async (path: string) => {
+    try {
+      return await $.fs.read(path)
+    } catch {
+      return undefined
     }
   }
+  const top = await listOr($, cwd)
+  const git = await readGitFacts(cwd, read, top.some(e => e.name === '.git'))
+  const config = git.config
   let readmePath = ''
   let readme: string | undefined
   for (const name of README_NAMES) {
@@ -192,17 +219,25 @@ export async function loadProject($: $): Promise<Project> {
   }
   const pkg = await readOr($, `${cwd}/package.json`)
   const remote = parseRemote(config === undefined ? '' : originUrl(config))
+  const { designPath, planPath } = await findDesignAndPlan($, boardText)
+  const ideaPath = ideaFile(await listOr($, 'design'), await listOr($, 'design/brainstorms'))
   return {
     name: projectName(readme, pkg, cwd),
     folder: cwd,
     repo: remote.repo,
     repoUrl: remote.repoUrl,
     host: remote.host,
-    branch: head === undefined ? '' : parseHead(head),
-    isGit: config !== undefined || head !== undefined,
+    branch: git.branch,
+    isGit: git.state !== 'none',
     readmePath,
     readme,
     summary: readmeSummary(readme, pkg),
+    git: git.state,
+    hasCommit: git.hasCommit,
+    designPath,
+    planPath,
+    ideaPath,
+    hasCode: hasCode(top.map(e => e.name), dir()),
   }
 }
 
@@ -228,9 +263,12 @@ export async function refresh($: $, force = false): Promise<boolean> {
       board = parseBoard(boardText)
       changed = true
     }
-    if (force || prev === undefined || S.project === undefined) {
+    // Re-read while the project is not fully set up, so the Start screen and banner follow the files
+    // Claude writes (git init, design/DESIGN.md, …) without a manual refresh.
+    const isSetUp = (p: Project) => p.designPath !== '' && p.planPath !== '' && p.hasCommit && p.repo !== ''
+    if (force || prev === undefined || S.project === undefined || changed || !isSetUp(S.project)) {
       const was = JSON.stringify(S.project)
-      S.project = await loadProject($)
+      S.project = await loadProject($, boardEntry === undefined ? undefined : boardText)
       if (JSON.stringify(S.project) !== was) changed = true
     }
     if (force || prev === undefined) S.hasRouter = (await readOr($, abs('.claude/agents/router.md'))) !== undefined
@@ -416,6 +454,27 @@ export async function loadFilters($: $) {
     if (saved !== undefined && saved !== null && typeof saved === 'object') S.filters = { ...DEFAULT_FILTERS, ...saved, search: '' }
   } catch {
     // defaults
+  }
+}
+
+export async function loadStartFlags($: $) {
+  try {
+    const saved = (await $.store.get(`start:${S.cwd}`)) as Partial<StartFlags> | undefined
+    if (saved !== undefined && saved !== null && typeof saved === 'object')
+      S.startFlags = { isGithubSkipped: saved.isGithubSkipped === true, isBannerDismissed: saved.isBannerDismissed === true }
+  } catch {
+    // defaults
+  }
+}
+
+/** Remembers a Start screen choice for this project (in the pane store, never in the project's files). */
+export async function setStartFlag($: $, change: Partial<StartFlags>) {
+  S.startFlags = { ...S.startFlags, ...change }
+  redraw($)
+  try {
+    await $.store.set(`start:${S.cwd}`, S.startFlags)
+  } catch {
+    // a convenience
   }
 }
 

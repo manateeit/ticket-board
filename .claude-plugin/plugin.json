@@ -31,7 +31,7 @@
     "autoOpen": {
       "type": "boolean",
       "title": "Open at start",
-      "description": "Open the pane automatically when a session starts in a project that has a ticket board (only where it can sit beside the chat).",
+      "description": "Open the pane automatically when a session starts in a project that has a tickets/ folder: on the board, or on the Start screen when there is no BOARD.md yet or no design, plan or tickets. Projects without a tickets/ folder never open it on their own; run /board there to see Start. Only where it can sit beside the chat.",
       "default": true
     },
     "writerModel": {

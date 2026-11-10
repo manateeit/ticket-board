@@ -1,7 +1,23 @@
 import { expect, test } from 'claude-code/testing'
 
 import { BoardEditError, addRow, parseBoard, setCells } from '../hooks/core/board'
-import { originUrl, parseGitFile, parseHead, parseRemote, projectName, readmeSummary, readmeTitle } from '../hooks/core/project'
+import {
+  commitFromRefs,
+  hasCode,
+  ideaFile,
+  isBlankProject,
+  isSetupDone,
+  originUrl,
+  parseGitFile,
+  parseHead,
+  parseRemote,
+  projectName,
+  readGitFacts,
+  readmeSummary,
+  readmeTitle,
+  startStep,
+  type StartFacts,
+} from '../hooks/core/project'
 import { kindOf, nextNumber, resultOf, query, runLine, slugify, titleFromIdea, type Item } from '../hooks/core/query'
 import { answerQuestion, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
@@ -209,4 +225,106 @@ test('readme summary is the first prose paragraph, plain text', () => {
   expect(readmeSummary(md)).toBe('A tiny shop that sells hats. It ships fast.')
   expect(readmeSummary('# Only a title\n', '{"description":"From package"}')).toBe('From package')
   expect(readmeSummary(undefined)).toBe('')
+})
+
+// ---------- Start screen detection (files only: the reader is a Map, nothing else is called) ----------
+
+const SHA = '0123456789abcdef0123456789abcdef01234567'
+const reader = (files: Record<string, string>) => {
+  const asked: string[] = []
+  const read = async (path: string) => (asked.push(path), files[path])
+  return { read, asked }
+}
+const facts = (git: Awaited<ReturnType<typeof readGitFacts>>, cfg: string | undefined, more: Partial<StartFacts> = {}): StartFacts => ({
+  git: git.state,
+  hasCommit: git.hasCommit,
+  hasOrigin: parseRemote(cfg === undefined ? '' : originUrl(cfg)).repo !== '',
+  isGithubSkipped: false,
+  hasIdea: false,
+  hasDesign: false,
+  hasPlan: false,
+  hasTickets: false,
+  ...more,
+})
+
+test('start: no .git is "none" and the step is Setup', async () => {
+  const { read, asked } = reader({})
+  const git = await readGitFacts('/p', read, false)
+  expect(git.state).toBe('none')
+  expect(git.hasCommit).toBe(false)
+  expect(asked.every(p => p.startsWith('/p/.git'))).toBe(true)
+  expect(startStep(facts(git, undefined))).toBe('setup')
+  expect(isBlankProject(facts(git, undefined))).toBe(true)
+})
+
+test('start: a .git that cannot be read is "unknown" and does not hold Setup up', async () => {
+  const git = await readGitFacts('/p', reader({}).read, true)
+  expect(git.state).toBe('unknown')
+  expect(isSetupDone(facts(git, undefined))).toBe(true)
+  expect(startStep(facts(git, undefined))).toBe('idea')
+})
+
+test('start: git with zero commits stays on Setup', async () => {
+  const git = await readGitFacts('/p', reader({ '/p/.git/HEAD': 'ref: refs/heads/main\n', '/p/.git/config': '[core]\n' }).read, true)
+  expect(git).toMatchObject({ state: 'repo', branch: 'main', hasCommit: false })
+  expect(startStep(facts(git, '[core]\n'))).toBe('setup')
+  // Skipping GitHub does not skip the first commit.
+  expect(startStep(facts(git, '[core]\n', { isGithubSkipped: true }))).toBe('setup')
+})
+
+test('start: git with a commit and a GitHub origin moves on to Idea, then Design, Plan, Tickets', async () => {
+  const cfg = '[remote "origin"]\n\turl = git@github.com:acme/app.git\n'
+  const git = await readGitFacts('/p', reader({ '/p/.git/HEAD': 'ref: refs/heads/main\n', '/p/.git/config': cfg, '/p/.git/refs/heads/main': `${SHA}\n` }).read, true)
+  expect(git).toMatchObject({ state: 'repo', branch: 'main', hasCommit: true })
+  expect(parseRemote(originUrl(git.config ?? '')).repo).toBe('acme/app')
+  const f = facts(git, cfg)
+  expect(startStep(f)).toBe('idea')
+  expect(startStep({ ...f, hasIdea: true })).toBe('design')
+  expect(startStep({ ...f, hasIdea: true, hasDesign: true })).toBe('plan')
+  expect(startStep({ ...f, hasDesign: true, hasPlan: true })).toBe('tickets')
+  expect(startStep({ ...f, hasDesign: true, hasPlan: true, hasTickets: true })).toBe('done')
+  expect(isBlankProject({ ...f, hasTickets: true })).toBe(false)
+  // No origin: Setup until the person skips GitHub.
+  expect(startStep({ ...f, hasOrigin: false })).toBe('setup')
+  expect(startStep({ ...f, hasOrigin: false, isGithubSkipped: true })).toBe('idea')
+})
+
+test('start: a non-GitHub origin counts as set up; packed refs count as a commit', async () => {
+  const cfg = '[remote "origin"]\n\turl = https://git.internal/team/app.git\n'
+  const git = await readGitFacts(
+    '/p',
+    reader({ '/p/.git/HEAD': 'ref: refs/heads/trunk\n', '/p/.git/config': cfg, '/p/.git/packed-refs': `# pack-refs with: peeled\n${SHA} refs/heads/trunk\n` }).read,
+    true,
+  )
+  expect(git.hasCommit).toBe(true)
+  expect(startStep(facts(git, cfg))).toBe('idea')
+})
+
+test('start: a worktree .git pointer file is followed to the shared refs and config', async () => {
+  const cfg = '[remote "origin"]\n\turl = git@github.com:acme/app.git\n'
+  const files = {
+    '/w/.git': 'gitdir: /main/.git/worktrees/w\n',
+    '/main/.git/worktrees/w/HEAD': 'ref: refs/heads/ticket/0004\n',
+    '/main/.git/worktrees/w/commondir': '../..\n',
+    '/main/.git/config': cfg,
+    '/main/.git/refs/heads/ticket/0004': `${SHA}\n`,
+  }
+  const git = await readGitFacts('/w', reader(files).read, true)
+  expect(git).toMatchObject({ state: 'repo', branch: 'ticket/0004', hasCommit: true, commonDir: '/main/.git' })
+  expect(startStep(facts(git, git.config))).toBe('idea')
+  // Same worktree before its branch has a commit.
+  const fresh = await readGitFacts('/w', reader({ ...files, '/main/.git/refs/heads/ticket/0004': '' }).read, true)
+  expect(fresh.hasCommit).toBe(false)
+  expect(startStep(facts(fresh, fresh.config))).toBe('setup')
+})
+
+test('start: commit presence, code detection and the idea file from names alone', () => {
+  expect(commitFromRefs(SHA, undefined, undefined)).toBe(true)
+  expect(commitFromRefs('ref: refs/heads/main', undefined, undefined)).toBe(false)
+  expect(commitFromRefs('ref: refs/heads/main', undefined, `${SHA} refs/heads/mainline`)).toBe(false)
+  expect(hasCode(['.git', 'README.md', 'LICENSE', 'tickets', 'design', '.gitignore'])).toBe(false)
+  expect(hasCode(['.git', 'README.md', 'src', 'package.json'])).toBe(true)
+  expect(ideaFile([{ name: 'Brief.md', kind: 'file' }], [])).toBe('design/Brief.md')
+  expect(ideaFile([], [{ name: '2026-11-01-a.md', kind: 'file' }, { name: '2026-11-09-b.md', kind: 'file' }])).toBe('design/brainstorms/2026-11-09-b.md')
+  expect(ideaFile([{ name: 'DESIGN.md', kind: 'file' }], [])).toBe('')
 })

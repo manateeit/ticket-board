@@ -88,32 +88,42 @@ const PANE = {
   props: { title: 'Tickets', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
-async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | 'desktop', extra: Record<string, string> = {}) {
+type BootOptions = { blank?: boolean; store?: Map<string, unknown>; dirs?: string[] }
+
+async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | 'desktop', extra: Record<string, string> = {}, opts: BootOptions = {}) {
   const fs = fakeFs()
+  if (opts.blank === true) fs.files.clear()
   for (const [k, v] of Object.entries(extra)) fs.files.set(k, v)
   const filled: string[] = []
   const calls: string[] = []
+  const writes: string[] = []
+  const opened: string[] = []
+  const dirs = new Set(opts.dirs ?? [])
+  const store = opts.store ?? new Map<string, unknown>()
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'board' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', (_: unknown, e: { id: string }) => (opened.push(e.id), { value: { isPlaced: true } }))
   on('clock.every', () => ({ deny: 'no timers in tests' }))
   on('agent.list', () => ({ value: AGENTS_OVERRIDE ?? [
     { id: 'a1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
     { id: 'a2', description: 'Check 0001', type: 'checker', status: 'completed' },
   ] }))
-  on('store.get', () => ({ value: undefined }))
-  on('store.set', () => ({ value: undefined }))
+  on('store.get', (_: unknown, e: { key: string }) => ({ value: store.get(e.key) }))
+  on('store.set', (_: unknown, e: { key: string; value: unknown }) => (store.set(e.key, e.value), { value: undefined }))
   on('fs.list', (_: unknown, e: { path: string }) => {
     calls.push(`list ${e.path} -> ${fs.list(e.path).map(x => x.name).join(',')}`)
     return { value: fs.list(e.path) }
   })
-  on('fs.exists', (_: unknown, e: { path: string }) => ({ value: fs.files.has(fs.clean(e.path)) || fs.list(e.path).length > 0 }))
+  on('fs.exists', (_: unknown, e: { path: string }) => ({ value: dirs.has(fs.clean(e.path)) || fs.files.has(fs.clean(e.path)) || fs.list(e.path).length > 0 }))
   on('fs.read', (_: unknown, e: { path: string }) => {
-    const text = fs.files.get(fs.clean(e.path))
+    // The plugin's own templates, for Set up board.
+    const template = /\/templates\/BOARD\.md$/.test(e.path) ? BLANK_BOARD : /\/skills\/ticket\/TEMPLATE\/(rd|eval)\.md$/.test(e.path) ? '# template\n' : undefined
+    const text = fs.files.get(fs.clean(e.path)) ?? template
     if (text === undefined) throw new Error(`ENOENT ${e.path}`)
     return { value: text }
   })
   on('fs.write', (_: unknown, e: { path: string; text: string }) => {
+    writes.push(fs.clean(e.path))
     fs.files.set(fs.clean(e.path), e.text)
     fs.mtimes.set(fs.clean(e.path), ++fs.tick.n)
     return { value: undefined }
@@ -123,8 +133,11 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
     return { isFilled: true }
   })
   await $.session.start({ cwd: '/repo', surface, isInteractive: true })
+  // Auto-open runs in the background: let it settle before reading what opened.
+  await new Promise(r => setTimeout(r, 20))
+  const openedAtStart = [...opened]
   const ui = await $.ui.mount({ ...PANE, surface } as any)
-  return { ui, fs, filled, calls }
+  return { ui, fs, filled, calls, writes, store, openedAtStart }
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -357,4 +370,199 @@ test('agents panel with resumed (duplicate-id) agents draws with unique keys', a
   } finally {
     AGENTS_OVERRIDE = undefined
   }
+})
+
+// ---------- Start screen ----------
+
+const BLANK_BOARD = `# Ticket board
+
+| #    | Ticket | Status | Mode | Blocked by | Owner | Notes |
+|------|--------|--------|------|------------|-------|-------|
+
+Status flow: draft → ready → in-progress → in-check → done
+`
+const SHA = '0123456789abcdef0123456789abcdef01234567'
+const GIT_NO_COMMIT = { '/repo/.git/HEAD': 'ref: refs/heads/main\n', '/repo/.git/config': '[core]\n\tbare = false\n' }
+const GIT_READY = {
+  '/repo/.git/HEAD': 'ref: refs/heads/main\n',
+  '/repo/.git/config': '[remote "origin"]\n\turl = git@github.com:acme/salon.git\n',
+  '/repo/.git/refs/heads/main': `${SHA}\n`,
+}
+const drawnText = async (ui: any) => JSON.stringify(await ui.drawn())
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`blank folder shows Start, not the old set-up screen (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, {}, { blank: true })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    const drawn = await drawnText(ui)
+    for (const step of ['Setup', 'Idea', 'Design', 'Plan', 'Tickets']) expect(drawn).toContain(step)
+    expect(drawn).toContain('No GitHub repository')
+    expect(drawn).toContain('not a git repo')
+    expect(drawn).toContain('What are you building?')
+    expect(drawn).toContain('Set up board only')
+    expect(drawn).not.toContain('No ticket board here yet')
+    await ui.unmount()
+  })
+
+  test(`tickets but no design or plan: board plus a banner that opens Start (${surface})`, async ($, on) => {
+    const { ui, store, writes } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    let drawn = await drawnText(ui)
+    expect(drawn).toContain('No design or plan yet')
+    await ui.press({ key: 'banner-setup' })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await ui.press({ key: 'back' })
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    await ui.press({ key: 'banner-dismiss' })
+    drawn = await drawnText(ui)
+    expect(drawn).not.toContain('No design or plan yet')
+    expect(store.get('start:/repo')).toEqual({ isGithubSkipped: false, isBannerDismissed: true })
+    expect(writes).toEqual([])
+    await ui.unmount()
+  })
+
+  test(`Start buttons only fill the prompt (${surface})`, async ($, on) => {
+    const { ui, filled, writes, fs } = await boot($, on, surface, { '/repo/src/app.ts': 'export {}\n' }, { blank: true })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await ui.press({ key: 'start-git' })
+    expect(filled).toEqual(['Initialise git here and make the first commit.'])
+    await ui.press({ key: 'start-github' })
+    expect(filled.length).toBe(2)
+    expect(filled[1]).toContain('gh repo create --private')
+    // Empty idea: brainstorm and design are disabled (dimmed, and pressing them fills nothing).
+    await ui.press({ key: 'start-brainstorm' })
+    await ui.press({ key: 'start-design' })
+    expect(filled.length).toBe(2)
+    await ui.find({ type: 'Text', text: /Type what you are building first/ })
+    // The code button needs no text.
+    await ui.press({ key: 'start-code' })
+    expect(filled.length).toBe(3)
+    expect(filled[2]).toContain('/design Draft a design from the existing code')
+    await ui.input({ key: 'start-idea', text: 'A booking app for small salons', kind: 'submit' } as any)
+    await ui.press({ key: 'start-brainstorm' })
+    expect(filled[3]).toBe('/brainstorm A booking app for small salons')
+    await ui.press({ key: 'start-design' })
+    expect(filled[4]).toBe('/design A booking app for small salons')
+    expect(filled.length).toBe(5)
+    expect(writes).toEqual([])
+    // Set up board only: the one button that writes, then the board.
+    await ui.press({ key: 'setup-board-only' })
+    expect(writes).toContain('tickets/BOARD.md')
+    expect(writes.every(w => w.startsWith('tickets/'))).toBe(true)
+    expect(fs.files.get('tickets/BOARD.md')).toContain('| #')
+    expect(await drawnText(ui)).not.toContain('Start a project')
+    await ui.unmount()
+  })
+
+  test(`first commit button fills the prompt (${surface})`, async ($, on) => {
+    const { ui, filled, writes } = await boot($, on, surface, GIT_NO_COMMIT, { blank: true })
+    await ui.find({ type: 'Text', text: /main · 0 commits/ })
+    await ui.press({ key: 'start-push' })
+    expect(filled).toEqual(['Make the first commit.'])
+    expect(writes).toEqual([])
+    await ui.unmount()
+  })
+}
+
+const STAGES: { name: string; files: Record<string, string>; step: string; start: boolean }[] = [
+  { name: 'no git', files: { 'tickets/BOARD.md': BLANK_BOARD }, step: 'Setup', start: true },
+  { name: 'commits and origin', files: { ...GIT_READY, 'tickets/BOARD.md': BLANK_BOARD }, step: 'Idea', start: true },
+  { name: 'a brief', files: { ...GIT_READY, 'tickets/BOARD.md': BLANK_BOARD, '/repo/design/brief.md': '# Brief\n' }, step: 'Design', start: true },
+  { name: 'a design', files: { ...GIT_READY, 'tickets/BOARD.md': BLANK_BOARD, '/repo/design/DESIGN.md': '# D\n\n## D1 · X\n' }, step: 'Plan', start: false },
+  { name: 'design and plan, no board yet', files: { ...GIT_READY, '/repo/design/DESIGN.md': '# D\n', '/repo/design/PLAN.md': '# P\n' }, step: 'Tickets', start: true },
+]
+
+for (const surface of ['terminal', 'desktop'] as const)
+  for (const stage of STAGES)
+    test(`stepper resumes from the files: ${stage.name} → ${stage.step} (${surface})`, async ($, on) => {
+      const { ui, filled } = await boot($, on, surface, stage.files, { blank: true })
+      if (stage.start) {
+        await ui.find({ type: 'Text', text: /Start a project/ })
+      } else {
+        // A design or plan exists: the board shows, and Start opens only from the banner.
+        await ui.find({ type: 'Text', text: /No plan yet/ })
+        expect(await drawnText(ui)).not.toContain('Start a project')
+        await ui.press({ key: 'banner-setup' })
+        await ui.find({ type: 'Text', text: /Start a project/ })
+      }
+      const drawn = await drawnText(ui)
+      expect(drawn).toMatch(new RegExp(`● ${stage.step}`))
+      if (stage.step === 'Design') {
+        await ui.press({ key: 'start-from-idea' })
+        expect(filled).toEqual(['/design design/brief.md'])
+      }
+      if (stage.step === 'Plan') {
+        await ui.press({ key: 'start-plan' })
+        expect(filled).toEqual(['/planning design/DESIGN.md'])
+      }
+      await ui.unmount()
+    })
+
+test('with a design and a plan the board shows: no Start, no banner', async ($, on) => {
+  const files = { ...GIT_READY, 'tickets/BOARD.md': BLANK_BOARD, '/repo/design/DESIGN.md': '# D\n', '/repo/design/PLAN.md': '# P\n' }
+  const { ui } = await boot($, on, 'terminal', files, { blank: true })
+  await ui.find({ type: 'Text', text: /The board has no tickets/ })
+  const drawn = await drawnText(ui)
+  expect(drawn).not.toContain('Start a project')
+  expect(drawn).not.toContain('yet →')
+  await ui.unmount()
+})
+
+test('Skip on the GitHub line is remembered per project', async ($, on) => {
+  const store = new Map<string, unknown>()
+  const { ui } = await boot($, on, 'terminal', { ...GIT_READY, '/repo/.git/config': '[core]\n' }, { blank: true, store })
+  await ui.find({ type: 'Text', text: /No GitHub repository/ })
+  expect(await drawnText(ui)).toMatch(/● Setup/)
+  await ui.press({ key: 'start-skip' })
+  await ui.find({ type: 'Text', text: /skipped/ })
+  expect(await drawnText(ui)).toMatch(/● Idea/)
+  expect(store.get('start:/repo')).toEqual({ isGithubSkipped: true, isBannerDismissed: false })
+  await ui.unmount()
+})
+
+test('a saved Skip shows "skipped" on the next start (desktop)', async ($, on) => {
+  const store = new Map<string, unknown>([['start:/repo', { isGithubSkipped: true, isBannerDismissed: false }]])
+  const { ui } = await boot($, on, 'desktop', { ...GIT_READY, '/repo/.git/config': '[core]\n' }, { blank: true, store })
+  await ui.find({ type: 'Text', text: /skipped/ })
+  const drawn = await drawnText(ui)
+  expect(drawn).not.toContain('No GitHub repository')
+  expect(drawn).toMatch(/● Idea/)
+  await ui.unmount()
+})
+
+test('an unreadable .git shows "git status unknown"', async ($, on) => {
+  const { ui } = await boot($, on, 'terminal', { '/repo/.git/objects/x': 'x' }, { blank: true })
+  await ui.find({ type: 'Text', text: /git status unknown/ })
+  await ui.unmount()
+})
+
+// ---------- Auto-open: only where a tickets/ folder exists ----------
+
+test('a blank folder with no tickets/ does not auto-open, and /board there still shows Start', async ($, on) => {
+  const { ui, openedAtStart } = await boot($, on, 'terminal', {}, { blank: true })
+  expect(openedAtStart).toEqual([])
+  await $.command.run({ command: 'board', args: '' } as any)
+  await ui.find({ type: 'Text', text: /Start a project/ })
+  await ui.unmount()
+})
+
+test('an empty tickets/ folder (no BOARD.md) auto-opens on Start', async ($, on) => {
+  const { ui, openedAtStart } = await boot($, on, 'desktop', {}, { blank: true, dirs: ['tickets'] })
+  expect(openedAtStart).toEqual(['ticket-board'])
+  await ui.find({ type: 'Text', text: /Start a project/ })
+  await ui.unmount()
+})
+
+test('a folder with a board still auto-opens', async ($, on) => {
+  const { ui, openedAtStart } = await boot($, on, 'terminal')
+  expect(openedAtStart).toEqual(['ticket-board'])
+  await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+  await ui.unmount()
+})
+
+test('tickets/ with a ticket folder but no BOARD.md auto-opens on Start', async ($, on) => {
+  const { ui, openedAtStart } = await boot($, on, 'terminal', { 'tickets/0001-health-endpoint/rd.md': '# 0001 — Health endpoint\n' }, { blank: true })
+  expect(openedAtStart).toEqual(['ticket-board'])
+  await ui.find({ type: 'Text', text: /Start a project/ })
+  await ui.unmount()
 })

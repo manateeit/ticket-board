@@ -2,7 +2,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
-import { S, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadStartFlags, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
 import { drawPane, go, type UI } from './views'
 
@@ -48,6 +48,14 @@ async function open($: $, byCommand: boolean) {
   return r
 }
 
+async function hasTicketsFolder($: $): Promise<boolean> {
+  try {
+    return await $.fs.exists(abs(dir()))
+  } catch {
+    return false
+  }
+}
+
 function touchesTickets(path: unknown): boolean {
   if (typeof path !== 'string') return false
   const d = dir()
@@ -67,8 +75,11 @@ export const register: Register = (on, options) => {
     await loadFilters($)
     await loadScheme($)
     await loadJobs($)
+    await loadStartFlags($)
     await refresh($)
-    if (S.options.autoOpen && e.isInteractive && S.snap?.hasBoard === true) bg(open($, false))
+    // Opens on its own only where a tickets/ folder exists (with or without BOARD.md); where it lands
+    // (Start or the board) is up to drawPane. Elsewhere /board opens Start.
+    if (S.options.autoOpen && e.isInteractive && (S.snap?.hasBoard === true || (await hasTicketsFolder($)))) bg(open($, false))
     $.clock.every(S.options.pollSeconds * 1000, () => {
       if (S.isOpen) bg(refresh($))
     })
