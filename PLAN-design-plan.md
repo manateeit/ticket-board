@@ -150,6 +150,11 @@ All in `hooks/core/roadmap.ts`, pure functions, no tokens, recomputed on every r
   version · section with no build · build covering no section · build with no ticket · ticket
   pointing at a missing build · open design questions · stale tickets · off-plan count.
 
+As built (ticket 0003): a ticket listed in a build's `Ticket` cell counts as on-plan even without
+a `Plan:` line, so only tickets with neither are off-plan; a ninth check, *plan mismatch*, fires
+when a ticket's `Plan:` line names a different build than the cell it is listed in; each check is
+one alert listing every id it is about.
+
 ## 5. Sessions: brainstorm, design, plan, and their "re-" versions
 
 Interactive work runs in the chat (it needs you); mechanical work runs as background agents the
