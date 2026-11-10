@@ -559,3 +559,10 @@ test('a folder with a board still auto-opens', async ($, on) => {
   await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
   await ui.unmount()
 })
+
+test('tickets/ with a ticket folder but no BOARD.md auto-opens on Start', async ($, on) => {
+  const { ui, openedAtStart } = await boot($, on, 'terminal', { 'tickets/0001-health-endpoint/rd.md': '# 0001 — Health endpoint\n' }, { blank: true })
+  expect(openedAtStart).toEqual(['ticket-board'])
+  await ui.find({ type: 'Text', text: /Start a project/ })
+  await ui.unmount()
+})

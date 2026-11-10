@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { isInsideFolder } from './ai'
 import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadStartFlags, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
-import { drawPane, go, isStartState, type UI } from './views'
+import { drawPane, go, type UI } from './views'
 
 const PANE = 'ticket-board'
 const TITLE = 'Tickets'
@@ -77,9 +77,9 @@ export const register: Register = (on, options) => {
     await loadJobs($)
     await loadStartFlags($)
     await refresh($)
-    // Opens on its own only where a tickets/ folder exists: on the board, or on Start when there is no
-    // BOARD.md yet or nothing at all (no design, plan or tickets). Elsewhere /board opens Start.
-    if (S.options.autoOpen && e.isInteractive && (S.snap?.hasBoard === true || ((await hasTicketsFolder($)) && isStartState()))) bg(open($, false))
+    // Opens on its own only where a tickets/ folder exists (with or without BOARD.md); where it lands
+    // (Start or the board) is up to drawPane. Elsewhere /board opens Start.
+    if (S.options.autoOpen && e.isInteractive && (S.snap?.hasBoard === true || (await hasTicketsFolder($)))) bg(open($, false))
     $.clock.every(S.options.pollSeconds * 1000, () => {
       if (S.isOpen) bg(refresh($))
     })
