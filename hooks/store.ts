@@ -491,7 +491,9 @@ export const isLive = (a: AgentInfo) => LIVE.has(a.status)
 /** Re-reads this session's agents; redraws only when something changed. */
 export async function loadAgents($: $): Promise<void> {
   try {
-    const next = await $.agent.list()
+    // A resumed agent can be listed again under the same id: keep the latest entry, so keys stay unique.
+    const listed = await $.agent.list()
+    const next = listed.filter((a, i) => listed.findLastIndex(b => b.id === a.id) === i)
     const sig = (l: AgentInfo[]) => l.map(a => `${a.id}:${a.status}`).join(',')
     if (sig(next) === sig(S.agents)) return
     S.agents = next
