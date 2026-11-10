@@ -126,7 +126,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
     const drawn = JSON.stringify(await ui.drawn())
     expect(drawn).toContain('Health endpoint')
-    expect(drawn).toContain('Status flow')
+    expect(drawn.toLowerCase()).toContain('status flow')
     await ui.unmount()
   })
 
@@ -195,5 +195,14 @@ test('terminal keeps the plain theme look', async ($, on) => {
   const drawn = JSON.stringify(await ui.drawn())
   expect(drawn).not.toContain('#0A0F1E')
   expect(drawn).not.toContain('DEPENDS ON')
+  await ui.unmount()
+})
+
+test('desktop board notes join wrapped lines and label decisions', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('BOARD NOTES')
+  expect(drawn).toContain('STATUS FLOW')
   await ui.unmount()
 })

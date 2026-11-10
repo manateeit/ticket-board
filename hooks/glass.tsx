@@ -72,40 +72,108 @@ export function glassUI(ui: UI): UI {
       ...(hover?.backgroundColor !== undefined ? { hover: { ...hover, backgroundColor: fix(hover.backgroundColor) } } : {}),
     } as never)
   }) as unknown as UI['Box']
-  const Markdown = ((p: { key?: string; text: string }) => ui.Box({ flexDirection: 'column', children: markdown(ui, p.text) } as never)) as unknown as UI['Markdown']
+  const Markdown = ((p: { key?: string; text: string }) => ui.Box({ flexDirection: 'column', gap: 1, children: markdown(ui, p.text) } as never)) as unknown as UI['Markdown']
   return { ...ui, Text, Box, Markdown }
 }
 
-/** A small markdown reader for the glass look: headings, lists, quotes, tables, code, inline `code` and **bold**. */
+/** A small markdown reader for the glass look: headings, paragraphs (hard-wrapped lines joined), "Label: text" leads, decision callouts, lists, quotes, tables, code, inline `code` (status names as pills), **bold**, *italic* and [links](url). */
 export function markdown(ui: UI, text: string): RenderChildren {
   const { Text, Box } = ui
   const out: RenderChildren[] = []
-  let code = false
   const inline = (s: string, base: string) =>
-    s.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean).map(part =>
-      part.startsWith('`') && part.endsWith('`')
-        ? ui.Text({ color: G.accent, mono: true, children: part.slice(1, -1) } as never)
-        : part.startsWith('**') && part.endsWith('**')
-          ? ui.Text({ color: G.ink, bold: true, children: part.slice(2, -2) } as never)
-          : ui.Text({ color: base, children: part } as never),
-    )
+    s.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\([^)]+\))/g).filter(Boolean).map(part => {
+      if (part.startsWith('`') && part.endsWith('`')) {
+        const word = part.slice(1, -1)
+        const hex = STATUS_HEX[word]
+        return hex !== undefined
+          ? ui.Text({ color: hex, backgroundColor: tint(hex, 0.16), weight: 'semibold', children: ` ${word} ` } as never)
+          : ui.Text({ color: G.accent, mono: true, backgroundColor: 'rgba(125,211,252,0.08)', children: ` ${word} ` } as never)
+      }
+      if (part.startsWith('**') && part.endsWith('**')) return ui.Text({ color: G.ink, weight: 'semibold', children: part.slice(2, -2) } as never)
+      if (/^\[[^\]]+\]\([^)]+\)$/.test(part)) return ui.Text({ color: G.accent, underline: true, children: part.slice(1, part.indexOf(']')) } as never)
+      if (part.length > 2 && part.startsWith('*') && part.endsWith('*')) return ui.Text({ color: base, italic: true, children: part.slice(1, -1) } as never)
+      return ui.Text({ color: base, children: part } as never)
+    })
+
+  /** "Decision 2026-11-09 (human): …" / "Status flow: …" → a bold lead and the rest. */
+  const lead = (p: string) => {
+    const m = /^([A-Z][\w ./-]{0,40}?(?: \d{4}-\d{2}-\d{2})?(?: \([^)]{1,30}\))?):\s+(.*)$/s.exec(p)
+    return m === null ? undefined : { label: m[1]!, rest: m[2]! }
+  }
+
+  const paragraph = (p: string) => {
+    const l = lead(p)
+    if (l !== undefined && /^(decision|decided|note|warning|important|todo)\b/i.test(l.label)) {
+      const warn = /^(warning|important|todo)/i.test(l.label)
+      const hex = warn ? STATUS_HEX.draft! : '#A78BFA'
+      out.push(
+        <Box flexDirection="column" backgroundColor={tint(hex, 0.08)} borderStyle="round" borderColor={tint(hex, 0.45)} paddingX={2} paddingY={1}>
+          <Text color={hex} size="footnote" weight="bold">
+            {l.label.toUpperCase()}
+          </Text>
+          <Text>{inline(l.rest, G.ink)}</Text>
+        </Box>,
+      )
+      return
+    }
+    if (l !== undefined) {
+      out.push(
+        <Box flexDirection="column">
+          <Text color={G.faint} size="caption" weight="bold">
+            {l.label.toUpperCase()}
+          </Text>
+          <Text>{inline(l.rest, G.ink)}</Text>
+        </Box>,
+      )
+      return
+    }
+    out.push(<Text>{inline(p, G.soft)}</Text>)
+  }
+
+  let para: string[] = []
+  let list: RenderChildren[] = []
+  const flush = () => {
+    if (para.length > 0) paragraph(para.join(' '))
+    para = []
+    if (list.length > 0) out.push(<Box flexDirection="column">{list}</Box>)
+    list = []
+  }
+  let code: string[] | undefined
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/\s+$/, '')
     if (line.startsWith('```')) {
-      code = !code
+      if (code === undefined) {
+        flush()
+        code = []
+      } else {
+        out.push(
+          <Box flexDirection="column" backgroundColor="rgba(0,0,0,0.3)" borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
+            {code.map(c => (
+              <Text color={G.accent} mono size="footnote">
+                {c === '' ? ' ' : c}
+              </Text>
+            ))}
+          </Box>,
+        )
+        code = undefined
+      }
       continue
     }
-    if (code) {
-      out.push(<Text color={G.accent} mono>{line === '' ? ' ' : line}</Text>)
+    if (code !== undefined) {
+      code.push(line)
       continue
     }
-    if (line.trim() === '') continue
+    if (line.trim() === '') {
+      flush()
+      continue
+    }
     const hd = /^(#{1,6})\s+(.*)$/.exec(line)
     if (hd) {
+      flush()
       const level = hd[1]!.length
       out.push(
         <Box paddingTop={level <= 2 ? 1 : 0}>
-          <Text color={level === 1 ? G.ink : G.accent} bold size={level === 1 ? 'title' : level === 2 ? 'heading' : 'body'} weight="semibold">
+          <Text color={level === 1 ? G.ink : G.accent} size={level === 1 ? 'title' : level === 2 ? 'heading' : 'body'} weight="semibold">
             {hd[2]!.replace(/[`*]/g, '')}
           </Text>
         </Box>,
@@ -113,13 +181,15 @@ export function markdown(ui: UI, text: string): RenderChildren {
       continue
     }
     if (/^\s*\|/.test(line)) {
+      flush()
       if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue
       out.push(<Text color={G.soft} mono wrap="truncate">{line.trim()}</Text>)
       continue
     }
     if (/^\s*>/.test(line)) {
+      flush()
       out.push(
-        <Box paddingLeft={2}>
+        <Box paddingLeft={2} backgroundColor="rgba(255,255,255,0.03)">
           <Text color={G.soft} italic>
             {line.replace(/^\s*>\s?/, '')}
           </Text>
@@ -129,8 +199,9 @@ export function markdown(ui: UI, text: string): RenderChildren {
     }
     const li = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(line)
     if (li) {
+      if (para.length > 0) flush()
       const bullet = /\d/.test(li[2]!) ? li[2]! : '•'
-      out.push(
+      list.push(
         <Box flexDirection="row" gap={1} paddingLeft={2 + Math.floor(li[1]!.length / 2) * 2}>
           <Text color={G.accent}>{bullet}</Text>
           <Box flexShrink={1}>
@@ -140,8 +211,12 @@ export function markdown(ui: UI, text: string): RenderChildren {
       )
       continue
     }
-    out.push(<Text>{inline(line, G.soft)}</Text>)
+    // A line that only continues the sentence above ("(any status → …)") joins it; a list item's wrapped tail joins nothing.
+    if (list.length > 0) flush()
+    para.push(line.trim())
   }
+  if (code !== undefined) para.push(...code)
+  flush()
   return out
 }
 
