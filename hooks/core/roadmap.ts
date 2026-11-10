@@ -478,6 +478,69 @@ export function linkTickets(plan: Plan, design: Design, tickets: readonly Ticket
   return links
 }
 
+/** One ticket's stale references (0015), in the order its `Design:` line names them. */
+export function staleOf(links: Links, ticket: string): StaleRef[] {
+  return links.stale.filter(r => r.ticket === ticket)
+}
+
+/** The stale chip's words: `Written against D3 rev 1, now rev 2`. */
+export function staleText(r: StaleRef): string {
+  return `Written against ${r.section} rev ${r.rev}, now rev ${r.now}`
+}
+
+// ── Change notes ──────────────────────────────────────────────────────────
+
+/** A redesign note, `design/changes/<date>-design-vN.md` (format in docs/STANDARD.md, section 8). */
+export type ChangeNote = {
+  /** The front matter `design-version`, else the `vN` of the file name. */
+  version: number | undefined
+  date: string
+  /** `- Changed D3 (Rev 1 → 2): …` lines: the section and its new Rev (and the old one when given). */
+  changed: { id: string; from?: number; rev: number }[]
+  /** `- Added D9 · Title` lines. */
+  added: string[]
+  /** `- Dropped D7 · Title` lines. */
+  dropped: string[]
+}
+
+/**
+ * Reads the changed sections and their new Revs from a redesign note. The `- Changed / Added /
+ * Dropped` bullets are read under `## Changes` (anywhere in the note when it has no such heading).
+ * Lines it does not recognise are skipped; never throws.
+ */
+export function parseChangeNote(md: string | undefined, name = ''): ChangeNote {
+  const note: ChangeNote = { version: undefined, date: '', changed: [], added: [], dropped: [] }
+  const fromName = /^(\d{4}-\d{2}-\d{2})?-?design-v(\d+)\.md$/i.exec(name)
+  note.date = fromName?.[1] ?? ''
+  note.version = fromName?.[2] === undefined ? undefined : Number(fromName[2])
+  if (md === undefined) return note
+  const { values, body } = frontMatter(md.split(/\r?\n/))
+  note.version = intOf(values['design-version']) ?? note.version
+  if (values.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(values.date)) note.date = values.date
+  const parts = splitH2(body)
+  const changes = parts.find(p => /^##\s+changes\s*$/i.test(p.head))
+  const lines = changes?.body ?? body
+  for (const line of lines) {
+    const c = /^\s*[-*]\s+changed\s+D(\d+)\b[^(\n]*\(\s*rev\s*(?:(\d+)\s*(?:→|->|–>|=>)\s*)?(\d+)\s*\)/i.exec(line)
+    if (c !== null) {
+      const id = `D${Number(c[1])}`
+      if (!note.changed.some(x => x.id === id)) note.changed.push({ id, ...(c[2] === undefined ? {} : { from: Number(c[2]) }), rev: Number(c[3]) })
+      continue
+    }
+    const a = /^\s*[-*]\s+(added|dropped)\s+D(\d+)\b/i.exec(line)
+    if (a === null) continue
+    const id = `D${Number(a[2])}`
+    const list = a[1]!.toLowerCase() === 'added' ? note.added : note.dropped
+    if (!list.includes(id)) list.push(id)
+  }
+  return note
+}
+
+/** `D3 now rev 2, D9 added, D7 dropped`; '' when the note names no section. */
+export function changeSummary(note: ChangeNote): string {
+  return [...note.changed.map(c => `${c.id} now rev ${c.rev}`), ...note.added.map(id => `${id} added`), ...note.dropped.map(id => `${id} dropped`)].join(', ')
+}
+
 // ── Progress ──────────────────────────────────────────────────────────────
 
 export type BuildState = 'not-started' | 'shaping' | 'queued' | 'building' | 'built' | 'stuck' | 'deferred' | 'dropped'

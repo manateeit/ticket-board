@@ -33,6 +33,8 @@ export type Snapshot = {
   binding?: Binding
   /** File names in `design/changes/` next to the bound DESIGN.md; undefined when there is no such folder. */
   changes?: string[]
+  /** The texts of the redesign notes (`<date>-design-vN.md`) in `changes`, by file name (0015). */
+  changeNotes?: Record<string, string>
 }
 
 export type View =
@@ -359,6 +361,8 @@ export async function refresh($: $, force = false): Promise<boolean> {
     if (JSON.stringify(binding) !== JSON.stringify(prev?.binding)) changed = true
     const changes = binding?.designPath === undefined ? undefined : await listChanges($, binding.designPath)
     if (JSON.stringify(changes) !== JSON.stringify(prev?.changes)) changed = true
+    const changeNotes = binding?.designPath === undefined || changes === undefined ? undefined : await readChangeNotes($, binding.designPath, changes)
+    if (JSON.stringify(changeNotes) !== JSON.stringify(prev?.changeNotes)) changed = true
     if (force || prev === undefined) S.hasRouter = (await readOr($, abs('.claude/agents/router.md'))) !== undefined
     const files = new Map<string, TicketFiles>()
     const folders = entries.filter(e => e.kind === 'dir' && /^\d{1,5}-/.test(e.name))
@@ -387,7 +391,7 @@ export async function refresh($: $, force = false): Promise<boolean> {
       })
     }
     if (prev !== undefined && prev.files.size !== files.size) changed = true
-    S.snap = { hasBoard: boardEntry !== undefined, boardText, board, boardMtime, files, loadedAt: Date.now(), binding, changes }
+    S.snap = { hasBoard: boardEntry !== undefined, boardText, board, boardMtime, files, loadedAt: Date.now(), binding, changes, ...(changeNotes === undefined ? {} : { changeNotes }) }
     if (changed) redraw($)
     return changed
   } finally {
@@ -395,9 +399,21 @@ export async function refresh($: $, force = false): Promise<boolean> {
   }
 }
 
+const changesFolder = (designPath: string) => `${designPath.includes('/') ? designPath.slice(0, designPath.lastIndexOf('/')) : '.'}/changes`
+
+/** The redesign notes among `names` (`<date>-design-vN.md`), read: the History shows the sections each one changed. */
+async function readChangeNotes($: $, designPath: string, names: readonly string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  for (const name of names.filter(n => /design-v\d+\.md$/i.test(n))) {
+    const text = await readOr($, `${changesFolder(designPath)}/${name}`)
+    if (text !== undefined) out[name] = text
+  }
+  return out
+}
+
 /** The `changes/` folder beside DESIGN.md (design/changes/): its .md names, or undefined when it does not exist or is empty. */
 async function listChanges($: $, designPath: string): Promise<string[] | undefined> {
-  const folder = `${designPath.includes('/') ? designPath.slice(0, designPath.lastIndexOf('/')) : '.'}/changes`
+  const folder = changesFolder(designPath)
   try {
     const entries = await $.fs.list(abs(folder))
     const names = entries.filter(e => e.kind === 'file' && /\.md$/i.test(e.name)).map(e => e.name).sort()

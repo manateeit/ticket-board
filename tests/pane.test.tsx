@@ -1132,8 +1132,7 @@ test('ticket Properties: Plan item, Design chips, stale notice, off-plan, missin
   expect(drawn).toContain(' D1@2 ')
   expect(drawn).toContain('D3@1 · stale')
   expect(drawn).not.toContain('D1@2 · stale')
-  expect(drawn).toContain('Written against D3 rev 1, now rev 2')
-  expect(drawn).not.toContain('Review')
+  expect(drawn).toContain('Written against D3 rev 1, now rev 2 — Review')
   await ui.press({ key: 'back' })
   await ui.press({ key: 'open-0006' })
   drawn = await drawnText(ui)
@@ -2069,3 +2068,157 @@ test('the plan queue survives a redraw and a trip to the board and back (desktop
   w.done()
   await ui.unmount()
 })
+
+// ---------- Redesign notes and stale tickets (0015) ----------
+
+const T15_DESIGN = `---
+design: Salon
+version: 2
+status: approved
+updated: 2026-11-10
+---
+# Salon: design
+
+## D1 · Booking
+Rev: 1
+What: book a slot.
+
+## D3 · Payments
+Rev: 2
+What: charge a card.
+`
+
+const T15_PLAN = `---
+plan: Salon
+design-version: 2
+updated: 2026-11-10
+---
+# Salon: plan
+
+## P1 · Foundations
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P1.1 | Payments | M | — | D1, D3 | a card is charged | 0001, 0002, 0003, 0004, 0005 |
+`
+
+const T15_BOARD = `# Salon board
+
+Design: design/DESIGN.md · Plan: design/PLAN.md
+
+| #    | Ticket          | Status      | Mode | Blocked by | Owner | Notes |
+|------|-----------------|-------------|------|------------|-------|-------|
+| 0001 | Old payments    | done        | solo | —          | —     | merged |
+| 0002 | New payments    | draft       | solo | —          | —     | |
+| 0003 | Refunds         | in-progress | solo | —          | —     | |
+| 0004 | Odd design line | draft       | solo | —          | —     | |
+| 0005 | Unknown section | draft       | solo | —          | —     | |
+
+Status flow: draft → ready → in-progress → in-check → done
+`
+
+const T15_NOTE = `---
+change: design-v2
+date: 2026-11-10
+design-version: 2
+---
+# Design v2
+
+## Why
+Cards only.
+
+## Changes
+- Changed D3 (Rev 1 → 2): cards only, no invoices
+
+## Follow-ups
+- Replan: P1.1
+`
+
+const T15_TICKETS: [string, string, string, string][] = [
+  ['0001', 'old-payments', 'Old payments', 'Plan: P1.1\nDesign: D1@1, D3@1'],
+  ['0002', 'new-payments', 'New payments', 'Plan: P1.1\nDesign: D3@2'],
+  ['0003', 'refunds', 'Refunds', 'Plan: P1.1\nDesign: D3@1'],
+  ['0004', 'odd-design-line', 'Odd design line', 'Plan: P1.1\nDesign: D3@two, @@,, ???'],
+  ['0005', 'unknown-section', 'Unknown section', 'Plan: P1.1\nDesign: D9@1'],
+]
+
+function t15Files(): Record<string, string> {
+  const out: Record<string, string> = {
+    ...GIT_READY,
+    'tickets/BOARD.md': T15_BOARD,
+    '/repo/design/DESIGN.md': T15_DESIGN,
+    '/repo/design/PLAN.md': T15_PLAN,
+    '/repo/design/changes/2026-11-10-design-v2.md': T15_NOTE,
+  }
+  for (const [n, slug, title, head] of T15_TICKETS) {
+    out[`tickets/${n}-${slug}/rd.md`] = rmRd(n, title, head)
+    out[`tickets/${n}-${slug}/eval.md`] = EVAL
+  }
+  return out
+}
+
+const T15_CHIP = 'Written against D3 rev 1, now rev 2 — Review'
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`stale chip on the board rows and the alert; Review opens the ticket page only (${surface})`, async ($, on) => {
+    const spawned: string[] = []
+    on('agent.spawn', (_: unknown, e: { description: string }) => (spawned.push(e.description), { deny: 'no agents in this test' }))
+    const { ui, fs, writes, filled } = await boot($, on, surface, t15Files(), { blank: true })
+    await ui.find({ type: 'Text', text: /Old payments/ })
+    const before = new Map(fs.files)
+    let drawn = await drawnText(ui)
+    // D3@1 against Rev 2 is stale (the done and the in-progress ticket too); D3@2 is not.
+    expect(drawn).toContain('stale-0001-D3')
+    expect(drawn).toContain('stale-0003-D3')
+    expect(drawn).not.toContain('stale-0002')
+    expect(drawn).toContain(T15_CHIP)
+    // A malformed Design: line and an unknown section give no flag.
+    expect(drawn).not.toContain('stale-0004')
+    expect(drawn).not.toContain('stale-0005')
+    // The stale tickets count in the board alerts: the only roadmap warning here.
+    expect(drawn).toContain('⚠ 2 stale tickets: 0001, 0003')
+    // Review on the done ticket's row opens its ticket page.
+    await ui.press({ key: 'stale-0001-D3' })
+    await ui.find({ key: 'review-D3' })
+    drawn = await drawnText(ui)
+    expect(drawn).toContain(T15_CHIP)
+    expect(drawn).not.toContain('stale-0001-D3')
+    // Review on the ticket page stays on the ticket page.
+    await ui.press({ key: 'review-D3' })
+    await ui.find({ key: 'review-D3' })
+    // No job, no prompt, no file written: the done ticket's files and board row are byte-identical.
+    expect(spawned).toEqual([])
+    expect(filled).toEqual([])
+    expect(writes).toEqual([])
+    expect([...fs.files]).toEqual([...before])
+    expect(fs.files.get('tickets/0001-old-payments/rd.md')).toBe(rmRd('0001', 'Old payments', 'Plan: P1.1\nDesign: D1@1, D3@1'))
+    expect(fs.files.get('tickets/BOARD.md')).toBe(T15_BOARD)
+    await ui.unmount()
+  })
+
+  test(`ticket pages: D3@2 and malformed Design: lines show no stale chip (${surface})`, async ($, on) => {
+    const { ui, writes } = await boot($, on, surface, t15Files(), { blank: true })
+    await ui.find({ type: 'Text', text: /Old payments/ })
+    for (const n of ['0002', '0004', '0005']) {
+      await ui.press({ key: `open-${n}` })
+      await ui.find({ key: 'back' })
+      const drawn = await drawnText(ui)
+      expect(drawn).not.toContain('Written against')
+      expect(drawn).not.toContain('review-D')
+      await ui.press({ key: 'back' })
+    }
+    await ui.press({ key: 'open-0003' })
+    await ui.find({ key: 'review-D3' })
+    expect(await drawnText(ui)).toContain(T15_CHIP)
+    expect(writes).toEqual([])
+    await ui.unmount()
+  })
+
+  test(`Design history reads the redesign note's changed sections and new Revs (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, t15Files(), { blank: true })
+    await ui.find({ key: 'tab-design' })
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D3' })
+    expect(await drawnText(ui)).toContain('Design v2 · 2026-11-10 · D3 now rev 2  2026-11-10-design-v2.md')
+    await ui.unmount()
+  })
+}
