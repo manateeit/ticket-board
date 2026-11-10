@@ -23,6 +23,7 @@ import {
   say,
   statusOf,
   type View,
+  abs,
 } from './store'
 
 type $ = EngineInterface
@@ -638,7 +639,7 @@ export async function createTicket($: $, withAI: boolean) {
 export async function draftInChat($: $) {
   const idea = (S.drafts.get('new-idea') ?? '').trim()
   if (idea === '') return say($, 'Describe the ticket first', 'warning')
-  const hasOwn = await $.fs.exists('.claude/skills/ticket/SKILL.md').catch(() => false)
+  const hasOwn = await $.fs.exists(abs('.claude/skills/ticket/SKILL.md')).catch(() => false)
   await fill($, `/${hasOwn ? 'ticket' : 'ticket-board:ticket'} ${idea}`, 'In your prompt box — press Enter to draft it in chat')
 }
 
@@ -741,11 +742,11 @@ function readmeView($: $, ui: UI): RenderChildren {
 export async function setUp($: $) {
   try {
     const root = $.plugin.root
-    const board = await $.fs.read(`${root}/templates/BOARD.md`)
-    await $.fs.write(boardPath(), board)
+    const board = await $.fs.read(abs(`${root}/templates/BOARD.md`))
+    await $.fs.write(abs(boardPath()), board)
     for (const f of ['rd.md', 'eval.md']) {
       const path = `${dir()}/TEMPLATE/${f}`
-      if (!(await $.fs.exists(path))) await $.fs.write(path, await $.fs.read(`${root}/skills/ticket/TEMPLATE/${f}`))
+      if (!(await $.fs.exists(abs(path)))) await $.fs.write(abs(path), await $.fs.read(abs(`${root}/skills/ticket/TEMPLATE/${f}`)))
     }
     await refresh($, true)
     say($, `Created ${boardPath()} — press + New ticket to add the first one`)

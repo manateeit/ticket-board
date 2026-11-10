@@ -17,7 +17,7 @@ function brief($: $, number: string, folder: string, kind: Job['kind'], idea?: s
   const path = `${dir()}/${folder}`
   const date = today(Date.now())
   const common = [
-    `Repository root: ${S.cwd}. Ticket folder: ${path}/ (rd.md and eval.md). Board: ${dir()}/BOARD.md.`,
+    `Repository root: ${S.root || S.cwd}. Ticket folder: ${path}/ (rd.md and eval.md). Board: ${dir()}/BOARD.md.`,
     `Follow the ticket rules in ${rules($)} (read it first; the TEMPLATE folder next to it shows the exact sections).`,
     `Only write ${path}/rd.md and ${path}/eval.md. Never edit BOARD.md, never write code, never touch other files — writes elsewhere are refused.`,
     `When you resolve a question from the code yourself, keep it as a bullet and add a line under it: \`  **Resolved ${date} (agent, from code: <path>)**: <answer>\`.`,

@@ -313,3 +313,14 @@ test('colors follow the app by default; dark and light glass are one press away'
   await ui.find({ type: 'Text', text: /Colors: app/ })
   await ui.unmount()
 })
+
+test('in a linked worktree the board is read from the main checkout', async ($, on) => {
+  const { ui, calls } = await boot($, on, 'desktop', {
+    '/repo/.git': 'gitdir: /main/.git/worktrees/w1\n',
+    '/main/.git/worktrees/w1/HEAD': 'ref: refs/heads/ticket/0016\n',
+    '/main/.git/worktrees/w1/commondir': '../..\n',
+  })
+  await ui.find({ type: 'Text', text: /read from the main checkout: \/main/ })
+  expect(calls.some(c => c.startsWith('list /main/tickets'))).toBe(true)
+  await ui.unmount()
+})

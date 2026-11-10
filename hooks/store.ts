@@ -44,6 +44,8 @@ export type Options = { ticketsDir: string; pollSeconds: number; autoOpen: boole
 export const S = {
   options: { ticketsDir: 'tickets', pollSeconds: 3, autoOpen: true, writerModel: '' } as Options,
   cwd: '',
+  /** Where tickets/ lives: the main checkout when the session runs in a linked git worktree (agent or EnterWorktree), else cwd. '' until resolved. */
+  root: '',
   snap: undefined as Snapshot | undefined,
   view: { kind: 'board' } as View,
   filters: { ...DEFAULT_FILTERS } as Filters,
@@ -83,6 +85,7 @@ export const S = {
 export function resetSession(cwd: string) {
   Object.assign(S, {
     cwd,
+    root: '',
     snap: undefined,
     view: { kind: 'board' },
     filters: { ...DEFAULT_FILTERS },
@@ -108,7 +111,27 @@ export function resetSession(cwd: string) {
 
 export const dir = () => S.options.ticketsDir.replace(/\/+$/, '') || 'tickets'
 export const boardPath = () => `${dir()}/BOARD.md`
-export const abs = (rel: string) => (rel.startsWith('/') ? rel : `${S.cwd}/${rel}`)
+export const abs = (rel: string) => (rel.startsWith('/') ? rel : `${S.root || S.cwd}/${rel}`)
+
+/**
+ * A worktree holds the board as it was when its branch was cut, so tickets added since are missing
+ * there. The router keeps tickets/BOARD.md in the main checkout: when the session runs in a linked
+ * worktree whose main checkout has a board, read and write that one.
+ */
+export async function resolveRoot($: $): Promise<void> {
+  const cwd = S.cwd || '.'
+  S.root = cwd
+  if ((await readOr($, `${cwd}/.git/HEAD`)) !== undefined) return
+  const target = parseGitFile((await readOr($, `${cwd}/.git`)) ?? '')
+  if (target === '') return
+  const gitDir = target.startsWith('/') ? target : `${cwd}/${target}`
+  const common = ((await readOr($, `${gitDir}/commondir`)) ?? '').trim()
+  const commonDir = (common === '' ? gitDir.replace(/\/worktrees\/[^/]+\/?$/, '') : common.startsWith('/') ? common : `${gitDir}/${common}`).replace(/\/+$/, '')
+  const resolved = commonDir.split('/').reduce<string[]>((acc, part) => (part === '..' ? acc.slice(0, -1) : part === '.' || part === '' ? acc : [...acc, part]), [])
+  if (resolved.at(-1) !== '.git') return
+  const main = `/${resolved.slice(0, -1).join('/')}`
+  if (main !== cwd && (await readOr($, `${main}/${boardPath()}`)) !== undefined) S.root = main
+}
 
 export function redraw($: $) {
   // A redraw is best effort: the pane may have closed (or the session ended) meanwhile.
@@ -126,7 +149,7 @@ export function say($: $, text: string, tone: 'success' | 'error' | 'warning' = 
 
 async function readOr($: $, path: string): Promise<string | undefined> {
   try {
-    return await $.fs.read(path)
+    return await $.fs.read(abs(path))
   } catch {
     return undefined
   }
@@ -134,7 +157,7 @@ async function readOr($: $, path: string): Promise<string | undefined> {
 
 async function listOr($: $, path: string) {
   try {
-    return await $.fs.list(path)
+    return await $.fs.list(abs(path))
   } catch {
     return []
   }
@@ -188,6 +211,7 @@ export async function refresh($: $, force = false): Promise<boolean> {
   if (S.isRefreshing) return false
   S.isRefreshing = true
   try {
+    if (S.root === '') await resolveRoot($)
     const prev = S.snap
     const entries = await listOr($, dir())
     const boardEntry = entries.find(e => e.name === 'BOARD.md' && e.kind === 'file')
@@ -209,7 +233,7 @@ export async function refresh($: $, force = false): Promise<boolean> {
       S.project = await loadProject($)
       if (JSON.stringify(S.project) !== was) changed = true
     }
-    if (force || prev === undefined) S.hasRouter = (await readOr($, `${S.cwd}/.claude/agents/router.md`)) !== undefined
+    if (force || prev === undefined) S.hasRouter = (await readOr($, abs('.claude/agents/router.md'))) !== undefined
     const files = new Map<string, TicketFiles>()
     const folders = entries.filter(e => e.kind === 'dir' && /^\d{1,5}-/.test(e.name))
     for (const f of folders) {
@@ -298,9 +322,9 @@ export function items(): (Item & { isUnlisted: boolean; blockedBy: string[] })[]
 
 /** Re-reads BOARD.md, applies one row edit and writes it back. Throws with a person-readable message. */
 export async function editRow($: $, number: string, changes: Partial<Record<Column, string>>, expectStatus?: string) {
-  const text = await $.fs.read(boardPath())
+  const text = await $.fs.read(abs(boardPath()))
   const next = setCells(text, number, changes, expectStatus)
-  if (next !== text) await $.fs.write(boardPath(), next)
+  if (next !== text) await $.fs.write(abs(boardPath()), next)
   await refresh($)
 }
 
@@ -308,8 +332,8 @@ export async function saveAnswer($: $, number: string, q: Question, answer: stri
   const f = S.snap?.files.get(number)
   if (f === undefined) throw new Error(`Ticket ${number} has no folder`)
   const path = `${dir()}/${f.folder}/rd.md`
-  const text = await $.fs.read(path)
-  await $.fs.write(path, answerQuestion(text, q.index, q.text, answer, today(Date.now())))
+  const text = await $.fs.read(abs(path))
+  await $.fs.write(abs(path), answerQuestion(text, q.index, q.text, answer, today(Date.now())))
   await refresh($)
 }
 
@@ -375,11 +399,11 @@ export async function createSkeleton(
     '- <...>',
     '',
   ].join('\n')
-  await $.fs.write(`${dir()}/${folder}/rd.md`, rd)
-  await $.fs.write(`${dir()}/${folder}/eval.md`, ev)
-  const text = await $.fs.read(boardPath())
+  await $.fs.write(abs(`${dir()}/${folder}/rd.md`), rd)
+  await $.fs.write(abs(`${dir()}/${folder}/eval.md`), ev)
+  const text = await $.fs.read(abs(boardPath()))
   await $.fs.write(
-    boardPath(),
+    abs(boardPath()),
     addRow(text, { number, title: idea.title, status: 'draft', mode: idea.mode, blockedBy: idea.blockedBy, notes }),
   )
   await refresh($, true)

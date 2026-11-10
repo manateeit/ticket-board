@@ -9,7 +9,7 @@ import { STATUSES } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
 import { G, HUE, SCHEMES, STATUS_HEX, barSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
-import { S, setSchemeChoice, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf } from './store'
+import { S, setSchemeChoice, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf, abs } from './store'
 import {
   blockersOpen,
   checksFor,
@@ -669,7 +669,7 @@ async function setKind($: $, number: string, kind: Kind) {
   if (f === undefined) return say($, `Ticket ${number} has no folder`, 'error')
   const path = `${dir()}/${f.folder}/rd.md`
   try {
-    const rd = await $.fs.read(path)
+    const rd = await $.fs.read(abs(path))
     const lines = rd.split(/\r?\n/)
     const eol = rd.includes('\r\n') ? '\r\n' : '\n'
     const at = lines.slice(0, 12).findIndex(l => /^\s*(\*\*)?type(\*\*)?\s*:/i.test(l))
@@ -678,7 +678,7 @@ async function setKind($: $, number: string, kind: Kind) {
       const h = lines.findIndex(l => /^#\s/.test(l))
       lines.splice(h + 1, 0, '', `Type: ${kind}`)
     }
-    await $.fs.write(path, lines.join(eol))
+    await $.fs.write(abs(path), lines.join(eol))
     await refresh($, true)
     say($, `${number} is now a ${KIND[kind].label.toLowerCase()}`)
   } catch (err) {
@@ -1263,6 +1263,9 @@ export function ProjectBar($: $, ui: UI): RenderChildren {
           </Text>
         )}
       </Box>
+      {S.root !== '' && S.root !== S.cwd && (
+        <Text color={G.soft} size="footnote">{`This session runs in a worktree; the board is read from the main checkout: ${S.root}`}</Text>
+      )}
     </Box>
   )
 }
