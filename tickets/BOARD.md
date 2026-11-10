@@ -18,8 +18,8 @@ the checker fails the ticket if they are stale.
 | 0002 | Ticket board's own design and plan in the standard | done | solo | 0001 | — | merged 2ab9878 (no rebase), 7 checks PASS + 1 N/A, 36/36 tests |
 | 0003 | Roadmap parser and progress computation | done | solo | 0001 | — | merged fd81dec, all 9 checks PASS, 53/53 tests |
 | 0004 | Start screen for new projects | done | solo | 0003 | — | merged 405f6f0 (3 rounds), all 8 checks PASS, 86/86 tests |
-| 0005 | Brainstorm, design and planning skills and agents | in-progress | solo | 0001 | router · worker | questions answered; worker dispatched |
-| 0006 | Plan progress on the board | in-progress | solo | 0003 | router · worker | worker dispatched on top of 0004 |
+| 0005 | Brainstorm, design and planning skills and agents | done | solo | 0001 | — | merged 5ea7423, all 9 checks PASS, 86/86 tests · live interactive session not yet tried by a person |
+| 0006 | Plan progress on the board | done | solo | 0003 | — | merged 2393c6a, all 7 checks PASS, 101/101 tests |
 | 0007 | Plan and Design views | draft | solo | 0006 | — | AI draft done · 4 open questions · note from 0003: a plan without phases has current phase "" |
 | 0008 | Tickets from the plan, redesign and replan | draft | solo | 0005, 0007 | — | AI draft done · 4 open questions |
 | 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | draft | solo | 0008 | — | AI draft done · 2 open questions |
