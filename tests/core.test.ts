@@ -19,7 +19,8 @@ import {
   type StartFacts,
 } from '../hooks/core/project'
 import { DEFAULT_FILTERS, OFF_PLAN, comparePhase, kindOf, nextNumber, resultOf, query, runLine, slugify, sortItems, titleFromIdea, type Filters, type Item, type Sort } from '../hooks/core/query'
-import { blockedByFor, coveredDoneWhen, designLine, missingNote, planBatch, planBrief, roadmap, setPlanTicket, ticketRef } from '../hooks/core/roadmap'
+import { blockedByFor, changeSummary, coveredDoneWhen, designLine, missingNote, parseChangeNote, planBatch, planBrief, roadmap, setPlanTicket, staleOf, staleText, ticketRef } from '../hooks/core/roadmap'
+import { historyOf } from '../hooks/core/designfile'
 import { answerQuestion, docsGaps, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
 
@@ -492,4 +493,94 @@ test('docs gaps: a ticket from the plan needs ## Docs naming README.md and the D
   expect(docsGaps('# 0002 — X\n\n## Docs\n- docs/api.md — new route\n', evOk)).toEqual(['## Docs naming README.md'])
   expect(docsGaps(rdOk, '# Eval\n\n## Checks\n1. Tests\n')).toEqual(['the "Docs and README updated" check'])
   expect(docsGaps(undefined, undefined).length).toBe(2)
+})
+
+// ---------- Redesign notes and stale tickets (0015) ----------
+
+const T15_DESIGN = `---
+design: Salon
+version: 2
+status: approved
+updated: 2026-11-10
+---
+# Salon: design
+
+## D1 · Booking
+Rev: 1
+
+## D3 · Payments
+Rev: 2
+`
+
+const T15_PLAN = `---
+plan: Salon
+design-version: 2
+updated: 2026-11-10
+---
+# Salon: plan
+
+## P1 · Foundations
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P1.1 | Payments | M | — | D1, D3 | a card is charged | — |
+`
+
+const t15rd = (design: string) => `# 0001 — X\n\nType: feature\nPlan: P1.1\n${design}\n\n## What\n\nx\n`
+
+test('stale detection: D3@1 against Rev 2 is stale and counted in the alerts; D3@2 is not', () => {
+  const old = ticketRef({ number: '0001', status: 'draft' }, t15rd('Design: D3@1'))
+  const cur = ticketRef({ number: '0002', status: 'draft' }, t15rd('Design: D3@2'))
+  const rm = roadmap(T15_DESIGN, T15_PLAN, [old, cur])
+  expect(staleOf(rm.links, '0001')).toEqual([{ ticket: '0001', section: 'D3', rev: 1, now: 2 }])
+  expect(staleOf(rm.links, '0002')).toEqual([])
+  expect(staleText(staleOf(rm.links, '0001')[0]!)).toBe('Written against D3 rev 1, now rev 2')
+  const alert = rm.checks.find(a => a.id === 'stale-tickets')!
+  expect(alert.subjects).toEqual(['0001'])
+  // Only D3@2: nothing stale, no alert.
+  expect(roadmap(T15_DESIGN, T15_PLAN, [cur]).checks.some(a => a.id === 'stale-tickets')).toBe(false)
+})
+
+test('stale detection: done and in-progress tickets are flagged; malformed lines and unknown sections are not', () => {
+  const done = ticketRef({ number: '0001', status: 'done' }, t15rd('Design: D3@1'))
+  const busy = ticketRef({ number: '0002', status: 'in-progress' }, t15rd('Design: D1@1, D3@1'))
+  const bad = ['Design: D3@two', 'Design: @@,, ???', 'Design: D3@', 'Design:', 'Design: D9@1', 'Design: X3@1'].map((line, n) =>
+    ticketRef({ number: `00${10 + n}`, status: 'draft' }, t15rd(line)),
+  )
+  const rm = roadmap(T15_DESIGN, T15_PLAN, [done, busy, ...bad])
+  expect(rm.links.stale.map(r => r.ticket)).toEqual(['0001', '0002'])
+  expect(rm.checks.find(a => a.id === 'stale-tickets')!.subjects).toEqual(['0001', '0002'])
+  for (const t of bad) expect(staleOf(rm.links, t.number)).toEqual([])
+  // A missing or unreadable design never flags anything.
+  expect(roadmap(undefined, T15_PLAN, [done]).links.stale).toEqual([])
+  expect(roadmap('not a design', T15_PLAN, [done]).links.stale).toEqual([])
+})
+
+test('change note: changed sections with their new Revs, added and dropped ones', () => {
+  const note = parseChangeNote(
+    '---\nchange: design-v3\ndate: 2026-11-10\ndesign-version: 3\n---\n# Design v3\n\n## Why\nx\n\n## Changes\n- Changed D3 (Rev 1 → 2): cards only\n- Changed d4 (rev 2 -> 3): sms\n- Added D9 · Waitlist\n- Dropped D7 · Remote workers\n- Something else\n\n## Follow-ups\n- Changed D8 (Rev 1 → 5): not under Changes\n',
+    '2026-11-10-design-v3.md',
+  )
+  expect(note.version).toBe(3)
+  expect(note.date).toBe('2026-11-10')
+  expect(note.changed).toEqual([
+    { id: 'D3', from: 1, rev: 2 },
+    { id: 'D4', from: 2, rev: 3 },
+  ])
+  expect(note.added).toEqual(['D9'])
+  expect(note.dropped).toEqual(['D7'])
+  expect(changeSummary(note)).toBe('D3 now rev 2, D4 now rev 3, D9 added, D7 dropped')
+  // No front matter: version and date from the file name. Garbage never throws.
+  const bare = parseChangeNote('- Changed D2 (Rev 3)\n', '2026-11-01-design-v2.md')
+  expect(bare).toEqual({ version: 2, date: '2026-11-01', changed: [{ id: 'D2', rev: 3 }], added: [], dropped: [] })
+  expect(parseChangeNote('}{ not a note', 'x.md')).toEqual({ version: undefined, date: '', changed: [], added: [], dropped: [] })
+  expect(parseChangeNote(undefined).changed).toEqual([])
+  // The History line carries the summary for redesign notes whose text was read.
+  const h = historyOf(['2026-11-10-design-v3.md', '2026-11-12-replan.md'], {
+    '2026-11-10-design-v3.md': '## Changes\n- Changed D3 (Rev 1 → 2): x\n',
+    '2026-11-12-replan.md': '- Changed D1 (Rev 1 → 9)',
+  })
+  expect(h.map(e => [e.label, e.sections])).toEqual([
+    ['Replan', ''],
+    ['Design v3', 'D3 now rev 2'],
+  ])
 })

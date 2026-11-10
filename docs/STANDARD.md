@@ -209,7 +209,11 @@ Design: D1@2, D3@1
 
 - `Plan:` is one build id.
 - `Design:` is a comma-separated list of `D<n>@<rev>`: the section and the `Rev` the ticket was
-  written against. When the section's `Rev` is later higher, the ticket is stale.
+  written against. When the section's `Rev` is later higher, the ticket is stale: the pane shows
+  *Written against D3 rev 1, now rev 2 — Review* on its row and page and counts it in the board
+  alerts. A bare `D<n>` (no `@rev`), a reference that cannot be read, or a section DESIGN.md does
+  not have (or has dropped) is never stale. Stale tickets, done ones included, are flagged only;
+  nothing rewrites them.
 - A ticket with no `Plan:` line is **off-plan**. That is fine for bugs and chores; it is shown,
   not punished.
 
@@ -308,6 +312,23 @@ Remote workers are out of scope.
 ## Follow-ups
 - Replan: P2.2 covers a dropped section
 ```
+
+What the pane reads from a redesign note (`<date>-design-vN.md`; replan notes are listed by name
+only):
+
+- `design-version` and `date` from the front matter; when missing, the `vN` and the date of the
+  file name.
+- The bullets under `## Changes` (the whole note when it has no such heading), one per section,
+  case-insensitive:
+  - `- Changed D<n> (Rev <a> → <b>): …`: the section and its new Rev `<b>` (`->` works for `→`;
+    `(Rev <b>)` alone is accepted too).
+  - `- Added D<n> · <Title>`
+  - `- Dropped D<n> · <Title>`
+- Other lines are skipped. The Design view's History shows the result next to the note, e.g.
+  *Design v3 · 2026-11-10 · D3 now rev 2, D9 added, D7 dropped*.
+
+Staleness itself is always computed from the `Rev:` lines in DESIGN.md (section 4), not from the
+note, so a missing or hand-edited note never changes which tickets are stale.
 
 `design/decisions/NNNN-<slug>.md` holds an architecture decision record (context, decision,
 consequences) in free prose.

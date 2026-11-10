@@ -38,6 +38,8 @@ import {
   startIdea,
   startPrompt,
   stepMarks,
+  reviewStale,
+  staleChips,
   ticketPlan,
   type PlanSummary,
   type Frame,
@@ -469,6 +471,13 @@ function tableRow($: $, ui: UI, i: Row, n: number, cols: Col[]): RenderChildren 
               {i.title}
             </Text>
           </Button>
+          {staleChips(i.number).map(c => (
+            <Button key={`stale-${i.number}-${c.section}`} plain onPress={() => reviewStale($, i.number)}>
+              <Text color={STATUS_HEX.draft!} backgroundColor={tint(STATUS_HEX.draft!, 0.14)} size="footnote" wrap="truncate">
+                {`⚠ ${c.label}`}
+              </Text>
+            </Button>
+          ))}
         </Box>,
       )}
       {i.phase !== undefined &&
@@ -936,6 +945,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
   const job = jobFor(number)
   const waiting = blockersOpen(row?.blockedBy ?? [])
   const tp = ticketPlan(number)
+  const stale = staleChips(number)
   const list = query(items(), S.filters)
   const at = list.findIndex(i => i.number === number)
   const prev = at > 0 ? list[at - 1] : undefined
@@ -1017,10 +1027,12 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
           <Text color={STATUS_HEX.blocked!}>{`⛔ Blocked${row?.notes ? ` — ${row.notes}` : ''}`}</Text>
         </Box>
       )}
-      {tp !== undefined && tp.stale.length > 0 && (
+      {stale.length > 0 && (
         <Box key="stale-notice" flexDirection="column" backgroundColor={tint(STATUS_HEX.draft!, 0.12)} borderStyle="round" borderColor={tint(STATUS_HEX.draft!, 0.55)} paddingX={2} paddingY={1}>
-          {tp.stale.map(line => (
-            <Text key={`stale-${line}`} color={STATUS_HEX.draft!}>{`⚠ ${line}`}</Text>
+          {stale.map(c => (
+            <Button key={`review-${c.section}`} plain onPress={() => reviewStale($, number, from)}>
+              <Text color={STATUS_HEX.draft!}>{`⚠ ${c.label}`}</Text>
+            </Button>
           ))}
         </Box>
       )}

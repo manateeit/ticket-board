@@ -4,7 +4,7 @@ import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { STATUSES } from './core/board'
 import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, titleFromIdea, type Filters } from './core/query'
-import { allBuilds, type Alert } from './core/roadmap'
+import { allBuilds, staleOf, staleText, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
 import { startJob, suggestAnswer } from './ai'
@@ -16,6 +16,7 @@ import {
   createSkeleton,
   dir,
   editRow,
+  fullRoadmap,
   isLive,
   items,
   jobFor,
@@ -236,15 +237,30 @@ export function ticketPlan(number: string): TicketPlan | undefined {
   const isMissing = ref?.plan !== undefined && named === undefined
   const isOffPlan = !isMissing && build === undefined
   const item = isMissing ? `${ref!.plan} — not in the plan` : build === undefined ? 'Off-plan' : `${build.id} · ${build.name}`
-  const chips: TicketPlan['chips'] = []
-  const stale: string[] = []
-  for (const d of ref?.design ?? []) {
-    const sec = rm.design.sections.find(x => x.id === d.id)
-    const isStale = sec !== undefined && !sec.isDropped && d.rev !== undefined && d.rev < sec.rev
-    chips.push({ id: d.id, label: d.rev === undefined ? d.id : `${d.id}@${d.rev}`, isStale })
-    if (isStale) stale.push(`Written against ${d.id} rev ${d.rev}, now rev ${sec!.rev}`)
-  }
-  return { item, ...(build === undefined || isMissing ? {} : { build: build.id }), isMissing, isOffPlan, chips, stale }
+  const stale = staleOf(rm.links, number)
+  const chips: TicketPlan['chips'] = (ref?.design ?? []).map(d => ({
+    id: d.id,
+    label: d.rev === undefined ? d.id : `${d.id}@${d.rev}`,
+    isStale: stale.some(r => r.section === d.id),
+  }))
+  return { item, ...(build === undefined || isMissing ? {} : { build: build.id }), isMissing, isOffPlan, chips, stale: stale.map(staleText) }
+}
+
+/**
+ * The stale chips of a ticket (0015), one per `Design:` reference written against an older Rev
+ * than the section has now: `Written against D3 rev 1, now rev 2 — Review`. Read from the bound
+ * design (with or without a plan); empty when there is none. Done and in-progress tickets are
+ * flagged too: the chip only shows, nothing rewrites them.
+ */
+export function staleChips(number: string): { section: string; label: string }[] {
+  const links = roadmapView()?.rm?.links ?? fullRoadmap()?.links
+  if (links === undefined) return []
+  return staleOf(links, number).map(r => ({ section: r.section, label: `${staleText(r)} — Review` }))
+}
+
+/** The stale chip's Review: opens the ticket page, nothing else (no AI job, no file write). */
+export function reviewStale($: $, number: string, from?: View) {
+  go($, { kind: 'ticket', number, tab: 'rd', ...(from === undefined ? {} : { from }) })
 }
 
 let glass = false
@@ -494,6 +510,9 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
                     </Text>
                   </Box>
                 )}
+                {staleChips(i.number).map(c => (
+                  <Button key={`stale-${i.number}-${c.section}`} label={`⚠ ${c.label}`} plain onPress={() => reviewStale($, i.number)} />
+                ))}
                 {i.status === 'draft' && i.openQuestions > 0 && job === undefined && (
                   <Button key={`ans-${i.number}`} label={`Answer (${i.openQuestions})`} plain onPress={() => go($, { kind: 'questions', number: i.number })} />
                 )}
@@ -599,11 +618,11 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval', from?: Vie
               ))}
             </Box>
           )}
-          {tp.stale.map(line => (
-            <Text key={`stale-${line}`} color="warning">{`⚠ ${line}`}</Text>
-          ))}
         </Box>
       )}
+      {staleChips(number).map(c => (
+        <Button key={`review-${c.section}`} label={`⚠ ${c.label}`} plain onPress={() => reviewStale($, number, from)} />
+      ))}
       {row === undefined && <Text color="error">⚠ BOARD.md has no row for this ticket folder.</Text>}
       {f === undefined && <Text color="error">⚠ No folder {dir()}/{number}-… for this row.</Text>}
       {Message(ui)}

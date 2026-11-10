@@ -612,7 +612,7 @@ export function deskDesign($: $, ui: UI, v: DesignView): RenderChildren {
   const marks = sectionMarks(rm)
   const sec = d.sections.find(s => s.id === v.section) ?? d.sections[0]
   const open = openDesignQuestions(rm)
-  const history = S.snap?.changes === undefined ? undefined : historyOf(S.snap.changes)
+  const history = S.snap?.changes === undefined ? undefined : historyOf(S.snap.changes, S.snap.changeNotes)
   const sub = [d.version === undefined ? '' : `v${d.version}`, d.status, d.updated === '' ? '' : `updated ${d.updated}`].filter(Boolean).join(' · ')
   const mark = sec === undefined ? undefined : marks.find(m => m.id === sec.id)?.mark
   const builds = sec === undefined ? [] : allBuilds(rm.plan).filter(b => b.covers.includes(sec.id))
@@ -780,7 +780,7 @@ export function deskDesign($: $, ui: UI, v: DesignView): RenderChildren {
                   </Text>,
                 ]
               : history.map(hl => (
-                  <Text key={`history-${hl.name}`} color={G.soft} size="footnote">{`${hl.label}${hl.date === '' ? '' : ` · ${hl.date}`}  ${hl.name}`}</Text>
+                  <Text key={`history-${hl.name}`} color={G.soft} size="footnote">{`${hl.label}${hl.date === '' ? '' : ` · ${hl.date}`}${hl.sections === '' ? '' : ` · ${hl.sections}`}  ${hl.name}`}</Text>
                 )),
             { key: 'history-card', title: 'History · design/changes' },
           )}
@@ -972,7 +972,7 @@ export function designView($: $, ui: UI, v: DesignView): RenderChildren {
   const marks = sectionMarks(rm)
   const sec = d.sections.find(s => s.id === v.section) ?? d.sections[0]
   const open = openDesignQuestions(rm)
-  const history = S.snap?.changes === undefined ? undefined : historyOf(S.snap.changes)
+  const history = S.snap?.changes === undefined ? undefined : historyOf(S.snap.changes, S.snap.changeNotes)
   const builds = sec === undefined ? [] : allBuilds(rm.plan).filter(b => b.covers.includes(sec.id))
   const goSection = (id: string) => go($, { kind: 'design', section: id, ...(v.from === undefined ? {} : { from: v.from }) })
   const mark = sec === undefined ? 'unplanned' : (marks.find(m => m.id === sec.id)?.mark ?? 'unplanned')
@@ -1054,7 +1054,7 @@ export function designView($: $, ui: UI, v: DesignView): RenderChildren {
           <Text bold>History</Text>
           {history.length === 0 ? <Text key="history-none" dimColor>No change notes yet.</Text> : null}
           {history.map(hl => (
-            <Text key={`history-${hl.name}`} dimColor>{`${hl.label}${hl.date === '' ? '' : ` · ${hl.date}`}  ${hl.name}`}</Text>
+            <Text key={`history-${hl.name}`} dimColor>{`${hl.label}${hl.date === '' ? '' : ` · ${hl.date}`}${hl.sections === '' ? '' : ` · ${hl.sections}`}  ${hl.name}`}</Text>
           ))}
         </Box>
       )}

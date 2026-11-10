@@ -2,6 +2,7 @@
 // question of a D section, and approving the design. Pure text in, text out; the reading is in
 // roadmap.ts (0003), the question format in ticket.ts, both reused unchanged.
 
+import { changeSummary, parseChangeNote } from './roadmap'
 import { answerQuestion, parseQuestions } from './ticket'
 
 export class DesignEditError extends Error {}
@@ -61,10 +62,20 @@ export function approveDesignText(md: string, date: string): string {
   return lines.join(eol)
 }
 
-export type HistoryEntry = { name: string; date: string; label: string }
+export type HistoryEntry = {
+  name: string
+  date: string
+  label: string
+  /** For a redesign note whose text was read: `D3 now rev 2, D9 added`; otherwise ''. */
+  sections: string
+}
 
-/** `design/changes/` file names, newest first: `2026-11-10-design-v3.md` → `v3`, `…-replan.md` → `Replan`. */
-export function historyOf(names: readonly string[]): HistoryEntry[] {
+/**
+ * `design/changes/` file names, newest first: `2026-11-10-design-v3.md` → `v3`, `…-replan.md` → `Replan`.
+ * `texts` holds the redesign notes' contents by file name; their changed sections and new Revs
+ * (`parseChangeNote`) become `sections`.
+ */
+export function historyOf(names: readonly string[], texts: Readonly<Record<string, string>> = {}): HistoryEntry[] {
   return names
     .filter(n => /\.md$/i.test(n))
     .map(name => {
@@ -73,7 +84,9 @@ export function historyOf(names: readonly string[]): HistoryEntry[] {
       const rest = (m?.[2] ?? name.replace(/\.md$/i, '')).trim()
       const v = /^design-v(\d+)$/i.exec(rest)
       const label = v !== null ? `Design v${v[1]}` : /^replan$/i.test(rest) ? 'Replan' : rest.replace(/[-_]+/g, ' ')
-      return { name, date, label }
+      const text = texts[name]
+      const sections = v === null || text === undefined ? '' : changeSummary(parseChangeNote(text, name))
+      return { name, date, label, sections }
     })
     .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0))
 }
