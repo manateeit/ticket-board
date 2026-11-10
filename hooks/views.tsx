@@ -5,6 +5,7 @@ import { STATUSES } from './core/board'
 import { MODE_OPTIONS, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, titleFromIdea, type Filters } from './core/query'
 import { isReadyable, readiness } from './core/ticket'
 import { startJob, suggestAnswer } from './ai'
+import { G, STATUS_HEX, barSvg, heroSvg, tint } from './glass'
 import {
   S,
   boardPath,
@@ -24,8 +25,8 @@ import {
 } from './store'
 
 type $ = EngineInterface
-export type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Input' | 'Select' | 'Markdown'>
-export type Frame = { rows: number; columns: number }
+export type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Input' | 'Select' | 'Markdown'> & { Svg?: Elements['desktop']['Svg'] }
+export type Frame = { rows: number; columns: number; glass?: boolean }
 
 const SHOW_LABEL: Record<string, string> = {
   'needs-me': 'Needs me (draft + blocked)',
@@ -93,12 +94,14 @@ function setFilters($: $, change: Partial<Filters>) {
   redraw($)
 }
 
+let glass = false
+
 function Header(ui: UI, title: string, $: $, back?: View) {
   const { Box, Text, Button } = ui
   return (
-    <Box flexDirection="row" gap={1}>
+    <Box flexDirection="row" gap={1} {...(glass ? { paddingBottom: 1 } : {})}>
       {back !== undefined && <Button key="back" label="‹ Back" plain onPress={() => go($, back)} />}
-      <Text bold wrap="truncate">
+      <Text bold wrap="truncate" {...(glass ? { size: 'heading' as const, weight: 'bold' as const } : {})}>
         {title}
       </Text>
     </Box>
@@ -132,8 +135,26 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
   const isFiltered = S.filters.show !== 'all' || S.filters.mode !== 'any' || S.filters.search.trim() !== ''
   return (
     <Box flexDirection="column" gap={1}>
-      {before !== '' && <Markdown key="board-before" text={before} />}
-      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+      {glass && ui.Svg !== undefined ? (
+        <ui.Svg
+          key="hero"
+          alt={`${heading(before)}: ${counts.map(([s, n]) => `${s} ${n}`).join(', ') || 'no tickets yet'}`}
+          isInteractive
+          source={heroSvg({
+            title: heading(before),
+            path: boardPath(),
+            counts,
+            total: all.length,
+            done: all.filter(i => i.status === 'done').length,
+            needsMe: all.filter(i => i.status === 'draft' || i.status === 'blocked').length,
+          })}
+        />
+      ) : (
+        before !== '' && <Markdown key="board-before" text={before} />
+      )}
+      {glass && ui.Svg !== undefined && intro(before) !== '' && <Markdown key="board-intro" text={intro(before)} />}
+      {glass && ui.Svg !== undefined && all.length > 0 && <ui.Svg key="bar" alt="Share of tickets in each status" source={barSvg(counts, all.length)} />}
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2} {...(glass && ui.Svg !== undefined ? { display: 'none' as never } : {})}>
         {counts.length === 0 ? (
           <Text dimColor>No tickets yet</Text>
         ) : (
@@ -184,7 +205,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
         onSubmit={v => setFilters($, { search: v })}
       />
       {Message(ui)}
-      <Box flexDirection="column">
+      <Box flexDirection="column" {...(glass ? { gap: 1 } : {})}>
         {shown.length === 0 && (
           <Text dimColor>
             {all.length === 0 ? 'The board has no tickets. Press + New ticket.' : `Nothing matches (${all.length} tickets on the board). Try Show: All.`}
@@ -213,12 +234,27 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
             .join(' · ')
           const open = () => go($, { kind: 'ticket', number: i.number, tab: 'rd' })
           return (
-            <Box key={`row-${i.number}`} flexDirection="column" hover={{ backgroundColor: 'promptBorder' }}>
+            <Box
+              key={`row-${i.number}`}
+              flexDirection="column"
+              hover={{ backgroundColor: glass ? G.cardHover : 'promptBorder' }}
+              {...(glass
+                ? { backgroundColor: G.card, borderStyle: 'round', borderColor: tint(STATUS_HEX[i.status] ?? G.accent, 0.4), paddingX: 1 }
+                : {})}
+            >
               <Box flexDirection="row" gap={1}>
                 <Button key={`open-${i.number}`} label={i.number} plain onPress={open} />
-                <Text color={TONE[i.status]}>{i.status.padEnd(11)}</Text>
+                {glass ? (
+                  <Text color={STATUS_HEX[i.status] ?? G.accent} backgroundColor={tint(STATUS_HEX[i.status] ?? G.accent, 0.16)} weight="semibold">
+                    {` ${i.status} `}
+                  </Text>
+                ) : (
+                  <Text color={TONE[i.status]}>{i.status.padEnd(11)}</Text>
+                )}
                 <Box flexGrow={1} flexShrink={1}>
-                  <Text wrap="truncate">{i.title}</Text>
+                  <Text wrap="truncate" {...(glass ? { weight: 'semibold' as const } : {})}>
+                    {i.title}
+                  </Text>
                 </Box>
                 {marks !== '' && <Text color="warning">{marks}</Text>}
               </Box>
@@ -687,7 +723,19 @@ function setupView($: $, ui: UI): RenderChildren {
   )
 }
 
+/** The board's first heading (or a default) for the hero. */
+function heading(before: string): string {
+  const h = /^#\s+(.+)$/m.exec(before)
+  return (h?.[1] ?? 'Ticket board').replace(/[`*]/g, '').trim()
+}
+
+/** The text above the table without its first heading (the hero shows that). */
+function intro(before: string): string {
+  return before.replace(/^#\s+.+$/m, '').trim()
+}
+
 export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
+  glass = frame.glass === true
   const { Text } = ui
   if (S.snap === undefined) {
     void refresh($)

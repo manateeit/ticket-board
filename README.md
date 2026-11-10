@@ -86,6 +86,8 @@ The pane opens beside the chat. When a session starts in a project with a board,
 
 It re-reads the board every few seconds while it is open, and right after any tool writes into `tickets/`, so changes from the router, workers or your editor show up without a refresh.
 
+**Look.** In the Claude desktop app the pane is drawn as one dark "liquid glass" container that paints its own background, so it looks the same whatever the app's theme or window backdrop. At the top is a frosted hero card with slowly drifting aurora colors, a pill for each status count and a ring showing how much of the board is done. Below it are a thin status bar and the board's own text. Each ticket is a rounded glass card edged in its status color, and it lights up when you hover over it. In the terminal the pane uses your terminal theme's colors instead.
+
 ### Board
 
 The board view **is** your `BOARD.md`, live and clickable. It shows the file as written: the heading and intro above the table, the table itself as interactive rows, and the status flow and legend below it. When the router, a worker or your editor changes the file, the view updates on its own.

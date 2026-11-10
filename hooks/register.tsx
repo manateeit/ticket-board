@@ -3,7 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
 import { S, dir, resetSession, editRow, loadFilters, loadJobs, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
-import { drawPane, go } from './views'
+import { G, glassUI } from './glass'
+import { drawPane, go, type UI } from './views'
 
 const PANE = 'ticket-board'
 const TITLE = 'Tickets'
@@ -98,9 +99,20 @@ export const register: Register = (on, options) => {
       S.isOpen = false
     }
     S.isOpen = true
+    const frame = { rows: e.viewport?.rows ?? 30, columns: e.props.bodyColumns }
+    if (e.surface === 'desktop') {
+      // One self-painted glass container: the pane never shows the app's own background through it.
+      const base = $.ui.resolve(e)
+      const ui = { ...glassUI(base as unknown as UI), Svg: base.Svg }
+      return (
+        <base.Box flexDirection="column" flexGrow={1} backgroundColor={G.base} borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
+          {drawPane($, ui, { ...frame, glass: true })}
+        </base.Box>
+      )
+    }
     const ui = $.ui.resolve(e)
     const { Box } = ui
-    return <Box flexDirection="column">{drawPane($, ui, { rows: e.viewport?.rows ?? 30, columns: e.props.bodyColumns })}</Box>
+    return <Box flexDirection="column">{drawPane($, ui, frame)}</Box>
   })
 
   // Keep the ticket writer inside its ticket folder; refresh after edits to the tickets folder.

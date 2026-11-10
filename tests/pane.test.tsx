@@ -167,3 +167,22 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 }
+
+test('desktop draws one self-painted glass container with the hero', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  const svg = await ui.find({ type: 'Svg' } as any)
+  expect(JSON.stringify(svg)).toContain('TICKET BOARD')
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('#0A0F1E')
+  await ui.unmount()
+})
+
+test('terminal keeps the plain theme look', async ($, on) => {
+  const { ui } = await boot($, on, 'terminal')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).not.toContain('#0A0F1E')
+  expect(drawn).not.toContain('TICKET BOARD')
+  await ui.unmount()
+})
