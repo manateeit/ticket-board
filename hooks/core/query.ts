@@ -131,3 +131,18 @@ export function today(nowMs: number): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
+
+/** A one-word outcome from a board row's notes ("merged f681c3c (local…)" → Merged); the full notes live on the ticket page. */
+const RESULTS: [RegExp, string, string][] = [
+  [/\bmerged\b/i, 'Merged', '#34D399'],
+  [/\b(abandon|dropped|won'?t do|wontfix)/i, 'Dropped', '#94A3B8'],
+  [/\b(fail|red|broken)\b/i, 'Failing', '#F87171'],
+  [/\bblocked\b/i, 'Blocked', '#F87171'],
+  [/\b(decided|scope)\b/i, 'Decided', '#A78BFA'],
+  [/\bmoved from github issue\b/i, 'From GitHub', '#7DD3FC'],
+]
+export function resultOf(notes: string): { label: string; hex: string } | undefined {
+  if (notes.trim() === '' || notes.trim() === '—') return undefined
+  for (const [re, label, hex] of RESULTS) if (re.test(notes)) return { label, hex }
+  return undefined
+}

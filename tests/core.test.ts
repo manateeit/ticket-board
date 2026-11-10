@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { BoardEditError, addRow, parseBoard, setCells } from '../hooks/core/board'
-import { kindOf, nextNumber, query, runLine, slugify, titleFromIdea, type Item } from '../hooks/core/query'
+import { kindOf, nextNumber, resultOf, query, runLine, slugify, titleFromIdea, type Item } from '../hooks/core/query'
 import { answerQuestion, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 
 const BOARD = `# Ticket board
@@ -152,4 +152,10 @@ test('ticket types', () => {
 test('run lines', () => {
   expect(runLine(['0011'])).toBe('Run ticket 0011.')
   expect(runLine(['0011', '0013', '0014'])).toBe('Run tickets 0011, 0013 and 0014.')
+})
+
+test('result tags from board notes', () => {
+  expect(resultOf('merged f681c3c (merge commit, local, no push); 3 worker rounds')?.label).toBe('Merged')
+  expect(resultOf('moved from GitHub issue #2 2026-11-09')?.label).toBe('From GitHub')
+  expect(resultOf('—')).toBeUndefined()
 })

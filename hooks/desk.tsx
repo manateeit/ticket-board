@@ -6,7 +6,7 @@ import type { EngineInterface, RenderChildren } from 'claude-code'
 
 import { startJob, suggestAnswer } from './ai'
 import { STATUSES } from './core/board'
-import { KINDS, query, runLine, type Filters, type Kind, type Sort } from './core/query'
+import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
 import { G, STATUS_HEX, barSvg, tint } from './glass'
 import { S, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf } from './store'
@@ -141,15 +141,17 @@ function Kpi(ui: UI, key: string, value: string, label: string, hex: string, sub
 type Row = ReturnType<typeof items>[number]
 
 const COLS: { id: string; label: string; width: string; sort?: Sort }[] = [
-  { id: 'num', label: 'ID', width: '8%', sort: 'number' },
-  { id: 'kind', label: 'Type', width: '10%', sort: 'kind' },
-  { id: 'title', label: 'Title', width: '35%', sort: 'title' },
-  { id: 'status', label: 'Status', width: '13%', sort: 'status' },
+  { id: 'num', label: 'ID', width: '6%', sort: 'number' },
+  { id: 'kind', label: 'Type', width: '9%', sort: 'kind' },
+  { id: 'title', label: 'Title', width: '33%', sort: 'title' },
+  { id: 'status', label: 'Status', width: '11%', sort: 'status' },
+  { id: 'result', label: 'Result', width: '10%' },
   { id: 'deps', label: 'Depends on', width: '10%' },
-  { id: 'q', label: 'Questions', width: '8%', sort: 'questions' },
+  { id: 'q', label: 'Qs', width: '5%', sort: 'questions' },
   { id: 'updated', label: 'Updated', width: '8%', sort: 'updated' },
   { id: 'action', label: '', width: '8%' },
 ]
+
 
 function sortHeader($: $, ui: UI, c: (typeof COLS)[number]) {
   const f = S.filters
@@ -197,7 +199,7 @@ function tableRow($: $, ui: UI, i: Row, n: number): RenderChildren {
   const waiting = blockersOpen(i.blockedBy)
   const hex = hexOf(i.status)
   const cell = (id: string, children: RenderChildren) => (
-    <Box key={`c-${id}-${i.number}`} width={COLS.find(c => c.id === id)!.width} paddingRight={1} flexShrink={0}>
+    <Box key={`c-${id}-${i.number}`} width={COLS.find(c => c.id === id)!.width} paddingRight={1} flexShrink={0} overflow="hidden">
       {children}
     </Box>
   )
@@ -207,7 +209,7 @@ function tableRow($: $, ui: UI, i: Row, n: number): RenderChildren {
       flexDirection="row"
       alignItems="center"
       paddingX={1}
-      paddingY={0}
+      paddingY={1}
       backgroundColor={n % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0)'}
       hover={{ backgroundColor: tint(hex, 0.12) }}
     >
@@ -224,18 +226,20 @@ function tableRow($: $, ui: UI, i: Row, n: number): RenderChildren {
         'title',
         <Box flexDirection="column" flexShrink={1}>
           <Button key={`title-${i.number}`} plain onPress={() => go($, { kind: 'ticket', number: i.number, tab: 'rd' })}>
-            <Text color={i.status === 'done' ? G.soft : G.ink} weight="medium">
+            <Text color={i.status === 'done' ? G.soft : G.ink} weight="medium" wrap="truncate">
               {i.title}
             </Text>
           </Button>
-          {i.notes !== '' && i.notes !== '—' && (
-            <Text color={G.faint} size="footnote" wrap="truncate">
-              {i.notes}
-            </Text>
-          )}
         </Box>,
       )}
       {cell('status', StatusPill(ui, i.status))}
+      {cell(
+        'result',
+        (() => {
+          const r = resultOf(i.notes)
+          return r === undefined ? <Text color={G.faint}>—</Text> : Pill(ui, r.label, r.hex)
+        })(),
+      )}
       {cell(
         'deps',
         i.blockedBy.length === 0 ? (
@@ -398,7 +402,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
         })}
       </Box>
       <Text color={G.faint} size="footnote">
-        {`Showing ${rows.length} of ${total} · click a column to sort · click a ticket to open it`}
+        {`Showing ${rows.length} of ${total} · click a column to sort · open a ticket for its full notes`}
       </Text>
 
       {boardNotes !== '' &&
@@ -689,6 +693,16 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
       {/* Two columns: content | properties */}
       <Box flexDirection="row" gap={2} flexWrap="wrap" alignItems="flex-start">
         <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1} width="66%" minWidth={50}>
+          {row?.notes && row.notes !== '—'
+            ? Card(ui, <Text color={G.ink}>{row.notes}</Text>, {
+                key: 'notes-card-ticket',
+                title: 'Progress notes · BOARD.md',
+                right: (() => {
+                  const r = resultOf(row.notes)
+                  return r === undefined ? undefined : Pill(ui, r.label, r.hex)
+                })(),
+              })
+            : null}
           {QuestionsCard($, ui, number, false)}
           {status === 'draft' &&
             Card(
@@ -756,7 +770,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
               ) : null,
               Prop(ui, 'Owner', row?.owner && row.owner !== '—' ? row.owner : 'Unassigned'),
               Prop(ui, 'Updated', ago(item?.updatedMs ?? 0)),
-              row?.notes && row.notes !== '—' ? Prop(ui, 'Board notes', <Text color={G.soft} size="footnote">{row.notes}</Text>) : null,
+              
               path !== undefined
                 ? Prop(
                     ui,
