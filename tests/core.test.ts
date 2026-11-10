@@ -4,6 +4,7 @@ import { BoardEditError, addRow, parseBoard, setCells } from '../hooks/core/boar
 import { originUrl, parseGitFile, parseHead, parseRemote, projectName, readmeTitle } from '../hooks/core/project'
 import { kindOf, nextNumber, resultOf, query, runLine, slugify, titleFromIdea, type Item } from '../hooks/core/query'
 import { answerQuestion, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
+import { S, logAgentTool, toolDetail } from '../hooks/store'
 
 const BOARD = `# Ticket board
 
@@ -193,4 +194,12 @@ test('readiness: Docs section is a soft check', () => {
   expect(isReadyable(no)).toBe(true)
   const yes = readiness({ rd: base.replace('## Open questions', '## Docs\n\n- README.md — add a CSV section\n\n## Open questions'), ev, blockedBy: [], statusOf: () => undefined })
   expect(yes.find(c => c.id === 'docs')?.isOk).toBe(true)
+})
+
+test('agent activity lines name the file or command', () => {
+  S.cwd = '/repo'
+  expect(toolDetail({ tool: 'Edit', file_path: '/repo/src/app.ts' })).toBe('src/app.ts')
+  expect(toolDetail({ tool: 'Bash', command: 'bun test\necho done' })).toBe('bun test')
+  logAgentTool('x1', { tool: 'Read', file_path: '/repo/README.md' })
+  expect(S.agentLog.get('x1')?.[0]?.detail).toBe('README.md')
 })

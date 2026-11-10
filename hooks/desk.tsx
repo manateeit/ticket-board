@@ -148,6 +148,20 @@ const AGENT_HEX: Record<string, string> = {
   get killed() { return HUE.red },
 }
 
+/** Puts the agent's transcript in the main view. The app may refuse (the desktop can't switch views from a pane yet): say why. */
+async function openTranscript($: $, agentId: string) {
+  try {
+    const shown = (await $.ui.view({ agentId })) as { deny?: string } | undefined
+    if (shown?.deny !== undefined) {
+      S.watching = agentId
+      say($, `The app won't switch to that agent's transcript here (${shown.deny}). Its activity is shown below instead.`, 'warning')
+    }
+  } catch (err) {
+    S.watching = agentId
+    say($, `Can't open that transcript here: ${err instanceof Error ? err.message : String(err)}. Its activity is shown below instead.`, 'warning')
+  }
+}
+
 function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
   const { Box, Text, Button } = ui
   const live = S.agents.filter(isLive)
@@ -175,7 +189,47 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
             <Text color={G.accent} size="footnote">{`${t}${title ? ` ${title.slice(0, 28)}` : ''} ›`}</Text>
           </Button>
         )}
-        {a.teammateId === undefined && <Button key={`agent-w-${a.id}`} label="Watch" plain onPress={() => void $.ui.view({ agentId: a.id }).catch(() => say($, 'That agent cannot be shown here', 'warning'))} />}
+        <Button
+          key={`agent-w-${a.id}`}
+          label={S.watching === a.id ? 'Hide activity' : 'Activity'}
+          plain
+          onPress={() => {
+            S.watching = S.watching === a.id ? '' : a.id
+            redraw($)
+          }}
+        />
+        {a.teammateId === undefined && isLive(a) && (
+          <Button key={`agent-v-${a.id}`} label="Open transcript ↗" plain onPress={() => void openTranscript($, a.id)} />
+        )}
+      </Box>
+    )
+  }
+  const activity = (a: (typeof S.agents)[number]) => {
+    const log = S.agentLog.get(a.id) ?? []
+    return (
+      <Box key={`agent-log-${a.id}`} flexDirection="column" gap={0} marginLeft={2} paddingX={2} paddingY={1} borderStyle="round" borderColor={G.edge}>
+        <Text color={G.soft} size="caption" weight="bold">
+          {`WHAT ${(a.name ?? a.type).toUpperCase()} DID · ${log.length === 0 ? 'nothing seen yet' : `last ${Math.min(log.length, 12)} of ${log.length} steps`}`}
+        </Text>
+        {log.length === 0 ? (
+          <Text color={G.faint} size="footnote">
+            No tool calls seen since the pane loaded. Steps show up here as the agent works.
+          </Text>
+        ) : (
+          log.slice(-12).map((l, n) => (
+            <Box key={`agent-log-${a.id}-${n}`} flexDirection="row" gap={1}>
+              <Text color={G.faint} size="footnote" mono>
+                {clockOf(l.at)}
+              </Text>
+              <Text color={G.accent} size="footnote" weight="medium">
+                {toolWords(l.tool)}
+              </Text>
+              <Text color={G.soft} size="footnote" mono wrap="truncate">
+                {l.detail}
+              </Text>
+            </Box>
+          ))
+        )}
       </Box>
     )
   }
@@ -188,7 +242,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
         </Text>
       ) : (
         <Box key="agents-live" flexDirection="column" gap={0}>
-          {live.map(a => agentRow(a, false))}
+          {live.map(a => [agentRow(a, false), S.watching === a.id ? activity(a) : null])}
         </Box>
       ),
       flight.length > 0 ? (
@@ -212,7 +266,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
           <Text color={G.faint} size="caption" weight="bold">
             RECENTLY FINISHED
           </Text>
-          {past.map(a => agentRow(a, true))}
+          {past.map(a => [agentRow(a, true), S.watching === a.id ? activity(a) : null])}
         </Box>
       ) : null,
       <Text key="agents-hint" color={G.faint} size="footnote">

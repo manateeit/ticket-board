@@ -238,6 +238,10 @@ test('agents button shows what is running', async ($, on) => {
   const drawn = JSON.stringify(await ui.drawn())
   expect(drawn).toContain('worker-0002')
   expect(drawn).toContain('RECENTLY FINISHED')
+  // Activity opens under the row, inside the pane (works where the app can't switch views).
+  await ui.press({ key: 'agent-w-a1' })
+  await ui.find({ type: 'Text', text: /WHAT WORKER-0002 DID/ })
+  await ui.press({ key: 'agent-w-a1' })
   await ui.press({ key: 'agents-hide' })
   await ui.unmount()
 })

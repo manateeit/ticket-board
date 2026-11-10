@@ -2,7 +2,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
-import { S, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
 import { drawPane, go, type UI } from './views'
 
@@ -143,6 +143,10 @@ export const register: Register = (on, options) => {
         S.busyTool = t
         if (S.isOpen) redraw($)
       }
+    }
+    if (e.agentId !== undefined) {
+      logAgentTool(e.agentId, e as unknown as Record<string, unknown>)
+      if (S.isOpen && S.watching === e.agentId) redraw($)
     }
     const job = e.agentId === undefined ? undefined : S.jobs.get(e.agentId)
     const input = e as unknown as { tool: string; file_path?: string; notebook_path?: string }

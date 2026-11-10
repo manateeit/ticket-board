@@ -64,6 +64,10 @@ export const S = {
   /** This session's subagents and teammates, as $.agent.list() last gave them. */
   agents: [] as AgentInfo[],
   showAgents: false,
+  /** Recent tool calls per subagent (from the tool.call hook), newest last: what Watch shows in the pane. */
+  agentLog: new Map<string, { at: number; tool: string; detail: string }[]>(),
+  /** The agent whose activity is open under its row. */
+  watching: '',
   /** The main Claude loop: working since (ms), and the tool it is on. */
   busySince: 0,
   busyTool: '',
@@ -96,6 +100,8 @@ export function resetSession(cwd: string) {
     project: undefined,
   })
   S.jobs.clear()
+  S.agentLog.clear()
+  S.watching = ''
   S.drafts.clear()
   S.suggesting.clear()
 }
@@ -386,6 +392,22 @@ export async function loadFilters($: $) {
   } catch {
     // defaults
   }
+}
+
+/** A short, human line for one tool call: the file, the command or the pattern it was given. */
+export function toolDetail(e: Record<string, unknown>): string {
+  const pick = (k: string) => (typeof e[k] === 'string' ? (e[k] as string) : '')
+  const path = pick('file_path') || pick('notebook_path') || pick('path')
+  const short = (s: string) => (s.length > 90 ? `${s.slice(0, 87)}…` : s)
+  if (path !== '') return short(path.replace(`${S.cwd}/`, ''))
+  return short((pick('command') || pick('pattern') || pick('query') || pick('url') || pick('description') || pick('prompt')).split('\n')[0]!)
+}
+
+export function logAgentTool(agentId: string, e: Record<string, unknown>) {
+  const log = S.agentLog.get(agentId) ?? []
+  log.push({ at: Date.now(), tool: String(e.tool ?? ''), detail: toolDetail(e) })
+  if (log.length > 40) log.splice(0, log.length - 40)
+  S.agentLog.set(agentId, log)
 }
 
 export async function loadScheme($: $) {
