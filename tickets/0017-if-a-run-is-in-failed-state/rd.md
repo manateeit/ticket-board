@@ -60,4 +60,6 @@ Out:
 - Should failure details survive a pane reload or a new session?
   **Resolved 2026-11-10 (agent, from code: hooks/store.ts `resetSession`, `agentLog`)**: no; the agent list and activity log are this-session memory only, so the detail is too.
 - Split out: explain why a ticket on the board is `blocked` or failed its checks (router or checker in another session), from the ticket view? [separate ticket; fold into this one; not wanted]
+  **Resolved 2026-11-10 (human): The ticket already answers this: don't fold it in. It's out of scope and should be a separate ticket, since explaining blocked tickets or failed checks from another session isn't wanted here.**
 - Should the detail box offer a retry action? [no button; a button that fills the prompt box with a retry request for that ticket; later ticket]
+  **Resolved 2026-11-10 (human): No. The detail box gets no retry action in this ticket: no Retry button, no prompt-filling button, and no automatic retry. That idea is for a later ticket.**
