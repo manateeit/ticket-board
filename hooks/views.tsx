@@ -114,18 +114,25 @@ function Message(ui: UI): RenderChildren {
 // ---------- Board ----------
 
 function boardView($: $, ui: UI, frame: Frame): RenderChildren {
-  const { Box, Text, Button, Input, Select } = ui
+  const { Box, Text, Button, Input, Select, Markdown } = ui
   const all = items()
   const counts = STATUSES.map(s => [s, all.filter(i => i.status === s).length] as const).filter(([, n]) => n > 0)
   const list = query(all, S.filters)
-  const pageSize = Math.max(4, frame.rows - 14)
+  const pageSize = Math.max(4, Math.floor((frame.rows - 10) / 2))
   const pages = Math.max(1, Math.ceil(list.length / pageSize))
   const page = Math.min(S.page, pages - 1)
   const shown = list.slice(page * pageSize, page * pageSize + pageSize)
   const run = runnable()
   const unlisted = all.filter(i => i.isUnlisted).length
+  // BOARD.md as written: the text above the table, the live table, the text below it.
+  const lines = (S.snap?.boardText ?? '').split(/\r?\n/)
+  const board = S.snap?.board
+  const before = board === undefined ? '' : lines.slice(0, board.headerLine).join('\n').trim()
+  const after = board === undefined ? '' : lines.slice(board.lastLine + 1).join('\n').trim()
+  const isFiltered = S.filters.show !== 'all' || S.filters.mode !== 'any' || S.filters.search.trim() !== ''
   return (
     <Box flexDirection="column" gap={1}>
+      {before !== '' && <Markdown key="board-before" text={before} />}
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
         {counts.length === 0 ? (
           <Text dimColor>No tickets yet</Text>
@@ -142,8 +149,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
         {run.length > 0 && (
           <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run), 'In your prompt box — press Enter to send it to the router')} />
         )}
-        <Button key="doc" label="BOARD.md" hotkey="b" onPress={() => go($, { kind: 'doc' })} />
-        <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true).then(() => say($, "Refreshed"), () => undefined)} />
+        <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'), () => undefined)} />
       </Box>
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
         <Select
@@ -186,23 +192,60 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
         )}
         {shown.map(i => {
           const job = jobFor(i.number)
+          const waiting = blockersOpen(i.blockedBy)
+          const canReady = i.status === 'draft' && isReadyable(checksFor(i.number))
           const marks = [
             i.openQuestions > 0 ? `?${i.openQuestions}` : '',
-            i.status === 'draft' && isReadyable(checksFor(i.number)) ? '✓' : '',
-            blockersOpen(i.blockedBy).length > 0 && i.status !== 'done' ? '⛔' : '',
+            canReady ? '✓' : '',
+            waiting.length > 0 && i.status !== 'done' ? '⛔' : '',
             job !== undefined ? '✎' : '',
             i.isUnlisted ? '⚠' : '',
           ]
             .filter(Boolean)
             .join(' ')
+          const details = [
+            i.mode !== '' ? i.mode : '',
+            i.blockedBy.length > 0 ? `blocked by ${i.blockedBy.join(', ')}` : '',
+            i.owner !== '' && i.owner !== '—' ? `owner ${i.owner}` : '',
+            i.notes !== '' && i.notes !== '—' ? i.notes : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')
+          const open = () => go($, { kind: 'ticket', number: i.number, tab: 'rd' })
           return (
-            <Box key={`row-${i.number}`} flexDirection="row" gap={1} hover={{ backgroundColor: "promptBorder" }}>
-              <Button key={`open-${i.number}`} label={i.number} plain onPress={() => go($, { kind: 'ticket', number: i.number, tab: 'rd' })} />
-              <Text color={TONE[i.status]}>{i.status.padEnd(11)}</Text>
-              <Box flexGrow={1} flexShrink={1}>
-                <Text wrap="truncate">{i.title}</Text>
+            <Box key={`row-${i.number}`} flexDirection="column" hover={{ backgroundColor: 'promptBorder' }}>
+              <Box flexDirection="row" gap={1}>
+                <Button key={`open-${i.number}`} label={i.number} plain onPress={open} />
+                <Text color={TONE[i.status]}>{i.status.padEnd(11)}</Text>
+                <Box flexGrow={1} flexShrink={1}>
+                  <Text wrap="truncate">{i.title}</Text>
+                </Box>
+                {marks !== '' && <Text color="warning">{marks}</Text>}
               </Box>
-              {marks !== '' && <Text color="warning">{marks}</Text>}
+              <Box flexDirection="row" flexWrap="wrap" columnGap={1} paddingLeft={5}>
+                {details !== '' && (
+                  <Box flexShrink={1}>
+                    <Text dimColor wrap="truncate">
+                      {details}
+                    </Text>
+                  </Box>
+                )}
+                {i.status === 'draft' && i.openQuestions > 0 && job === undefined && (
+                  <Button key={`ans-${i.number}`} label={`Answer (${i.openQuestions})`} plain onPress={() => go($, { kind: 'questions', number: i.number })} />
+                )}
+                {canReady && job === undefined && (
+                  <Button key={`rdy-${i.number}`} label="✓ Ready" plain onPress={() => void setStatus($, i.number, 'ready', 'draft')} />
+                )}
+                {i.status === 'ready' && (
+                  <Button key={`run-${i.number}`} label="▶ Run" plain onPress={() => runTicket($, i.number)} />
+                )}
+                {i.status === 'ready' && (
+                  <Button key={`drf-${i.number}`} label="↩ Draft" plain onPress={() => void setStatus($, i.number, 'draft', 'ready')} />
+                )}
+                {i.status === 'blocked' && (
+                  <Button key={`unb-${i.number}`} label="Unblock" plain onPress={() => void setStatus($, i.number, 'draft', 'blocked')} />
+                )}
+              </Box>
             </Box>
           )
         })}
@@ -216,9 +259,15 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
           <Button key="next" label="Next ›" plain onPress={() => ((S.page = Math.min(pages - 1, page + 1)), redraw($))} />
         </Box>
       )}
+      {isFiltered && list.length < all.length && (
+        <Text dimColor>
+          Showing {list.length} of {all.length} tickets
+        </Text>
+      )}
       <Text dimColor>
         ?N open questions · ✓ can be marked ready · ⛔ waits on a ticket · ✎ AI writing{unlisted > 0 ? ' · ⚠ folder not on board' : ''}
       </Text>
+      {after !== '' && <Markdown key="board-after" text={after} />}
     </Box>
   )
 }

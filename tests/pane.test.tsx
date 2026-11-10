@@ -7,6 +7,8 @@ const BOARD = `# Ticket board
 | 0001 | Health endpoint               | done   | solo | —          | —       | merged |
 | 0002 | CSV export of the orders list | ready  | solo | 0001       | —       | |
 | 0003 | Dark mode for settings page   | draft  | solo | —          | —       | AI draft done · 1 open question |
+
+Status flow: draft → ready → in-progress → in-check → done
 `
 
 const rd = (n: string, title: string, questions: string) => `# ${n} — ${title}
@@ -119,10 +121,24 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`board lists tickets that need the person (${surface})`, async ($, on) => {
+  test(`board shows BOARD.md inline with every ticket (${surface})`, async ($, on) => {
     const { ui } = await boot($, on, surface)
     await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
-    expect(JSON.stringify(await ui.drawn())).not.toContain('Health endpoint')
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn).toContain('Health endpoint')
+    expect(drawn).toContain('Status flow')
+    await ui.unmount()
+  })
+
+  test(`a draft can be answered and marked ready straight from the board (${surface})`, async ($, on) => {
+    const { ui, fs } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'ans-0003' })
+    await ui.input({ key: 'q-0003-0', text: 'Teal', kind: 'submit' } as any)
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'rdy-0003' })
+    expect(fs.files.get('tickets/BOARD.md')!).toContain('| Dark mode for settings page   | ready  |')
     await ui.unmount()
   })
 

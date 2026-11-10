@@ -88,13 +88,20 @@ It re-reads the board every few seconds while it is open, and right after any to
 
 ### Board
 
-- **Counts** for each status at the top, e.g. `draft 3  ready 2  in-progress 1  done 9`.
-- **Buttons:** **+ New ticket**, **▶ Run ready (N)** (when any ticket can run), **BOARD.md** (the file as written), **Refresh**.
-- **Show:** *Needs me* (draft + blocked, the default), *Not done*, *All*, or one status.
+The board view **is** your `BOARD.md`, live and clickable. It shows the file as written: the heading and intro above the table, the table itself as interactive rows, and the status flow and legend below it. When the router, a worker or your editor changes the file, the view updates on its own.
+
+- **Counts** for each status, e.g. `draft 3  ready 2  in-progress 1  done 9`.
+- **Buttons:** **+ New ticket**, **▶ Run ready (N)** (when any ticket can run), **Refresh**.
+- **Show:** *All* (the default, so it reads like the file), *Needs me* (draft + blocked), *Not done*, or one status.
 - **Sort:** number ↑ / ↓, status (flow order), most open questions, recently edited.
 - **Mode:** any, solo, team.
 - **Search:** matches number, title, notes, owner and status. All words must match.
-- **Rows:** number, status, title, and marks:
+- **Each ticket row** shows the number, status, title and marks. A second line shows the mode, *blocked by*, owner and notes, plus quick actions so you can work on the board without opening the ticket:
+  - draft with open questions: **Answer (N)**
+  - draft that passes the ready check: **✓ Ready**
+  - ready: **▶ Run** and **↩ Draft**
+  - blocked: **Unblock** (back to draft)
+- **Marks:**
   - `?2`: two open questions
   - `✓`: a draft that passes the ready check
   - `⛔`: waits on a ticket that is not done
@@ -102,7 +109,7 @@ It re-reads the board every few seconds while it is open, and right after any to
   - `⚠`: a ticket folder with no row on the board (or a row with no folder)
 - Long lists are paged. Your Show/Sort/Mode choices are remembered per project.
 
-Press a ticket number to open it.
+Press a ticket number to open the full ticket.
 
 ### Ticket
 
@@ -125,10 +132,6 @@ Lists the open questions from the ticket's `## Open questions` section, one inpu
 ### New ticket
 
 A box for your idea, plus mode and *blocked by*. See [Creating a ticket](#creating-a-ticket-with-the-ai-writer).
-
-### BOARD.md
-
-The whole board file, rendered: the table, the status flow and the legend, exactly as written.
 
 ## Answering open questions
 
@@ -241,7 +244,6 @@ Keys while the pane has focus:
 |---|---|---|
 | `n` | board | new ticket |
 | `x` | board / ready ticket | run ready / run this ticket |
-| `b` | board | view BOARD.md |
 | `r` | board | refresh |
 | `q` | ticket | answer questions |
 | `m` | draft ticket | mark ready |

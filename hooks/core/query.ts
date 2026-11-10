@@ -38,7 +38,7 @@ export const MODE_OPTIONS = ['any', 'solo', 'team'] as const
 export type ModeFilter = (typeof MODE_OPTIONS)[number]
 
 export type Filters = { show: Show; sort: Sort; mode: ModeFilter; search: string }
-export const DEFAULT_FILTERS: Filters = { show: 'needs-me', sort: 'number', mode: 'any', search: '' }
+export const DEFAULT_FILTERS: Filters = { show: 'all', sort: 'number', mode: 'any', search: '' }
 
 export type Item = {
   number: string
