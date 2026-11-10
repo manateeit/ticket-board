@@ -2,7 +2,8 @@
 *.log
 node_modules/
 .claude-plugin/types/
-.claude/
+.claude/*
+!.claude/agents/
 graft/
 PLAN.md
 .ignore
