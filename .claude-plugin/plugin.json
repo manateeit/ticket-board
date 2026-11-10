@@ -1,0 +1,45 @@
+{
+  "name": "ticket-board",
+  "version": "0.1.0",
+  "description": "Your tickets/BOARD.md in a side pane: browse, sort and filter tickets, answer their open questions, flip draft to ready, create tickets that an AI writer turns into build-ready rd.md + eval.md, and hand ready tickets to the router.",
+  "author": {
+    "name": "manateeit"
+  },
+  "homepage": "https://github.com/manateeit/ticket-board",
+  "repository": "https://github.com/manateeit/ticket-board",
+  "license": "MIT",
+  "keywords": [
+    "tickets",
+    "kanban",
+    "board",
+    "superagent",
+    "pane"
+  ],
+  "userConfig": {
+    "ticketsDir": {
+      "type": "string",
+      "title": "Tickets folder",
+      "description": "Folder (relative to the project) that holds BOARD.md and the ticket folders.",
+      "default": "tickets"
+    },
+    "pollSeconds": {
+      "type": "number",
+      "title": "Refresh every (seconds)",
+      "description": "How often the open pane re-reads the board to pick up changes made by the router, workers or you.",
+      "default": 3
+    },
+    "autoOpen": {
+      "type": "boolean",
+      "title": "Open at start",
+      "description": "Open the pane automatically when a session starts in a project that has a ticket board (only where it can sit beside the chat).",
+      "default": true
+    },
+    "writerModel": {
+      "type": "string",
+      "title": "Ticket writer model",
+      "description": "Model for the AI ticket writer (for example opus or sonnet). Empty uses the session's model.",
+      "default": ""
+    }
+  },
+  "icon": "./.claude-plugin/icon.png"
+}

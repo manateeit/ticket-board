@@ -1,0 +1,14 @@
+{
+  "name": "ticket-board",
+  "owner": {
+    "name": "manateeit"
+  },
+  "plugins": [
+    {
+      "name": "ticket-board",
+      "source": "./",
+      "description": "Ticket board side pane for the super-agent ticket workflow (tickets/BOARD.md, rd.md, eval.md)."
+    }
+  ],
+  "description": "The ticket-board mod for Claude Code: a side pane for tickets/BOARD.md."
+}

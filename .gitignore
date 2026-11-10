@@ -1,0 +1,8 @@
+.DS_Store
+*.log
+node_modules/
+.claude-plugin/types/
+.claude/
+graft/
+PLAN.md
+.ignore

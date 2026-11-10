@@ -1,0 +1,144 @@
+// ticket-board: tickets/BOARD.md and its tickets in a side pane.
+import type { EngineInterface, Register } from 'claude-code'
+
+import { isInsideFolder } from './ai'
+import { S, dir, resetSession, editRow, loadFilters, loadJobs, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { drawPane, go } from './views'
+
+const PANE = 'ticket-board'
+const TITLE = 'Tickets'
+const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
+
+type $ = EngineInterface
+
+/** Runs work in the background; a pane or session that went away meanwhile is not an error. */
+const bg = (p: Promise<unknown>) => void p.catch(() => undefined)
+
+function readOptions(o: Readonly<Record<string, unknown>>): Options {
+  const n = Number(o.pollSeconds)
+  return {
+    ticketsDir: typeof o.ticketsDir === 'string' && o.ticketsDir.trim() !== '' ? o.ticketsDir.trim() : 'tickets',
+    pollSeconds: Number.isFinite(n) && n >= 1 ? n : 3,
+    autoOpen: o.autoOpen !== false,
+    writerModel: typeof o.writerModel === 'string' ? o.writerModel.trim() : '',
+  }
+}
+
+async function open($: $, byCommand: boolean) {
+  S.openedByCommand = S.openedByCommand || byCommand
+  const r = await $.ui.open({ id: PANE, title: TITLE, ...(byCommand ? { focus: true as const } : {}) })
+  S.isOpen = r.isPlaced
+  if (r.isPlaced) bg(refresh($))
+  return r
+}
+
+function touchesTickets(path: unknown): boolean {
+  if (typeof path !== 'string') return false
+  const d = dir()
+  return path.includes(`/${d}/`) || path.startsWith(`${d}/`)
+}
+
+export const register: Register = (on, options) => {
+  S.options = readOptions(options)
+
+  on('session.start', async ($, e, next) => {
+    resetSession(e.cwd)
+    await $.command.register({
+      name: 'board',
+      description: 'Open the ticket board pane: /board · /board 14 · /board new <idea>',
+      argumentHint: '[ticket number | new <idea>]',
+    })
+    await loadFilters($)
+    await loadJobs($)
+    await refresh($)
+    if (S.options.autoOpen && e.isInteractive && S.snap?.hasBoard === true) bg(open($, false))
+    $.clock.every(S.options.pollSeconds * 1000, () => {
+      if (S.isOpen) bg(refresh($))
+    })
+    return next(e)
+  })
+
+  on('command.run', { command: 'board' }, async ($, e) => {
+    if (S.cwd === '') S.cwd = await $.session.cwd()
+    await refresh($, true)
+    const args = e.args.trim()
+    const num = /^#?(\d{1,5})$/.exec(args)
+    if (num !== null) {
+      const n = num[1]!.padStart(4, '0')
+      if (rowOf(n) === undefined && !S.snap?.files.has(n)) return { text: `No ticket ${n} on ${dir()}/BOARD.md.`, isTextDisplayOnly: true }
+      go($, { kind: 'ticket', number: n, tab: 'rd' })
+    } else if (/^new\b/i.test(args)) {
+      const idea = args.replace(/^new\s*/i, '')
+      if (idea !== '') S.drafts.set('new-idea', idea)
+      go($, { kind: 'new' })
+    } else if (args === 'close') {
+      await $.ui.close({ id: PANE })
+      S.isOpen = false
+      return { text: 'Ticket board closed.', isTextDisplayOnly: true }
+    } else if (args !== '') {
+      return { text: 'Usage: /board · /board <number> · /board new <idea> · /board close', isTextDisplayOnly: true }
+    }
+    const r = await open($, true)
+    if (!r.isPlaced) return { text: `The ticket board pane could not open here (${r.reason}).`, isTextDisplayOnly: true }
+    return { text: 'Ticket board open.', isTextDisplayOnly: true }
+  })
+
+  on('ui.close', ($, e, next) => {
+    if (e.id === PANE) {
+      S.isOpen = false
+      S.openedByCommand = false
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    // Opened automatically but the surface put it inline above the prompt (no room for a side pane): close it again.
+    if (!S.openedByCommand && e.props.placement === 'inline') {
+      bg($.ui.close({ id: PANE }))
+      S.isOpen = false
+    }
+    S.isOpen = true
+    const ui = $.ui.resolve(e)
+    const { Box } = ui
+    return <Box flexDirection="column">{drawPane($, ui, { rows: e.viewport?.rows ?? 30, columns: e.props.bodyColumns })}</Box>
+  })
+
+  // Keep the ticket writer inside its ticket folder; refresh after edits to the tickets folder.
+  on('tool.call', async ($, e, next) => {
+    const job = e.agentId === undefined ? undefined : S.jobs.get(e.agentId)
+    const input = e as unknown as { tool: string; file_path?: string; notebook_path?: string }
+    const path = input.file_path ?? input.notebook_path
+    if (job !== undefined && WRITE_TOOLS.has(input.tool)) {
+      if (typeof path !== 'string' || !isInsideFolder(path, job.number))
+        return { deny: `ticket-board: the ticket writer may only write inside ${dir()}/${job.number}-…/ (rd.md, eval.md).` }
+    }
+    const ran = await next(e)
+    if (S.isOpen && (WRITE_TOOLS.has(input.tool) ? touchesTickets(path) : input.tool === 'Bash')) bg(refresh($))
+    return ran
+  }).catch(($, e, next) => (next.called ? next(e) : { deny: 'ticket-board: its tool guard failed.' }))
+
+  on('turn.complete', async ($, e, next) => {
+    const job = e.agentId === undefined ? undefined : S.jobs.get(e.agentId)
+    if (job !== undefined) {
+      S.jobs.delete(job.agentId)
+      await saveJobs($)
+      await refresh($, true)
+      const f = S.snap?.files.get(job.number)
+      const open = f?.questions.filter(q => !q.isResolved).length ?? 0
+      const failed = e.isAborted || e.reason !== 'answer'
+      const note = failed
+        ? `AI ${job.kind} stopped (${e.reason}) — see the agent transcript`
+        : job.kind === 'fold'
+          ? `Answers folded in · ${open} open question${open === 1 ? '' : 's'}`
+          : `AI draft done · ${open} open question${open === 1 ? '' : 's'}`
+      const row = rowOf(job.number)
+      if (row !== undefined && (row.notes === '' || row.notes.startsWith('AI '))) await editRow($, job.number, { notes: note }).catch(() => undefined)
+      $.ui.toast(`Ticket ${job.number}: ${note}`)
+      say($, note, failed ? 'error' : 'success')
+      if (!failed && open > 0 && job.kind !== 'fold' && S.view.kind === 'ticket' && S.view.number === job.number)
+        go($, { kind: 'questions', number: job.number })
+      redraw($)
+    }
+    return next(e)
+  })
+}
