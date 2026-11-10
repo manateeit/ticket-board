@@ -15,8 +15,10 @@ import {
   createSkeleton,
   dir,
   editRow,
+  isLive,
   items,
   jobFor,
+  loadAgents,
   redraw,
   refresh,
   phaseName,
@@ -27,6 +29,7 @@ import {
   say,
   setStartFlag,
   statusOf,
+  ticketOfAgent,
   type View,
   abs,
 } from './store'
@@ -261,6 +264,34 @@ function Message(ui: UI): RenderChildren {
 
 // ---------- Board ----------
 
+/** The terminal's Agents panel: the same lists as the desktop card, as plain lines. */
+function agentsPanel($: $, ui: UI, all: ReturnType<typeof items>): RenderChildren {
+  const { Box, Text, Button } = ui
+  const live = S.agents.filter(isLive)
+  const past = S.agents.filter(a => !isLive(a)).slice(-5).reverse()
+  const flight = all.filter(i => i.status === 'in-progress' || i.status === 'in-check')
+  const line = (a: (typeof S.agents)[number], dim: boolean) => {
+    const t = ticketOfAgent(a)
+    return (
+      <Text key={`agent-${a.id}`} dimColor={dim} wrap="truncate">
+        {`● ${a.status}  ${a.name ?? (a.description || a.type)}  · ${a.type}${t === undefined ? '' : ` · ${t}`}`}
+      </Text>
+    )
+  }
+  return (
+    <Box key="agents-panel" flexDirection="column" borderStyle="round" paddingX={1}>
+      <Box flexDirection="row" columnGap={2}>
+        <Text bold>{`AGENTS · ${live.length} RUNNING`}</Text>
+        <Button key="agents-hide" label="Hide" plain onPress={() => ((S.showAgents = false), redraw($))} />
+      </Box>
+      {live.length === 0 ? <Text key="agents-none" dimColor>No agents running in this session right now.</Text> : live.map(a => line(a, false))}
+      {flight.length > 0 && <Text key="agents-flight" dimColor>{`In flight on the board (${flight.length}): ${flight.map(i => `${i.number} ${i.title}`).join(', ')}`}</Text>}
+      {past.length > 0 && <Text key="agents-past" dimColor>Recently finished</Text>}
+      {past.map(a => line(a, true))}
+    </Box>
+  )
+}
+
 function boardView($: $, ui: UI, frame: Frame): RenderChildren {
   const { Box, Text, Button, Input, Select, Markdown } = ui
   const all = items()
@@ -329,7 +360,19 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
           <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter), 'In your prompt box — press Enter to send it to the router')} />
         )}
         <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'), () => undefined)} />
+        <Button
+          key="agents"
+          label={`Agents ● ${S.agents.filter(isLive).length}`}
+          hotkey="a"
+          variant={S.showAgents ? 'primary' : undefined}
+          onPress={() => {
+            S.showAgents = !S.showAgents
+            redraw($)
+            if (S.showAgents) void loadAgents($)
+          }}
+        />
       </Box>
+      {S.showAgents && agentsPanel($, ui, all)}
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
         <Select
           key="show"
