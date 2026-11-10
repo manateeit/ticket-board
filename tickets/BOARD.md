@@ -21,7 +21,7 @@ the checker fails the ticket if they are stale.
 | 0005 | Brainstorm, design and planning skills and agents | done | solo | 0001 | — | merged 5ea7423, all 9 checks PASS, 86/86 tests · live interactive session not yet tried by a person |
 | 0006 | Plan progress on the board | done | solo | 0003 | — | merged 2393c6a, all 7 checks PASS, 101/101 tests |
 | 0007 | Plan and Design views | done | solo | 0006, 0005 | — | merged 3524f5a, all 9 checks PASS, 179/179 tests · Create tickets hidden until 0008 · live check: do p/d hotkeys fire while typing in an input? |
-| 0008 | Tickets from the plan | in-check | solo | 0005, 0007 | checker | worker e163cfb (main 0.4.17 merged): Create tickets buttons, 3-job queue, plan brief, Plan cell · 194/194 · README + ticket skill/agent docs |
+| 0008 | Tickets from the plan | done | solo | 0005, 0007 | — | merged db4475d, all 6 checks PASS, 194/194 tests · low risk noted: agent.list fallback could match a finished same-description agent on hosts that omit agentId |
 | 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | ready | solo | 0008, 0015, 0016 | — | AI draft done · 2 open questions |
 | 0010 | New ticket button does nothing | done | solo | — | — | merged 353ef2c, all 6 checks PASS, 112/112 tests · not reproduced on 0.4.14 (likely 0013); 11 regression tests added · needs a person to press it in the real app |
 | 0011 | README button does nothing | done | solo | — | — | merged 33b4229, checks 1-4,6 PASS, 139/139 · check 5 (live click) waived by human 2026-11-10, to test after release · terminal `o` fix; desktop not reproduced (likely 0013) |
