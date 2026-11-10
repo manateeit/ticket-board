@@ -225,6 +225,8 @@ A real router session reads that as itself and carries on. Any other session tak
 
 ## Using it with the super-agent router
 
+Above tickets, a project can keep a design and a plan as plain Markdown; the format is in [docs/STANDARD.md](docs/STANDARD.md).
+
 This mod was built for the router/worker/checker workflow, where:
 
 - you (and `/ticket`) write tickets as drafts,
@@ -329,6 +331,11 @@ hooks/core/                     pure parsing/editing (board table, questions, re
 agents/ticket-writer.md         the background writer agent
 skills/ticket/                  the /ticket rules and templates
 templates/BOARD.md              the empty board used by "Set up board"
+templates/design.md             starting points for the design and plan files
+templates/plan.md                 (format in docs/STANDARD.md)
+templates/brief.md
+templates/change.md
+docs/STANDARD.md                the file standard for the design and plan above tickets
 examples/demo-board/            a demo project
 tests/                          claude plugin test suites
 ```
