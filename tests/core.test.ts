@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { BoardEditError, addRow, parseBoard, setCells } from '../hooks/core/board'
-import { nextNumber, query, runLine, slugify, titleFromIdea, type Item } from '../hooks/core/query'
+import { kindOf, nextNumber, query, runLine, slugify, titleFromIdea, type Item } from '../hooks/core/query'
 import { answerQuestion, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 
 const BOARD = `# Ticket board
@@ -131,13 +131,22 @@ test('filters and sorts', () => {
   const list: Item[] = [
     { ...base, number: '0001', title: 'a', status: 'done', openQuestions: 0 },
     { ...base, number: '0002', title: 'b', status: 'ready', openQuestions: 0 },
-    { ...base, number: '0003', title: 'c', status: 'draft', openQuestions: 2 },
+    { ...base, number: '0003', title: 'c', status: 'draft', openQuestions: 2, kind: 'bug' },
     { ...base, number: '0004', title: 'd', status: 'blocked', openQuestions: 0, mode: 'team' },
   ]
-  expect(query(list, { show: 'needs-me', sort: 'number', mode: 'any', search: '' }).map(i => i.number)).toEqual(['0003', '0004'])
-  expect(query(list, { show: 'not-done', sort: 'number-desc', mode: 'any', search: '' }).map(i => i.number)).toEqual(['0004', '0003', '0002'])
-  expect(query(list, { show: 'all', sort: 'number', mode: 'team', search: '' }).map(i => i.number)).toEqual(['0004'])
-  expect(query(list, { show: 'all', sort: 'number', mode: 'any', search: '0002' }).map(i => i.number)).toEqual(['0002'])
+  expect(query(list, { show: 'needs-me', sort: 'number', mode: 'any', search: '', kind: 'any', desc: false }).map(i => i.number)).toEqual(['0003', '0004'])
+  expect(query(list, { show: 'not-done', sort: 'number-desc', mode: 'any', search: '', kind: 'any', desc: false }).map(i => i.number)).toEqual(['0004', '0003', '0002'])
+  expect(query(list, { show: 'all', sort: 'number', mode: 'team', search: '', kind: 'any', desc: false }).map(i => i.number)).toEqual(['0004'])
+  expect(query(list, { show: 'all', sort: 'number', mode: 'any', search: '0002', kind: 'any', desc: false }).map(i => i.number)).toEqual(['0002'])
+  expect(query(list, { show: 'all', sort: 'number', mode: 'any', search: '', kind: 'bug', desc: false }).map(i => i.number)).toEqual(['0003'])
+  expect(query(list, { show: 'all', sort: 'title', mode: 'any', search: '', kind: 'any', desc: true }).map(i => i.number)).toEqual(['0004', '0003', '0002', '0001'])
+})
+
+test('ticket types', () => {
+  expect(kindOf('Fix crash when exporting')).toBe('bug')
+  expect(kindOf('Rename the package')).toBe('chore')
+  expect(kindOf('Dark mode for settings')).toBe('feature')
+  expect(kindOf('Dark mode', '# Dark mode\n\nType: bug\n')).toBe('bug')
 })
 
 test('run lines', () => {

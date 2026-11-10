@@ -2,7 +2,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
-import { DEFAULT_FILTERS, nextNumber, slugify, today, type Filters, type Item } from './core/query'
+import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
 
 type $ = EngineInterface
@@ -55,6 +55,7 @@ export const S = {
   message: undefined as { text: string; tone: 'success' | 'error' | 'warning' } | undefined,
   confirm: undefined as string | undefined,
   newMode: 'solo',
+  newKind: 'feature',
   overrideTo: '',
   isRefreshing: false,
 }
@@ -72,6 +73,7 @@ export function resetSession(cwd: string) {
     message: undefined,
     confirm: undefined,
     newMode: 'solo',
+    newKind: 'feature',
     overrideTo: '',
     isRefreshing: false,
   })
@@ -196,6 +198,7 @@ export function items(): (Item & { isUnlisted: boolean; blockedBy: string[] })[]
       notes: r.notes,
       openQuestions: f?.questions.filter(q => !q.isResolved).length ?? 0,
       updatedMs: Math.max(f?.rdMtime ?? 0, f?.evMtime ?? 0),
+      kind: kindOf(r.title || f?.title || '', f?.rd),
       isUnlisted: false,
       blockedBy: r.blockedBy,
     }
@@ -211,6 +214,7 @@ export function items(): (Item & { isUnlisted: boolean; blockedBy: string[] })[]
       notes: 'Folder exists but BOARD.md has no row for it',
       openQuestions: f.questions.filter(q => !q.isResolved).length,
       updatedMs: Math.max(f.rdMtime, f.evMtime),
+      kind: kindOf(f.title ?? f.folder, f.rd),
       isUnlisted: true,
       blockedBy: [],
     })
@@ -242,7 +246,7 @@ export function folderOf(number: string): string | undefined {
 /** Reserves the next number: creates the folder with skeleton files and adds a draft row. */
 export async function createSkeleton(
   $: $,
-  idea: { title: string; text: string; mode: string; blockedBy: string[] },
+  idea: { title: string; text: string; mode: string; blockedBy: string[]; kind?: string },
   notes: string,
 ): Promise<{ number: string; folder: string }> {
   await refresh($, true)
@@ -260,6 +264,8 @@ export async function createSkeleton(
     .join('\n')
   const rd = [
     `# ${number} — ${idea.title}`,
+    '',
+    `Type: ${idea.kind ?? 'feature'}`,
     '',
     '## What',
     '<2–5 sentences: what the feature does and why. Being written by the ticket writer.>',

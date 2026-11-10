@@ -1,4 +1,5 @@
 // The pane's views: Board, Ticket, Questions, New ticket, BOARD.md.
+import { deskBoard, deskNew, deskTicket } from './desk'
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { STATUSES } from './core/board'
@@ -28,12 +29,12 @@ type $ = EngineInterface
 export type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Input' | 'Select' | 'Markdown'> & { Svg?: Elements['desktop']['Svg'] }
 export type Frame = { rows: number; columns: number; glass?: boolean }
 
-const SHOW_LABEL: Record<string, string> = {
+export const SHOW_LABEL: Record<string, string> = {
   'needs-me': 'Needs me (draft + blocked)',
   'not-done': 'Not done',
   all: 'All',
 }
-const SORT_LABEL: Record<string, string> = {
+export const SORT_LABEL: Record<string, string> = {
   number: 'Number ↑',
   'number-desc': 'Number ↓',
   status: 'Status',
@@ -57,11 +58,11 @@ export function go($: $, view: View) {
   redraw($)
 }
 
-function fail($: $, err: unknown) {
+export function fail($: $, err: unknown) {
   say($, err instanceof Error ? err.message : String(err), 'error')
 }
 
-async function fill($: $, text: string, note: string) {
+export async function fill($: $, text: string, note: string) {
   try {
     const r = await $.prompt.fill({ text, mode: 'replace' })
     say($, r.isFilled ? note : 'The prompt box is busy — copy this instead: ' + text, r.isFilled ? 'success' : 'warning')
@@ -70,7 +71,7 @@ async function fill($: $, text: string, note: string) {
   }
 }
 
-function blockersOpen(blockedBy: string[]): string[] {
+export function blockersOpen(blockedBy: string[]): string[] {
   return blockedBy.filter(n => statusOf(n) !== 'done')
 }
 
@@ -87,7 +88,7 @@ export function runTicket($: $, number: string) {
   void fill($, text, 'In your prompt box — press Enter to send it')
 }
 
-function setFilters($: $, change: Partial<Filters>) {
+export function setFilters($: $, change: Partial<Filters>) {
   S.filters = { ...S.filters, ...change }
   S.page = 0
   void saveFilters($)
@@ -315,7 +316,7 @@ export function checksFor(number: string) {
 
 // ---------- Ticket ----------
 
-async function setStatus($: $, number: string, to: string, from: string, notes?: string) {
+export async function setStatus($: $, number: string, to: string, from: string, notes?: string) {
   try {
     await editRow($, number, notes === undefined ? { status: to } : { status: to, notes }, from)
     say($, `${number} → ${to}`)
@@ -612,11 +613,12 @@ export async function createTicket($: $, withAI: boolean) {
   try {
     const { number } = await createSkeleton(
       $,
-      { title: titleFromIdea(idea), text: idea, mode: S.newMode, blockedBy },
+      { title: (S.drafts.get('new-title') ?? '').trim() || titleFromIdea(idea), text: idea, mode: S.newMode, blockedBy, kind: S.newKind },
       withAI ? 'AI drafting…' : 'Skeleton — fill in rd.md and eval.md',
     )
     S.drafts.delete('new-idea')
     S.drafts.delete('new-blocked')
+    S.drafts.delete('new-title')
     go($, { kind: 'ticket', number, tab: 'rd' })
     if (withAI) await startJob($, number, 'draft', idea)
     else say($, `Created ${number} as a draft skeleton`)
@@ -625,7 +627,7 @@ export async function createTicket($: $, withAI: boolean) {
   }
 }
 
-async function draftInChat($: $) {
+export async function draftInChat($: $) {
   const idea = (S.drafts.get('new-idea') ?? '').trim()
   if (idea === '') return say($, 'Describe the ticket first', 'warning')
   const hasOwn = await $.fs.exists('.claude/skills/ticket/SKILL.md').catch(() => false)
@@ -692,7 +694,7 @@ function docView($: $, ui: UI): RenderChildren {
 
 // ---------- No board ----------
 
-async function setUp($: $) {
+export async function setUp($: $) {
   try {
     const root = $.plugin.root
     const board = await $.fs.read(`${root}/templates/BOARD.md`)
@@ -745,6 +747,19 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
   if (S.snap.board === undefined)
     return <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
   const v = S.view
+  if (glass) {
+    switch (v.kind) {
+      case 'board':
+      case 'doc':
+        return deskBoard($, ui, frame)
+      case 'ticket':
+        return deskTicket($, ui, v.number, v.tab, false)
+      case 'questions':
+        return deskTicket($, ui, v.number, 'rd', true)
+      case 'new':
+        return deskNew($, ui)
+    }
+  }
   switch (v.kind) {
     case 'board':
       return boardView($, ui, frame)

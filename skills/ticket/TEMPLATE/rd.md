@@ -1,5 +1,7 @@
 # 0000 — <Title>
 
+Type: feature   <!-- feature | bug | chore -->
+
 ## What
 
 <2–5 sentences: what this is and why it exists.>

@@ -160,7 +160,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`run this ticket fills the prompt (${surface})`, async ($, on) => {
     const { ui, filled } = await boot($, on, surface)
     await ui.find({ type: 'Text', text: /Dark mode/ })
-    await ui.select({ key: 'show', value: 'all' })
+    if (surface === 'desktop') await ui.press({ key: 'show-all' })
+    else await ui.select({ key: 'show', value: 'all' })
     await ui.press({ key: 'open-0002' })
     await ui.press({ key: 'run' })
     expect(filled).toEqual(['Run ticket 0002.'])
@@ -168,13 +169,23 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-test('desktop draws one self-painted glass container with the hero', async ($, on) => {
+test('desktop draws a glass container with a sortable ticket table', async ($, on) => {
   const { ui } = await boot($, on, 'desktop')
   await ui.find({ type: 'Text', text: /Dark mode/ })
-  const svg = await ui.find({ type: 'Svg' } as any)
-  expect(JSON.stringify(svg)).toContain('TICKET BOARD')
   const drawn = JSON.stringify(await ui.drawn())
   expect(drawn).toContain('#0A0F1E')
+  expect(drawn).toContain('DEPENDS ON')
+  expect(drawn).toContain('Need you')
+  expect(drawn).not.toContain('isInteractive')
+  await ui.press({ key: 'sort-title' })
+  await ui.press({ key: 'kind-bug' })
+  await ui.find({ type: 'Text', text: /No tickets match/ })
+  await ui.press({ key: 'clear-empty' })
+  await ui.press({ key: 'title-0002' })
+  await ui.find({ type: 'Text', text: /PROPERTIES/ })
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'new' })
+  await ui.find({ type: 'Text', text: /What happens next/ })
   await ui.unmount()
 })
 
@@ -183,6 +194,6 @@ test('terminal keeps the plain theme look', async ($, on) => {
   await ui.find({ type: 'Text', text: /Dark mode/ })
   const drawn = JSON.stringify(await ui.drawn())
   expect(drawn).not.toContain('#0A0F1E')
-  expect(drawn).not.toContain('TICKET BOARD')
+  expect(drawn).not.toContain('DEPENDS ON')
   await ui.unmount()
 })

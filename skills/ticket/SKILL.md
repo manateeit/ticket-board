@@ -30,6 +30,7 @@ questions there and flips the ticket from `draft` to `ready`.
 
 3. **Write `rd.md`** — the requirements doc. Exactly these sections:
    - `# <number> — <Title>`
+   - `Type: feature` (or `bug` / `chore`) on its own line under the title, so the board can show and filter by kind.
    - `## What` — 2–5 sentences: what this feature/change is and why.
    - `## Behaviour` — bullet list of observable behaviour. Be specific:
      inputs, outputs, UI states, edge cases, error cases. No implementation

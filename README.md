@@ -86,7 +86,13 @@ The pane opens beside the chat. When a session starts in a project with a board,
 
 It re-reads the board every few seconds while it is open, and right after any tool writes into `tickets/`, so changes from the router, workers or your editor show up without a refresh.
 
-**Look.** In the Claude desktop app the pane is drawn as one dark "liquid glass" container that paints its own background, so it looks the same whatever the app's theme or window backdrop. At the top is a frosted hero card with slowly drifting aurora colors, a pill for each status count and a ring showing how much of the board is done. Below it are a thin status bar and the board's own text. Each ticket is a rounded glass card edged in its status color, and it lights up when you hover over it. In the terminal the pane uses your terminal theme's colors instead.
+**Desktop layout.** In the Claude desktop app the pane is a professional tracker drawn in one dark glass container (it paints its own background, so it looks the same on any app theme). In the terminal it uses compact views in your terminal's colors.
+
+- **Board.** A title bar with *+ New ticket*, *Refresh* and *▶ Run ready (N)*; five numbers (Need you, Ready to run, In flight, Open bugs, Done %) and a status bar; status tabs with counts (All, Needs me, Open, Draft, Ready, …); type filters (Features, Bugs, Chores); a mode filter and search. Tickets are a **table** — ID, Type, Title (with the board's notes under it), Status, Depends on, Questions, Updated and one next-step button per row (*Answer 2*, *✓ Ready*, *▶ Run*, *Unblock*). Click any column header to sort, again to reverse; sorting by Status groups the rows. The text around the table on BOARD.md is shown below it as *Board notes*.
+- **Ticket.** A breadcrumb back to the board and *Prev / Next* through the current filtered list; the type, status and mode; a progress stepper (Draft → Ready → In progress → In check → Done); one primary action (*Answer questions*, *Mark ready* or *Run*) plus *Enhance with AI* and *Discuss in chat*. The left column holds the open questions (answer inline, *Suggest an answer*), the ready check and the ticket itself with *Requirements* (rd.md) and *Acceptance checks* (eval.md) tabs. The right column is a **Properties** panel where you change the type, mode and dependencies, see the owner and folder, and block or hand-fix the status.
+- **New ticket.** Pick Feature, Bug or Chore, give an optional title and a description (the placeholder tells you what a good bug report or feature request contains), set mode and dependencies, then *Create + AI enhance*.
+
+**Types.** Each ticket is a feature, a bug or a chore. The type is the `Type:` line under the title in rd.md (the AI writer and the /ticket skill keep it); tickets without one are guessed from the title ("Fix …" → bug, "Rename …" → chore, otherwise feature).
 
 ### Board
 
