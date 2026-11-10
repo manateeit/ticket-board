@@ -25,7 +25,7 @@ the checker fails the ticket if they are stale.
 | 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | ready | solo | 0008 | — | AI draft done · 2 open questions |
 | 0010 | New ticket button does nothing | done | solo | — | — | merged 353ef2c, all 6 checks PASS, 112/112 tests · not reproduced on 0.4.14 (likely 0013); 11 regression tests added · needs a person to press it in the real app |
 | 0011 | README button does nothing | in-progress | solo | — | worker | all 4 questions answered · 0010 not reproduced on 0.4.14 (likely 0013) |
-| 0012 | Agents button does nothing | in-progress | solo | — | worker | all 6 questions answered · owns the title-bar layout candidate from 0010 Findings |
+| 0012 | Agents button does nothing | done | solo | — | — | merged 4617943, all 6 checks PASS, 123/123 tests · desktop not reproduced (likely 0013); terminal Agents button added; title-bar hardening · needs a person to click it in the real app |
 | 0013 | Pane does not draw when a resumed agent is listed twice | done | solo | — | — | merged 2d441d3 (no rebase), 5 checks PASS, 37/37 tests · needs a release to reach the installed plugin |
 
 How to read this board:

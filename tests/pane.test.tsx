@@ -84,6 +84,7 @@ function fakeFs() {
 }
 
 let AGENTS_OVERRIDE: any[] | undefined
+let AGENTS_DENIED = false
 
 const PANE = {
   plugin: 'ticket-board',
@@ -109,7 +110,7 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
   on('command.register', () => ({ value: { command: 'board' } }))
   on('ui.open', (_: unknown, e: { id: string }) => (opened.push(e.id), { value: { isPlaced: true } }))
   on('clock.every', () => ({ deny: 'no timers in tests' }))
-  on('agent.list', () => ({ value: AGENTS_OVERRIDE ?? [
+  on('agent.list', () => AGENTS_DENIED ? { deny: 'agent.list is not available here' } : ({ value: AGENTS_OVERRIDE ?? [
     { id: 'a1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
     { id: 'a2', description: 'Check 0001', type: 'checker', status: 'completed' },
   ] }))
@@ -265,6 +266,149 @@ test('agents button shows what is running', async ($, on) => {
   await ui.press({ key: 'agent-w-a1' })
   await ui.press({ key: 'agents-hide' })
   await ui.unmount()
+})
+
+// ---------- Agents (0012: Agents button did nothing) ----------
+
+/** The node drawn with this key, anywhere in the tree. */
+function nodeByKey(tree: unknown, key: string): any {
+  if (tree === null || typeof tree !== 'object') return undefined
+  const o = tree as any
+  if (o.key === key || o.props?.key === key) return o
+  for (const v of Object.values(o)) {
+    const hit = nodeByKey(v, key)
+    if (hit !== undefined) return hit
+  }
+  return undefined
+}
+const propsOf = (n: any) => n?.props ?? n
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Agents toggles the panel; pressing again or Hide closes it (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    // The button carries the running count.
+    expect(await drawnText(ui)).toContain('● 1')
+    expect(await drawnText(ui)).not.toContain('AGENTS · 1 RUNNING')
+    await ui.press({ key: 'agents' })
+    await ui.find({ type: 'Text', text: /AGENTS · 1 RUNNING/ })
+    let drawn = await drawnText(ui)
+    expect(drawn).toContain('worker-0002')
+    expect(drawn).toContain('Dark mode for settings page') // still the board, the panel sits on it
+    await ui.press({ key: 'agents' })
+    drawn = await drawnText(ui)
+    expect(drawn).not.toContain('AGENTS · 1 RUNNING')
+    expect(drawn).not.toContain('worker-0002')
+    await ui.press({ key: 'agents' })
+    await ui.find({ type: 'Text', text: /AGENTS · 1 RUNNING/ })
+    await ui.press({ key: 'agents-hide' })
+    expect(await drawnText(ui)).not.toContain('AGENTS · 1 RUNNING')
+    await ui.unmount()
+  })
+
+  test(`Agents opens with resumed (duplicate-id) agents, each listed once (${surface})`, async ($, on) => {
+    AGENTS_OVERRIDE = manyAgents()
+    try {
+      const { ui } = await boot($, on, surface)
+      await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+      await ui.press({ key: 'agents' })
+      await ui.find({ type: 'Text', text: /AGENTS · 3 RUNNING/ })
+      const drawn = await drawnText(ui)
+      // 'dup' was listed twice (completed, then running again): one line, the latest status.
+      expect(drawn.match(/Build ticket 0001/g)?.length).toBe(1)
+      if (surface === 'desktop') expect(drawn.match(/"key":"agent-dup"/g)?.length).toBe(1)
+      const keys = [...drawn.matchAll(/"key":"([^"]+)"/g)].map(m => m[1]!)
+      expect(keys.filter((k, i) => keys.indexOf(k) !== i)).toEqual([])
+      await ui.press({ key: 'agents-hide' })
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+
+  test(`Agents opens an empty panel, no error, when agent.list is unavailable (${surface})`, async ($, on) => {
+    AGENTS_DENIED = true
+    try {
+      const { ui } = await boot($, on, surface)
+      await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+      await ui.press({ key: 'agents' })
+      await ui.find({ type: 'Text', text: /AGENTS · 0 RUNNING/ })
+      await ui.find({ type: 'Text', text: /No agents running in this session right now\./ })
+      expect(await drawnText(ui)).not.toMatch(/agent\.list is not available/)
+      await ui.unmount()
+    } finally {
+      AGENTS_DENIED = false
+    }
+  })
+
+  test(`Agents opens the panel in a linked worktree session (${surface})`, async ($, on) => {
+    const { ui, calls } = await boot($, on, surface, {
+      '/repo/.git': 'gitdir: /main/.git/worktrees/w1\n',
+      '/main/.git/worktrees/w1/HEAD': 'ref: refs/heads/ticket/0016\n',
+      '/main/.git/worktrees/w1/commondir': '../..\n',
+    })
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    expect(calls.some(c => c.startsWith('list /main/tickets'))).toBe(true)
+    await ui.press({ key: 'agents' })
+    await ui.find({ type: 'Text', text: /AGENTS · 1 RUNNING/ })
+    expect(await drawnText(ui)).toContain('worker-0002')
+    await ui.unmount()
+  })
+}
+
+test('Show agents in the activity strip returns to the board and opens the panel (desktop)', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  await ui.press({ key: 'show-all' })
+  await ui.press({ key: 'open-0002' })
+  await ui.find({ type: 'Text', text: /PROPERTIES/ })
+  await ui.press({ key: 'activity-agents' })
+  await ui.find({ type: 'Text', text: /AGENTS · 1 RUNNING/ })
+  const drawn = await drawnText(ui)
+  expect(drawn).not.toContain('PROPERTIES')
+  expect(drawn).not.toContain('"key":"activity-agents"') // hidden while the panel is open
+  await ui.unmount()
+})
+
+test('desktop title bar: the Agents / + New ticket buttons cannot be squeezed by the text beside them', async ($, on) => {
+  // A long board path is what used to push into the button group (0.4.11 fixed the same thing for the project bar).
+  const { ui } = await boot($, on, 'desktop')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  const tree = await ui.drawn()
+  const buttons = propsOf(nodeByKey(tree, 'title-buttons'))
+  const text = propsOf(nodeByKey(tree, 'title-text'))
+  expect(buttons?.flexShrink).toBe(0)
+  expect(text?.flexShrink).toBe(1)
+  expect(text?.minWidth).toBe(0)
+  const group = JSON.stringify(nodeByKey(tree, 'title-buttons'))
+  expect(group).toContain('"agents"')
+  expect(group).toContain('"new"')
+  expect(JSON.stringify(nodeByKey(tree, 'title-text'))).toContain('"wrap":"truncate"')
+  // Same for Show agents beside the activity text.
+  expect(propsOf(nodeByKey(tree, 'activity-agents-box'))?.flexShrink).toBe(0)
+  await ui.unmount()
+})
+
+test('a new session starts with the Agents panel closed and no agents from the last one', async ($, on) => {
+  const first = await boot($, on, 'desktop')
+  await first.ui.find({ type: 'Text', text: /Dark mode/ })
+  await first.ui.press({ key: 'agents' })
+  await first.ui.find({ type: 'Text', text: /AGENTS · 1 RUNNING/ })
+  await first.ui.unmount()
+  AGENTS_DENIED = true
+  try {
+    await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true } as any)
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    const drawn = await drawnText(ui)
+    expect(drawn).not.toContain('AGENTS · 1 RUNNING')
+    expect(drawn).not.toContain('worker-0002')
+    await ui.press({ key: 'agents' })
+    await ui.find({ type: 'Text', text: /No agents running in this session right now\./ })
+    await ui.unmount()
+  } finally {
+    AGENTS_DENIED = false
+  }
 })
 
 test('activity strip animates while the session works', async ($, on) => {

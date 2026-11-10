@@ -341,13 +341,14 @@ export function ActivityBar($: $, ui: UI): RenderChildren {
   return (
     <Box key="activity" flexDirection="column" gap={0} backgroundColor={tint(hex, 0.08)} borderStyle="round" borderColor={tint(hex, 0.4)} paddingX={1}>
       <Box flexDirection="row" gap={1} alignItems="center" justifyContent="space-between">
-        <Box flexDirection="row" gap={1} alignItems="center">
+        <Box flexDirection="row" gap={1} alignItems="center" flexShrink={1} minWidth={0}>
           {ui.Svg !== undefined && <ui.Svg key="spinner" source={spinnerSvg(hex)} alt="working" width={18} height={18} />}
           <Text color={G.ink} weight="medium" size="footnote">
             {parts.join('  ·  ')}
           </Text>
         </Box>
         {live.length > 0 && !S.showAgents && (
+          <Box key="activity-agents-box" flexShrink={0}>
           <Button
             key="activity-agents"
             label="Show agents"
@@ -356,8 +357,10 @@ export function ActivityBar($: $, ui: UI): RenderChildren {
               S.showAgents = true
               if (S.view.kind !== 'board') go($, { kind: 'board' })
               else redraw($)
+              void loadAgents($)
             }}
           />
+          </Box>
         )}
       </Box>
       {ui.Svg !== undefined && <ui.Svg key="sweep" source={workingSvg(hex)} alt="" height={3} />}
@@ -590,17 +593,19 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
 
   return (
     <Box flexDirection="column" gap={1}>
-      {/* Title bar */}
-      <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Box flexDirection="column">
-          <Text color={G.ink} size="title" weight="bold">
+      {/* Title bar. The buttons never shrink and the text beside them truncates: in the desktop a
+          text column that overflows can overlap a Button beside it and swallow its clicks (as 0.4.11
+          fixed for the project bar). */}
+      <Box key="title-bar" flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+        <Box key="title-text" flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+          <Text color={G.ink} size="title" weight="bold" wrap="truncate">
             {intro.title}
           </Text>
-          <Text color={G.faint} size="footnote" mono>
+          <Text color={G.faint} size="footnote" mono wrap="truncate">
             {`${boardPath()} · ${total} ticket${total === 1 ? '' : 's'}`}
           </Text>
         </Box>
-        <Box flexDirection="row" gap={1} alignItems="center">
+        <Box key="title-buttons" flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
           {run.length > 0 && <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter), 'Run line is in your prompt box — press Enter to send it')} />}
           <Button
             key="agents"
