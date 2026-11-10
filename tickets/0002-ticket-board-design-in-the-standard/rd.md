@@ -35,6 +35,10 @@ Convert this repo's own design, `PLAN-design-plan.md`, into `design/DESIGN.md` a
 
 ## Open questions
 - Should `design/DESIGN.md` be committed as `status: draft` (default) or marked `approved` because the person already approved the proposal? [draft / approved]
+  **Resolved 2026-11-10 (human): Commit `design/DESIGN.md` as `status: draft`, since only a person approves a design and the ticket says the worker must not mark it approved.**
 - Is this ticket (0002) listed as its own build P1.2, as written (default), or left off the plan so it shows as off-plan? [own build / off-plan]
+  **Resolved 2026-11-10 (human): List it as its own build P1.2, as the ticket specifies (own build), since the spec's build list and Covers mapping depend on that row.**
 - Are the four phases (P1 Standard and parser, P2 Start and sessions, P3 Board and views, P4 Flows and release) right, with the appetites the worker proposes, or do you want other phase names or a flat plan? [accept grouping / give phases]
+  **Resolved 2026-11-10 (human): Accept the four-phase grouping (P1 Standard and parser, P2 Start and sessions, P3 Board and views, P4 Flows and release) with the worker's proposed appetites; the ticket gives no reason to switch to other names or a flat plan.**
 - Folder `design/` or `docs/`: depends on the open question in ticket 0001 (default `design/`). [follow 0001]
+  **Resolved 2026-11-10 (human): Follow ticket 0001's decision on the folder; if it is still open, use the default `design/`, since the ticket already specifies `design/DESIGN.md` and `design/PLAN.md` as the files to create.**

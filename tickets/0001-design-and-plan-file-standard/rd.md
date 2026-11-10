@@ -40,5 +40,6 @@ Milestone M1 of `PLAN-design-plan.md` (sections 3 and 7). Write `docs/STANDARD.m
 ## Open questions
 
 - Folder name for the design files: `design/` (default, matches thalix-sdlc-factory) or `docs/`? [design/ · docs/]
+  **Resolved 2026-11-10 (human): The design files go in `design/` (so `design/DESIGN.md`, `design/PLAN.md`, `design/brief.md`), matching thalix-sdlc-factory; `docs/` is reserved for the standard itself (`docs/STANDARD.md`).**
 - Where do the four templates live? [templates/ beside BOARD.md]
   **Resolved 2026-11-10 (agent, from code: README.md Development > Layout, templates/BOARD.md)**: `templates/`, the plugin's existing template folder.
