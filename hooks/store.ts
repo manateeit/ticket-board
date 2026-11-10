@@ -61,6 +61,9 @@ export const S = {
   /** This session's subagents and teammates, as $.agent.list() last gave them. */
   agents: [] as AgentInfo[],
   showAgents: false,
+  /** The main Claude loop: working since (ms), and the tool it is on. */
+  busySince: 0,
+  busyTool: '',
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -78,6 +81,8 @@ export function resetSession(cwd: string) {
     newMode: 'solo',
     newKind: 'feature',
     overrideTo: '',
+    busySince: 0,
+    busyTool: '',
     isRefreshing: false,
   })
   S.jobs.clear()

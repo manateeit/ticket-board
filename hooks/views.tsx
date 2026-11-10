@@ -1,5 +1,5 @@
 // The pane's views: Board, Ticket, Questions, New ticket, BOARD.md.
-import { deskBoard, deskNew, deskTicket } from './desk'
+import { ActivityBar, deskBoard, deskNew, deskTicket } from './desk'
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { STATUSES } from './core/board'
@@ -748,17 +748,20 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
     return <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
   const v = S.view
   if (glass) {
-    switch (v.kind) {
-      case 'board':
-      case 'doc':
-        return deskBoard($, ui, frame)
-      case 'ticket':
-        return deskTicket($, ui, v.number, v.tab, false)
-      case 'questions':
-        return deskTicket($, ui, v.number, 'rd', true)
-      case 'new':
-        return deskNew($, ui)
-    }
+    const body =
+      v.kind === 'board' || v.kind === 'doc'
+        ? deskBoard($, ui, frame)
+        : v.kind === 'ticket'
+          ? deskTicket($, ui, v.number, v.tab, false)
+          : v.kind === 'questions'
+            ? deskTicket($, ui, v.number, 'rd', true)
+            : deskNew($, ui)
+    return (
+      <ui.Box flexDirection="column" gap={1}>
+        {ActivityBar($, ui)}
+        {body}
+      </ui.Box>
+    )
   }
   switch (v.kind) {
     case 'board':

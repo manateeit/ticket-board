@@ -374,3 +374,15 @@ export function barSvg(counts: ReadonlyArray<readonly [string, number]>, total: 
     .join('')
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="6" viewBox="0 0 ${W} 6"><rect width="${W}" height="6" rx="3" fill="#ffffff" fill-opacity="0.06"/>${segs}</svg>`
 }
+
+
+/** A thin bar with a light sweeping across it, for "Claude is working". SMIL runs in a drawn image, so no iframe and no scroll capture. */
+export function workingSvg(hex: string): string {
+  const W = 640
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="3" viewBox="0 0 ${W} 3" preserveAspectRatio="none"><defs><linearGradient id="sweep" x1="0" x2="1"><stop offset="0" stop-color="${hex}" stop-opacity="0"/><stop offset="0.5" stop-color="${hex}" stop-opacity="1"/><stop offset="1" stop-color="${hex}" stop-opacity="0"/></linearGradient></defs><rect width="${W}" height="3" rx="1.5" fill="${hex}" fill-opacity="0.15"/><rect y="0" width="220" height="3" rx="1.5" fill="url(#sweep)"><animate attributeName="x" from="-220" to="${W}" dur="1.6s" repeatCount="indefinite"/></rect></svg>`
+}
+
+/** A small spinning arc with a pulsing core. */
+export function spinnerSvg(hex: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="8" fill="none" stroke="${hex}" stroke-opacity="0.2" stroke-width="2.5"/><path d="M11 3 a8 8 0 0 1 8 8" fill="none" stroke="${hex}" stroke-width="2.5" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 11 11" to="360 11 11" dur="0.9s" repeatCount="indefinite"/></path><circle cx="11" cy="11" r="2.5" fill="${hex}"><animate attributeName="r" values="1.5;3;1.5" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.5;1;0.5" dur="1.2s" repeatCount="indefinite"/></circle></svg>`
+}

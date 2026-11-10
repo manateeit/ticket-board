@@ -2,7 +2,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
-import { S, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI } from './glass'
 import { drawPane, go, type UI } from './views'
 
@@ -25,8 +25,20 @@ function readOptions(o: Readonly<Record<string, unknown>>): Options {
   }
 }
 
+let shownTitle = TITLE
+/** The pane's tab says when work is going on, so a full-size or background pane still tells you. */
+function syncTitle($: $) {
+  if (!S.isOpen) return
+  const working = S.busySince !== 0 || S.jobs.size > 0 || S.agents.some(isLive)
+  const t = working ? `${TITLE} · ● working` : TITLE
+  if (t === shownTitle) return
+  shownTitle = t
+  bg($.ui.open({ id: PANE, title: t }))
+}
+
 async function open($: $, byCommand: boolean) {
   S.openedByCommand = S.openedByCommand || byCommand
+  shownTitle = TITLE
   const r = await $.ui.open({ id: PANE, title: TITLE, ...(byCommand ? { focus: true as const } : {}) })
   S.isOpen = r.isPlaced
   if (r.isPlaced) {
@@ -60,7 +72,7 @@ export const register: Register = (on, options) => {
       if (S.isOpen) bg(refresh($))
     })
     $.clock.every(3000, () => {
-      if (S.isOpen) bg(loadAgents($))
+      if (S.isOpen) bg(loadAgents($).then(() => syncTitle($)))
     })
     return next(e)
   })
@@ -123,6 +135,13 @@ export const register: Register = (on, options) => {
 
   // Keep the ticket writer inside its ticket folder; refresh after edits to the tickets folder.
   on('tool.call', async ($, e, next) => {
+    if (e.agentId === undefined && S.busySince !== 0) {
+      const t = (e as unknown as { tool: string }).tool
+      if (t !== S.busyTool) {
+        S.busyTool = t
+        if (S.isOpen) redraw($)
+      }
+    }
     const job = e.agentId === undefined ? undefined : S.jobs.get(e.agentId)
     const input = e as unknown as { tool: string; file_path?: string; notebook_path?: string }
     const path = input.file_path ?? input.notebook_path
@@ -135,6 +154,16 @@ export const register: Register = (on, options) => {
     return ran
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'ticket-board: its tool guard failed.' }))
 
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      S.busySince = Date.now()
+      S.busyTool = ''
+      if (S.isOpen) redraw($)
+      syncTitle($)
+    }
+    return next(e)
+  })
+
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
     if (S.isOpen) bg(loadAgents($))
@@ -142,6 +171,12 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined && S.busySince !== 0) {
+      S.busySince = 0
+      S.busyTool = ''
+      if (S.isOpen) redraw($)
+      syncTitle($)
+    }
     if (e.agentId !== undefined && S.isOpen) bg(loadAgents($))
     const job = e.agentId === undefined ? undefined : S.jobs.get(e.agentId)
     if (job !== undefined) {

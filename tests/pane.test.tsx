@@ -240,3 +240,15 @@ test('agents button shows what is running', async ($, on) => {
   await ui.press({ key: 'agents-hide' })
   await ui.unmount()
 })
+
+test('activity strip animates while the session works', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  await ui.find({ type: 'Text', text: /1 agent running/ })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('animateTransform')
+  expect(drawn).not.toContain('isInteractive')
+  await ui.press({ key: 'activity-agents' })
+  await ui.find({ type: 'Text', text: /AGENTS · 1 RUNNING/ })
+  await ui.unmount()
+})

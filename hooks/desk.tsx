@@ -8,7 +8,7 @@ import { startJob, suggestAnswer } from './ai'
 import { STATUSES } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
-import { G, STATUS_HEX, barSvg, tint } from './glass'
+import { G, STATUS_HEX, barSvg, spinnerSvg, tint, workingSvg } from './glass'
 import { S, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf } from './store'
 import {
   blockersOpen,
@@ -225,6 +225,68 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
       accent: live.length > 0 ? tint(AGENT_HEX.running!, 0.5) : undefined,
       right: <Button key="agents-hide" label="Hide" plain onPress={() => ((S.showAgents = false), redraw($))} />,
     },
+  )
+}
+
+// ---------- Activity ----------
+
+const TOOL_WORDS: [RegExp, string][] = [
+  [/^Bash$/, 'Running a command'],
+  [/^(Edit|Write|MultiEdit|NotebookEdit)$/, 'Editing files'],
+  [/^(Read|Grep|Glob|LS)$/, 'Reading code'],
+  [/^(Agent|Task)$/, 'Starting an agent'],
+  [/^(WebFetch|WebSearch)$/, 'Researching'],
+  [/^TodoWrite$/, 'Planning'],
+  [/^mcp__/, 'Using a connector'],
+]
+const toolWords = (t: string) => TOOL_WORDS.find(([re]) => re.test(t))?.[1] ?? (t === '' ? 'Thinking' : `Using ${t}`)
+const clockOf = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
+
+/** The strip at the top of every desktop view: animated while the session or its agents work, a quiet "Idle" otherwise. */
+export function ActivityBar($: $, ui: UI): RenderChildren {
+  const { Box, Text, Button } = ui
+  const live = S.agents.filter(isLive)
+  const writing = S.jobs.size
+  const isBusy = S.busySince !== 0
+  const hex = isBusy ? G.accent : '#A78BFA'
+  if (!isBusy && live.length === 0 && writing === 0) {
+    return (
+      <Box key="activity" flexDirection="row" gap={1} alignItems="center">
+        <Text color={G.faint} size="footnote">
+          ○ Claude is idle
+        </Text>
+      </Box>
+    )
+  }
+  const parts: string[] = []
+  if (isBusy) parts.push(`Claude is working · ${toolWords(S.busyTool)} · since ${clockOf(S.busySince)}`)
+  else parts.push('Claude is waiting for you')
+  if (live.length > 0) parts.push(`${live.length} agent${live.length === 1 ? '' : 's'} running`)
+  if (writing > 0) parts.push(`AI writing ${writing} ticket${writing === 1 ? '' : 's'}`)
+  return (
+    <Box key="activity" flexDirection="column" gap={0} backgroundColor={tint(hex, 0.08)} borderStyle="round" borderColor={tint(hex, 0.4)} paddingX={1}>
+      <Box flexDirection="row" gap={1} alignItems="center" justifyContent="space-between">
+        <Box flexDirection="row" gap={1} alignItems="center">
+          {ui.Svg !== undefined && <ui.Svg key="spinner" source={spinnerSvg(hex)} alt="working" width={18} height={18} />}
+          <Text color={G.ink} weight="medium" size="footnote">
+            {parts.join('  ·  ')}
+          </Text>
+        </Box>
+        {live.length > 0 && !S.showAgents && (
+          <Button
+            key="activity-agents"
+            label="Show agents"
+            plain
+            onPress={() => {
+              S.showAgents = true
+              if (S.view.kind !== 'board') go($, { kind: 'board' })
+              else redraw($)
+            }}
+          />
+        )}
+      </Box>
+      {ui.Svg !== undefined && <ui.Svg key="sweep" source={workingSvg(hex)} alt="" height={3} />}
+    </Box>
   )
 }
 
