@@ -23,7 +23,7 @@ the checker fails the ticket if they are stale.
 | 0007 | Plan and Design views | ready | solo | 0006 | — | AI draft done · 4 open questions · note from 0003: a plan without phases has current phase "" |
 | 0008 | Tickets from the plan, redesign and replan | ready | solo | 0005, 0007 | — | AI draft done · 4 open questions |
 | 0009 | Adopt existing docs, demo roadmap and 0.5.0 release | ready | solo | 0008 | — | AI draft done · 2 open questions |
-| 0010 | New ticket button does nothing | in-progress | solo | — | worker | all 6 questions answered · reported on 0.4.12, may share cause with 0013 |
+| 0010 | New ticket button does nothing | done | solo | — | — | merged 353ef2c, all 6 checks PASS, 112/112 tests · not reproduced on 0.4.14 (likely 0013); 11 regression tests added · needs a person to press it in the real app |
 | 0011 | README button does nothing | ready | solo | — | — | AI draft done · 4 open questions |
 | 0012 | Agents button does nothing | ready | solo | — | — | AI draft done · 6 open questions · likely shared cause with 0010/0011 |
 | 0013 | Pane does not draw when a resumed agent is listed twice | done | solo | — | — | merged 2d441d3 (no rebase), 5 checks PASS, 37/37 tests · needs a release to reach the installed plugin |
