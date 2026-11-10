@@ -327,7 +327,7 @@ hooks/register.tsx              the hooks: /board, the pane, the AI writer guard
 hooks/views.tsx                 the pane's views
 hooks/store.ts                  reading and writing the board and tickets
 hooks/ai.ts                     ticket-writer jobs and answer suggestions
-hooks/core/                     pure parsing/editing (board table, questions, ready check, filters)
+hooks/core/                     pure parsing/editing (board table, questions, ready check, filters, roadmap parser and progress)
 agents/ticket-writer.md         the background writer agent
 skills/ticket/                  the /ticket rules and templates
 templates/BOARD.md              the empty board used by "Set up board"
@@ -340,7 +340,7 @@ examples/demo-board/            a demo project
 tests/                          claude plugin test suites
 ```
 
-The parsing and editing code in `hooks/core/` has no side effects and is covered by `tests/core.test.ts`. `tests/pane.test.tsx` drives the real pane over an in-memory board on both surfaces: answer a question, mark ready, and run a ticket.
+The parsing and editing code in `hooks/core/` has no side effects and is covered by `tests/core.test.ts`. `tests/roadmap.test.ts` covers the roadmap parser (`hooks/core/roadmap.ts`) and the rd.md `Plan:` / `Design:` readers on three fixtures: a blank project, a full design and plan with every build state, coverage state, hill position and roadmap check, and a copy of the factory's phase-less `F1…` plan shape. `tests/pane.test.tsx` drives the real pane over an in-memory board on both surfaces: answer a question, mark ready, and run a ticket.
 
 ## License
 

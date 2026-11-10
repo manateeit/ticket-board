@@ -42,6 +42,45 @@ export function parseTitle(md: string): string | undefined {
   return m?.[1]
 }
 
+/** A `Design:` reference of a ticket: section id (`D3`) and the Rev it was written against, if given. */
+export type DesignRef = { id: string; rev?: number }
+
+/** The lines above the first `## ` section, where `Type:`, `Plan:` and `Design:` live. */
+function headLines(rd: string): string[] {
+  const lines = rd.split(/\r?\n/)
+  const end = lines.findIndex(l => /^##\s/.test(l))
+  return lines.slice(0, end === -1 ? Math.min(lines.length, 12) : end)
+}
+
+function headField(rd: string, key: string): string | undefined {
+  const re = new RegExp(`^\\s*(?:\\*\\*)?${key}(?:\\*\\*)?\\s*:\\s*(?:\\*\\*)?\\s*(.*?)\\s*$`, 'i')
+  for (const line of headLines(rd)) {
+    const m = re.exec(line)
+    if (m !== null) return m[1]!.replace(/\*\*/g, '').trim()
+  }
+  return undefined
+}
+
+/** `Plan: P1.3` → `P1.3`. No line (or `—` / `none`) means the ticket is off-plan: `undefined`. */
+export function parsePlanRef(rd: string): string | undefined {
+  const v = headField(rd, 'plan')
+  const m = v === undefined ? null : /^`?([A-Za-z]+\d+(?:\.\d+)*)`?/.exec(v)
+  return m === null ? undefined : m[1]!.toUpperCase()
+}
+
+/** `Design: D1@2, D3@1` → `[{ id: 'D1', rev: 2 }, { id: 'D3', rev: 1 }]`; a bare `D1` has no `rev`. */
+export function parseDesignRefs(rd: string): DesignRef[] {
+  const v = headField(rd, 'design')
+  if (v === undefined) return []
+  const out: DesignRef[] = []
+  for (const m of v.matchAll(/\bD(\d+)(?:\s*@\s*(\d+))?/gi)) {
+    const id = `D${Number(m[1])}`
+    if (out.some(r => r.id === id)) continue
+    out.push(m[2] === undefined ? { id } : { id, rev: Number(m[2]) })
+  }
+  return out
+}
+
 export type Question = {
   index: number
   text: string
