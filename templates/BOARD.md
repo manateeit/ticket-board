@@ -6,6 +6,10 @@ human) edit this file. Workers report back; the router updates the board.
 Status flow: `draft` → `ready` → `in-progress` → `in-check` → `done`
 (any status → `blocked` when a ticket is stuck; note why in the Notes column)
 
+Every ticket's work ends with its docs: before a ticket moves to `in-check`, the
+worker updates README.md and the docs listed under `## Docs` in its rd.md, and
+the checker fails the ticket if they are stale.
+
 | #    | Ticket                        | Status | Mode | Blocked by | Owner   | Notes |
 |------|-------------------------------|--------|------|------------|---------|-------|
 

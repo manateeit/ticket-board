@@ -36,12 +36,12 @@ function brief($: $, number: string, folder: string, kind: Job['kind'], idea?: s
     ].join('\n')
   if (kind === 'enhance')
     return [
-      `Improve draft ticket ${number}. Read its rd.md and eval.md and the code it touches, then fill missing or placeholder sections, sharpen Behaviour into observable bullets (edge and error cases), make Touchpoints real paths, and make eval checks concrete (how to run + pass criterion; at least one end-to-end check).`,
+      `Improve draft ticket ${number}. Read its rd.md and eval.md and the code it touches, then fill missing or placeholder sections, sharpen Behaviour into observable bullets (edge and error cases), make Touchpoints real paths, fill ## Docs with the README.md sections and other docs this change makes stale (add the section if missing), and make eval checks concrete (keep or add the "Docs and README updated" check) (how to run + pass criterion; at least one end-to-end check).`,
       'Keep every answer a person already gave (lines with "Resolved … (human)") and keep the ticket\'s intent; do not invent requirements a person has not asked for — ask instead.',
       ...common,
     ].join('\n')
   return [
-    `Fold the answered questions of ticket ${number} into the ticket. For each question under "## Open questions" that has a "Resolved …" line, move what the answer decides into What / Behaviour / Scope / Touchpoints (and eval.md checks if it changes how the ticket is verified), then remove that question.`,
+    `Fold the answered questions of ticket ${number} into the ticket. For each question under "## Open questions" that has a "Resolved …" line, move what the answer decides into What / Behaviour / Scope / Touchpoints / Docs (and eval.md checks if it changes how the ticket is verified), then remove that question.`,
     `Keep unresolved questions exactly as they are. If no unresolved question is left, the section becomes the single line \`- none (resolved ${date}; answers folded into the ticket)\`.`,
     ...common,
   ].join('\n')

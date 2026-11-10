@@ -86,8 +86,9 @@ const PANE = {
   props: { title: 'Tickets', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
-async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | 'desktop') {
+async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | 'desktop', extra: Record<string, string> = {}) {
   const fs = fakeFs()
+  for (const [k, v] of Object.entries(extra)) fs.files.set(k, v)
   const filled: string[] = []
   const calls: string[] = []
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
@@ -250,5 +251,39 @@ test('activity strip animates while the session works', async ($, on) => {
   expect(drawn).not.toContain('isInteractive')
   await ui.press({ key: 'activity-agents' })
   await ui.find({ type: 'Text', text: /AGENTS · 1 RUNNING/ })
+  await ui.unmount()
+})
+
+const PROJECT_FILES = {
+  '/repo/.git/config': '[core]\n\tbare = false\n[remote "origin"]\n\turl = git@github.com:acme/shop-app.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n',
+  '/repo/.git/HEAD': 'ref: refs/heads/feature/csv\n',
+  '/repo/README.md': '# Acme Shop\n\nThe storefront.\n\n## Install\n\nRun `npm i`.\n',
+}
+
+test('desktop header names the project and repo, and opens the README', async ($, on) => {
+  const { ui, filled } = await boot($, on, 'desktop', PROJECT_FILES)
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  let drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('Acme Shop')
+  expect(drawn).toContain('acme/shop-app')
+  expect(drawn).toContain('feature/csv')
+  await ui.press({ key: 'readme' })
+  await ui.find({ type: 'Text', text: /The storefront/ })
+  drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('Install')
+  await ui.press({ key: 'readme-update' })
+  expect(filled.at(-1)).toContain('Update README.md')
+  await ui.press({ key: 'back' })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  await ui.unmount()
+})
+
+test('terminal shows the project line and README; no git falls back to the folder name', async ($, on) => {
+  const { ui } = await boot($, on, 'terminal')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('repo · not a git repo')
+  await ui.press({ key: 'readme' })
+  await ui.find({ type: 'Text', text: /no README.md yet/ })
   await ui.unmount()
 })

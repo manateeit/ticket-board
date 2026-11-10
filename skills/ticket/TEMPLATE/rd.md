@@ -24,6 +24,11 @@ Out:
 
 - <path/to/likely/file> — <why>
 
+## Docs
+
+- README.md — <section to add or change, or "no change: <why>">
+- <docs/… or other doc file> — <what to update>
+
 ## Open questions
 
 - <Must be empty before this ticket can be marked ready>

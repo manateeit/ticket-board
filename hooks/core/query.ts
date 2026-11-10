@@ -130,7 +130,7 @@ export function runLine(numbers: readonly string[], asRouter = false): string {
 
 /** Makes a run line work in any session: the router already is one, any other session takes the role from the file. */
 export const ROUTER_TAIL =
-  ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself.'
+  ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
 
 export function today(nowMs: number): string {
   const d = new Date(nowMs)

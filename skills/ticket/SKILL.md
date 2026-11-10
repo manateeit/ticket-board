@@ -38,6 +38,12 @@ questions there and flips the ticket from `draft` to `ready`.
    - `## Scope` — what is explicitly IN and explicitly OUT.
    - `## Touchpoints` — files/modules you found in step 1 that this will
      probably touch (guidance for the worker, not a straitjacket).
+   - `## Docs` — the documentation step of the ticket: which parts of
+     `README.md` and which other docs (docs/, CHANGELOG, help text, the
+     project's CLAUDE.md/AGENTS.md) the worker must update so they match the
+     change. Always name README.md: what to add or change, or
+     `README.md — no change: <why>`. Updating these is part of the work, not
+     a follow-up ticket.
    - `## Open questions` — anything genuinely undecided, one `- question`
      bullet each. If this section has an unanswered question, the ticket
      cannot be marked ready. When there are none, write `- none`.
@@ -49,6 +55,9 @@ questions there and flips the ticket from `draft` to `ready`.
      or steps), and what result counts as a pass. Prefer checks that use the
      project's own test/build commands, plus at least one check that exercises
      the new behaviour end-to-end (browser check for UI work).
+   - One check is always **Docs and README updated**: the docs listed in
+     rd.md's `## Docs` and README.md describe the change as built. A ticket
+     is not done while its docs are stale.
    - `## Not checked by automation` — anything a human still has to eyeball.
    - The checker marks each check PASS/FAIL in this file and appends evidence
      (command output summaries, screenshot paths). It never edits the checks
@@ -86,6 +95,8 @@ been worked into What/Behaviour/Scope, the list may be collapsed to
 
 - One feature per ticket. If the request is really three features, write three
   tickets and link them with Blocked-by.
+- Every ticket ends with its docs: the worker updates README.md and the docs
+  in `## Docs` in the same change, and the checker verifies them.
 - Never write code in this skill. Tickets describe behaviour and verification,
   not implementations.
 - Keep `rd.md` under ~80 lines. A worker's context window is precious; link to

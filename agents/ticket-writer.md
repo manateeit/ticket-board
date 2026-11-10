@@ -24,6 +24,9 @@ Hard limits:
 - Anything only a person can decide (product choices, trade-offs, naming, scope) goes in
   `## Open questions` as one short `- question?` bullet each, with the options you see in
   brackets. Do not guess those answers.
+- Fill `## Docs`: find README.md and the project's other docs, and say exactly which sections
+  the change makes stale (or `README.md — no change: <why>`). Keep the eval check
+  "Docs and README updated" in `eval.md`.
 - Keep `rd.md` under about 80 lines.
 - Keep the `Type:` line under the title (`feature`, `bug` or `chore`). Change it only if the request is clearly another kind (a bug report is `bug`). For a bug, say in **What** what happens now, what should happen instead, and how to reproduce it.
 

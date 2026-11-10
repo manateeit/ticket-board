@@ -17,6 +17,14 @@ checks themselves. ALL checks must PASS for the ticket to be done.
    - Result:
    - Evidence:
 
+3. Docs and README updated
+   - Run: read the files listed under `## Docs` in rd.md, and README.md
+   - Pass: each listed doc describes the new behaviour as built (commands, options,
+     screenshots or examples still work); README.md is current, or rd.md says why
+     it needs no change
+   - Result:
+   - Evidence:
+
 ## Not checked by automation
 
 - <Anything a human still has to eyeball, or "none">

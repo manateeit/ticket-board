@@ -3,6 +3,7 @@ import type { AgentInfo, EngineInterface } from 'claude-code'
 
 import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
 import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
+import { README_NAMES, originUrl, parseGitFile, parseHead, parseRemote, projectName, type Project } from './core/project'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
 
 type $ = EngineInterface
@@ -33,6 +34,7 @@ export type View =
   | { kind: 'ticket'; number: string; tab: 'rd' | 'eval' }
   | { kind: 'questions'; number: string }
   | { kind: 'new' }
+  | { kind: 'readme' }
 
 export type Job = { agentId: string; number: string; kind: 'draft' | 'enhance' | 'fold'; startedAt: number }
 
@@ -66,6 +68,8 @@ export const S = {
   busyTool: '',
   /** The project defines a `router` agent (.claude/agents/router.md): run lines ask for it by name. */
   hasRouter: false,
+  /** The project and repo this session works in (shown at the top of the pane). */
+  project: undefined as Project | undefined,
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -86,6 +90,7 @@ export function resetSession(cwd: string) {
     busySince: 0,
     busyTool: '',
     isRefreshing: false,
+    project: undefined,
   })
   S.jobs.clear()
   S.drafts.clear()
@@ -126,6 +131,48 @@ async function listOr($: $, path: string) {
   }
 }
 
+/** Name, repo, branch and README of the folder this session runs in. Reads files only: no git command needed. */
+export async function loadProject($: $): Promise<Project> {
+  const cwd = S.cwd || '.'
+  let gitDir = `${cwd}/.git`
+  let config = await readOr($, `${gitDir}/config`)
+  let head = await readOr($, `${gitDir}/HEAD`)
+  if (config === undefined) {
+    // A worktree or submodule: .git is a file that points at the real git dir.
+    const pointer = await readOr($, `${cwd}/.git`)
+    const target = pointer === undefined ? '' : parseGitFile(pointer)
+    if (target !== '') {
+      gitDir = target.startsWith('/') ? target : `${cwd}/${target}`
+      head = await readOr($, `${gitDir}/HEAD`)
+      const common = ((await readOr($, `${gitDir}/commondir`)) ?? '').trim()
+      const commonDir = common === '' ? gitDir.replace(/\/worktrees\/[^/]+\/?$/, '') : common.startsWith('/') ? common : `${gitDir}/${common}`
+      config = (await readOr($, `${commonDir}/config`)) ?? (await readOr($, `${gitDir}/config`))
+    }
+  }
+  let readmePath = ''
+  let readme: string | undefined
+  for (const name of README_NAMES) {
+    readme = await readOr($, `${cwd}/${name}`)
+    if (readme !== undefined) {
+      readmePath = `${cwd}/${name}`
+      break
+    }
+  }
+  const pkg = await readOr($, `${cwd}/package.json`)
+  const remote = parseRemote(config === undefined ? '' : originUrl(config))
+  return {
+    name: projectName(readme, pkg, cwd),
+    folder: cwd,
+    repo: remote.repo,
+    repoUrl: remote.repoUrl,
+    host: remote.host,
+    branch: head === undefined ? '' : parseHead(head),
+    isGit: config !== undefined || head !== undefined,
+    readmePath,
+    readme,
+  }
+}
+
 /** Re-reads what changed since the last snapshot (by modification time). Returns whether anything changed. */
 export async function refresh($: $, force = false): Promise<boolean> {
   if (S.isRefreshing) return false
@@ -146,6 +193,11 @@ export async function refresh($: $, force = false): Promise<boolean> {
       boardText = (await readOr($, boardPath())) ?? ''
       board = parseBoard(boardText)
       changed = true
+    }
+    if (force || prev === undefined || S.project === undefined) {
+      const was = JSON.stringify(S.project)
+      S.project = await loadProject($)
+      if (JSON.stringify(S.project) !== was) changed = true
     }
     if (force || prev === undefined) S.hasRouter = (await readOr($, `${S.cwd}/.claude/agents/router.md`)) !== undefined
     const files = new Map<string, TicketFiles>()
@@ -292,6 +344,9 @@ export async function createSkeleton(
     '## Touchpoints',
     '- <path — why>',
     '',
+    '## Docs',
+    '- README.md — <section to add or change, or "no change: <why>">',
+    '',
     '## Open questions',
     '- <Must be empty before this ticket can be marked ready>',
     '',
@@ -304,6 +359,7 @@ export async function createSkeleton(
     '',
     '## Checks',
     '1. <how to run it — pass criterion>',
+    '2. Docs and README updated — read the files under ## Docs in rd.md and README.md; pass when they describe the change as built.',
     '',
     '## Not checked by automation',
     '- <...>',

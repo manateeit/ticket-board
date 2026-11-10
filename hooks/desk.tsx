@@ -1149,3 +1149,113 @@ export function deskNew($: $, ui: UI): RenderChildren {
 export const flow = FLOW
 export const statusName = (s: string) => STATUS_NAME[s] ?? s
 export { statusOf }
+
+// ---------- Project bar + README ----------
+
+/** Top of the pane: the project's general name, its repo and branch, and the README button. */
+export function ProjectBar($: $, ui: UI): RenderChildren {
+  const { Box, Text, Button } = ui
+  const p = S.project
+  const name = p?.name ?? 'Loading project…'
+  const repoText = p === undefined ? '' : p.repo !== '' ? p.repo : p.isGit ? 'local git · no origin remote' : 'not a git repository'
+  const isReadme = S.view.kind === 'readme'
+  return (
+    <Box
+      key="project"
+      flexDirection="row"
+      justifyContent="space-between"
+      alignItems="center"
+      flexWrap="wrap"
+      gap={1}
+      paddingX={2}
+      paddingY={1}
+      backgroundColor={tint(G.accent, 0.07)}
+      borderStyle="round"
+      borderColor={tint(G.accent, 0.3)}
+    >
+      <Box flexDirection="column" flexShrink={1}>
+        <Text color={G.faint} size="caption" weight="bold">
+          PROJECT
+        </Text>
+        <Text color={G.ink} size="heading" weight="bold" wrap="truncate">
+          {name}
+        </Text>
+        <Box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center">
+          {p !== undefined && p.repoUrl !== '' && ui.Link !== undefined ? (
+            <ui.Link key="repo-link" href={p.repoUrl} label={`⎇ ${repoText}`} />
+          ) : (
+            <Text color={p?.repo === '' ? STATUS_HEX.draft! : G.soft} size="footnote" mono>
+              {`⎇ ${repoText}`}
+            </Text>
+          )}
+          {p !== undefined && p.branch !== '' && (
+            <Text color={G.soft} size="footnote" mono>
+              {`· ${p.branch}`}
+            </Text>
+          )}
+          {p !== undefined && (
+            <Text color={G.faint} size="footnote" mono wrap="truncate">
+              {`· ${p.folder}`}
+            </Text>
+          )}
+        </Box>
+      </Box>
+      <Button
+        key="readme"
+        hotkey="o"
+        variant={isReadme ? 'primary' : 'secondary'}
+        label={p !== undefined && p.readme === undefined ? 'README (none)' : 'README'}
+        onPress={() => void openReadme($)}
+      />
+    </Box>
+  )
+}
+
+export async function openReadme($: $) {
+  if (S.view.kind === 'readme') return go($, { kind: 'board' })
+  go($, { kind: 'readme' })
+  await refresh($, true)
+}
+
+const README_ASK =
+  'Update README.md so it matches the project as it is now: what it is, how to install and run it, how to use it, and what changed recently (see tickets/BOARD.md). Keep what is still true; fix what is stale.'
+
+export function deskReadme($: $, ui: UI): RenderChildren {
+  const { Box, Text, Button } = ui
+  const p = S.project
+  const text = p?.readme
+  const rel = p === undefined || p.readmePath === '' ? 'README.md' : p.readmePath.replace(`${p.folder}/`, '')
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Button key="back" label="‹ Board" plain onPress={() => go($, { kind: 'board' })} />
+          <Text color={G.faint}>{`/ ${rel}`}</Text>
+        </Box>
+        <Box flexDirection="row" gap={1}>
+          <Button key="readme-refresh" label="↻" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'README reloaded'))} />
+          <Button
+            key="readme-update"
+            label={text === undefined ? '✨ Ask Claude to write a README' : '✨ Ask Claude to update it'}
+            variant="primary"
+            onPress={() =>
+              void fill(
+                $,
+                text === undefined ? 'Write a README.md for this project: what it is, how to install and run it, and how to use it. Read the code and tickets/BOARD.md first.' : README_ASK,
+                'In your prompt box — press Enter to send it',
+              )
+            }
+          />
+        </Box>
+      </Box>
+      {Toast(ui)}
+      {text === undefined
+        ? Card(
+            ui,
+            <Text color={G.soft}>This project has no README yet. Every ticket's workflow includes keeping it current; you can also ask Claude to write one now.</Text>,
+            { key: 'readme-none', title: 'No README' },
+          )
+        : Card(ui, <ui.Markdown key="readme-md" text={text} />, { key: 'readme-body', title: rel })}
+    </Box>
+  )
+}

@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { BoardEditError, addRow, parseBoard, setCells } from '../hooks/core/board'
+import { originUrl, parseGitFile, parseHead, parseRemote, projectName, readmeTitle } from '../hooks/core/project'
 import { kindOf, nextNumber, resultOf, query, runLine, slugify, titleFromIdea, type Item } from '../hooks/core/query'
 import { answerQuestion, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 
@@ -168,4 +169,28 @@ test('hide done works across tabs but not on the Done tab', () => {
   expect(query(all, { ...base, hideDone: true }).map(i => i.number)).toEqual(['0002', '0003'])
   expect(query(all, { ...base, show: 'done', hideDone: true }).map(i => i.number)).toEqual(['0001'])
   expect(query(all, base).length).toBe(3)
+})
+
+test('project: origin, branch and name come from plain files', () => {
+  const cfg = '[core]\n\tbare = false\n[remote "upstream"]\n\turl = git@github.com:x/y.git\n[remote "origin"]\n\turl = https://github.com/manateeit/ticket-board.git\n'
+  expect(originUrl(cfg)).toBe('https://github.com/manateeit/ticket-board.git')
+  expect(parseRemote('git@github.com:acme/shop.git')).toEqual({ host: 'github.com', repo: 'acme/shop', repoUrl: 'https://github.com/acme/shop' })
+  expect(parseRemote('ssh://git@gitlab.com:22/g/sub/p.git').repo).toBe('g/sub/p')
+  expect(parseRemote('https://git.internal/team/app').repoUrl).toBe('')
+  expect(parseHead('ref: refs/heads/feature/x\n')).toBe('feature/x')
+  expect(parseHead('0123456789abcdef0123456789abcdef01234567')).toBe('0123456')
+  expect(parseGitFile('gitdir: /r/.git/worktrees/w\n')).toBe('/r/.git/worktrees/w')
+  expect(readmeTitle('```\n# not this\n```\n# [Shop](x) ![b](y.svg)\n')).toBe('Shop')
+  expect(projectName(undefined, '{"name":"@acme/shop"}', '/a/b')).toBe('@acme/shop')
+  expect(projectName(undefined, undefined, '/a/b/')).toBe('b')
+})
+
+test('readiness: Docs section is a soft check', () => {
+  const base = '# 1 — T\n\n## What\n\nx\n\n## Behaviour\n\n- y\n\n## Scope\n\nIn: z\n\n## Touchpoints\n\n- a.ts\n\n## Open questions\n\n- none\n'
+  const ev = '# Eval\n\n## Checks\n\n1. Tests pass\n'
+  const no = readiness({ rd: base, ev, blockedBy: [], statusOf: () => undefined })
+  expect(no.find(c => c.id === 'docs')?.isOk).toBe(false)
+  expect(isReadyable(no)).toBe(true)
+  const yes = readiness({ rd: base.replace('## Open questions', '## Docs\n\n- README.md — add a CSV section\n\n## Open questions'), ev, blockedBy: [], statusOf: () => undefined })
+  expect(yes.find(c => c.id === 'docs')?.isOk).toBe(true)
 })

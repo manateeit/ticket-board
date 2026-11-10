@@ -146,6 +146,13 @@ export function readiness({ rd, ev, blockedBy, statusOf }: ReadyInput): Check[] 
       isHard: true,
       detail: missing.length > 0 ? `missing or template: ${missing.join(', ')}` : undefined,
     })
+    const docs = findSection(rd, 'Docs')
+    out.push({
+      id: 'docs',
+      label: sectionFilled(docs) ? 'Docs step planned (README.md and docs to update)' : 'No Docs section: say which docs and README.md parts this changes',
+      isOk: sectionFilled(docs),
+      isHard: false,
+    })
     const open = parseQuestions(rd).filter(q => !q.isResolved).length
     out.push({
       id: 'questions',

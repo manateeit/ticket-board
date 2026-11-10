@@ -1,5 +1,5 @@
 // The pane's views: Board, Ticket, Questions, New ticket, BOARD.md.
-import { ActivityBar, deskBoard, deskNew, deskTicket } from './desk'
+import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskTicket, openReadme } from './desk'
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { STATUSES } from './core/board'
@@ -26,7 +26,7 @@ import {
 } from './store'
 
 type $ = EngineInterface
-export type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Input' | 'Select' | 'Markdown'> & { Svg?: Elements['desktop']['Svg'] }
+export type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Input' | 'Select' | 'Markdown'> & { Svg?: Elements['desktop']['Svg']; Link?: Elements['terminal']['Link'] }
 export type Frame = { rows: number; columns: number; glass?: boolean }
 
 export const SHOW_LABEL: Record<string, string> = {
@@ -700,6 +700,42 @@ function docView($: $, ui: UI): RenderChildren {
   )
 }
 
+// ---------- Project line + README (terminal) ----------
+
+/** `Project · owner/repo · branch    [o README]` above the board. */
+export function projectLine(): string {
+  const p = S.project
+  if (p === undefined) return ''
+  const repo = p.repo !== '' ? p.repo : p.isGit ? 'local git, no origin' : 'not a git repo'
+  return [p.name, repo, p.branch].filter(Boolean).join(' · ')
+}
+
+function withProject($: $, ui: UI, body: RenderChildren): RenderChildren {
+  const { Box, Text, Button } = ui
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+        <Text bold color="claude" wrap="truncate">
+          {projectLine() || 'Loading project…'}
+        </Text>
+        <Button key="readme" label="README" hotkey="o" plain onPress={() => void openReadme($)} />
+      </Box>
+      {body}
+    </Box>
+  )
+}
+
+function readmeView($: $, ui: UI): RenderChildren {
+  const { Box, Markdown, Text } = ui
+  const p = S.project
+  return (
+    <Box flexDirection="column" gap={1}>
+      {Header(ui, `README · ${projectLine()}`, $, { kind: 'board' })}
+      {p?.readme === undefined ? <Text dimColor>This project has no README.md yet.</Text> : <Markdown key="readme-doc" text={p.readme} />}
+    </Box>
+  )
+}
+
 // ---------- No board ----------
 
 export async function setUp($: $) {
@@ -751,29 +787,37 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
     void refresh($)
     return <Text dimColor>Loading {boardPath()}…</Text>
   }
-  if (!S.snap.hasBoard) return setupView($, ui)
-  if (S.snap.board === undefined)
-    return <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
   const v = S.view
   if (glass) {
     const body =
-      v.kind === 'board' || v.kind === 'doc'
-        ? deskBoard($, ui, frame)
-        : v.kind === 'ticket'
-          ? deskTicket($, ui, v.number, v.tab, false)
-          : v.kind === 'questions'
-            ? deskTicket($, ui, v.number, 'rd', true)
-            : deskNew($, ui)
+      v.kind === 'readme'
+        ? deskReadme($, ui)
+        : !S.snap.hasBoard
+          ? setupView($, ui)
+          : S.snap.board === undefined
+            ? <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
+            : v.kind === 'board' || v.kind === 'doc'
+              ? deskBoard($, ui, frame)
+              : v.kind === 'ticket'
+                ? deskTicket($, ui, v.number, v.tab, false)
+                : v.kind === 'questions'
+                  ? deskTicket($, ui, v.number, 'rd', true)
+                  : deskNew($, ui)
     return (
       <ui.Box flexDirection="column" gap={1}>
+        {ProjectBar($, ui)}
         {ActivityBar($, ui)}
         {body}
       </ui.Box>
     )
   }
+  if (v.kind === 'readme') return readmeView($, ui)
+  if (!S.snap.hasBoard) return withProject($, ui, setupView($, ui))
+  if (S.snap.board === undefined)
+    return <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
   switch (v.kind) {
     case 'board':
-      return boardView($, ui, frame)
+      return withProject($, ui, boardView($, ui, frame))
     case 'doc':
       return docView($, ui)
     case 'ticket':
