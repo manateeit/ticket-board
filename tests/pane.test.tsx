@@ -51,7 +51,7 @@ const EVAL = `# Eval
 function fakeFs() {
   const files = new Map<string, string>([
     ['tickets/BOARD.md', BOARD],
-    ['tickets/0001-health-endpoint/rd.md', rd('0001', 'Health endpoint', '- none')],
+    ['tickets/0001-health-endpoint/rd.md', rd('0001', 'Health endpoint', '- Which port should it listen on?')],
     ['tickets/0001-health-endpoint/eval.md', EVAL],
     ['tickets/0002-csv-export-of-the-orders-list/rd.md', rd('0002', 'CSV export of the orders list', '- none')],
     ['tickets/0002-csv-export-of-the-orders-list/eval.md', EVAL],
@@ -204,5 +204,23 @@ test('desktop board notes join wrapped lines and label decisions', async ($, on)
   const drawn = JSON.stringify(await ui.drawn())
   expect(drawn).toContain('BOARD NOTES')
   expect(drawn).toContain('STATUS FLOW')
+  await ui.unmount()
+})
+
+test('ticket page: sections as cards, no questions once done', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop')
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  await ui.press({ key: 'show-all' })
+  await ui.press({ key: 'open-0003' })
+  let drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('1 OPEN QUESTION')
+  expect(drawn).toContain('BEHAVIOUR')
+  expect(drawn).not.toContain('# 0003')
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'open-0001' })
+  drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('Health endpoint')
+  expect(drawn).not.toContain('Which port')
+  expect(drawn).not.toContain('OPEN QUESTION')
   await ui.unmount()
 })

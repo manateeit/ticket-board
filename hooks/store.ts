@@ -196,7 +196,8 @@ export function items(): (Item & { isUnlisted: boolean; blockedBy: string[] })[]
       mode: r.mode,
       owner: r.owner,
       notes: r.notes,
-      openQuestions: f?.questions.filter(q => !q.isResolved).length ?? 0,
+      // A finished ticket no longer needs its questions answered.
+      openQuestions: r.status === 'done' ? 0 : (f?.questions.filter(q => !q.isResolved).length ?? 0),
       updatedMs: Math.max(f?.rdMtime ?? 0, f?.evMtime ?? 0),
       kind: kindOf(r.title || f?.title || '', f?.rd),
       isUnlisted: false,

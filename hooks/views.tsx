@@ -382,7 +382,7 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval'): RenderChi
 
       <Box flexDirection="row" flexWrap="wrap" columnGap={1} rowGap={0}>
         {status === 'ready' && <Button key="run" label="▶ Run this ticket" hotkey="x" variant="primary" onPress={() => runTicket($, number)} />}
-        {f !== undefined && (open.length > 0 || answered.length > 0) && (
+        {f !== undefined && status !== 'done' && (open.length > 0 || answered.length > 0) && (
           <Button
             key="questions"
             label={open.length > 0 ? `Answer questions (${open.length})` : `Questions (${answered.length} answered)`}

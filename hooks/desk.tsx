@@ -416,6 +416,22 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
 
 // ---------- Ticket ----------
 
+/** Splits rd.md / eval.md into one card per "## " section. Drops the H1 (the page shows the title), the Type line,
+ * and the Open questions section (the questions card above handles those; a done ticket doesn't need them). */
+export function docSections(text: string): { title?: string; body: string }[] {
+  const out: { title?: string; body: string[] }[] = [{ body: [] }]
+  for (const line of text.split(/\r?\n/)) {
+    if (/^#\s/.test(line) || /^\s*(\*\*)?type(\*\*)?\s*:/i.test(line)) continue
+    const h = /^##\s+(.*)$/.exec(line)
+    if (h) out.push({ title: h[1]!.replace(/[`*]/g, '').trim(), body: [] })
+    else out[out.length - 1]!.body.push(line)
+  }
+  return out
+    .filter(sec => !/^open questions?\b/i.test(sec.title ?? ''))
+    .map(sec => ({ title: sec.title, body: sec.body.join('\n').trim() }))
+    .filter(sec => sec.title !== undefined || sec.body !== '')
+}
+
 async function setKind($: $, number: string, kind: Kind) {
   const f = S.snap?.files.get(number)
   if (f === undefined) return say($, `Ticket ${number} has no folder`, 'error')
@@ -585,7 +601,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
   const kind = item?.kind ?? 'feature'
   const title = row?.title || f?.title || number
   const path = f === undefined ? undefined : `${dir()}/${f.folder}`
-  const open = (f?.questions ?? []).filter(q => !q.isResolved).length
+  const open = status === 'done' ? 0 : (f?.questions ?? []).filter(q => !q.isResolved).length
   const checks = checksFor(number)
   const canReady = status === 'draft' && isReadyable(checks)
   const job = jobFor(number)
@@ -694,7 +710,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
       <Box flexDirection="row" gap={2} flexWrap="wrap" alignItems="flex-start">
         <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1} width="66%" minWidth={50}>
           {row?.notes && row.notes !== '—'
-            ? Card(ui, <Text color={G.ink}>{row.notes}</Text>, {
+            ? Card(ui, <ui.Markdown key="ticket-notes" text={row.notes.replace(/;\s+/g, '\n- ').replace(/^/, '- ')} />, {
                 key: 'notes-card-ticket',
                 title: 'Progress notes · BOARD.md',
                 right: (() => {
@@ -703,7 +719,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
                 })(),
               })
             : null}
-          {QuestionsCard($, ui, number, false)}
+          {status === 'done' ? null : QuestionsCard($, ui, number, false)}
           {status === 'draft' &&
             Card(
               ui,
@@ -714,19 +730,20 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
               )),
               { key: 'checks-card', title: canReady ? 'Ready check · passes' : 'Ready check', accent: tint(canReady ? STATUS_HEX.ready! : STATUS_HEX.draft!, 0.45) },
             )}
-          {Card(
-            ui,
-            <ui.Markdown key={`md-${number}-${tab}`} text={(tab === 'rd' ? f?.rd : f?.ev) ?? `_No ${tab === 'rd' ? 'rd' : 'eval'}.md yet._`} />,
-            {
-              key: 'doc-card',
-              right: (
-                <Box flexDirection="row" gap={1}>
-                  <Button key="tab-rd" label="Requirements" variant={tab === 'rd' ? 'primary' : 'secondary'} onPress={() => go($, { kind: 'ticket', number, tab: 'rd' })} />
-                  <Button key="tab-eval" label="Acceptance checks" variant={tab === 'eval' ? 'primary' : 'secondary'} onPress={() => go($, { kind: 'ticket', number, tab: 'eval' })} />
-                </Box>
-              ),
-            },
+          <Box key="doc-tabs" flexDirection="row" gap={1} alignItems="center" paddingTop={1}>
+            <Button key="tab-rd" label="Requirements" variant={tab === 'rd' ? 'primary' : 'secondary'} onPress={() => go($, { kind: 'ticket', number, tab: 'rd' })} />
+            <Button key="tab-eval" label="Acceptance checks" variant={tab === 'eval' ? 'primary' : 'secondary'} onPress={() => go($, { kind: 'ticket', number, tab: 'eval' })} />
+            <Text color={G.faint} size="footnote" mono>
+              {`${tab === 'rd' ? 'rd' : 'eval'}.md`}
+            </Text>
+          </Box>
+          {docSections((tab === 'rd' ? f?.rd : f?.ev) ?? '').map((sec, n) =>
+            Card(ui, <ui.Markdown key={`md-${number}-${tab}-${n}`} text={sec.body === '' ? '_Empty._' : sec.body} />, {
+              key: `sec-${tab}-${n}`,
+              title: sec.title,
+            }),
           )}
+          {((tab === 'rd' ? f?.rd : f?.ev) ?? '').trim() === '' && <Text color={G.soft}>{`No ${tab === 'rd' ? 'rd' : 'eval'}.md yet.`}</Text>}
         </Box>
 
         <Box flexDirection="column" gap={1} flexGrow={0} flexShrink={0} width="30%" minWidth={30}>

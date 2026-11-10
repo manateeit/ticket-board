@@ -101,7 +101,32 @@ export function markdown(ui: UI, text: string): RenderChildren {
     return m === null ? undefined : { label: m[1]!, rest: m[2]! }
   }
 
-  const paragraph = (p: string) => {
+  const paragraph = (p: string): void => {
+    const io = /^In:\s+(.*?)\s+Out:\s+(.*)$/s.exec(p)
+    if (io !== null) {
+      out.push(
+        <Box flexDirection="row" gap={2} flexWrap="wrap">
+          {[['IN SCOPE', io[1]!, STATUS_HEX.ready!], ['OUT OF SCOPE', io[2]!, STATUS_HEX.blocked!]].map(([label, body, hex]) => (
+            <Box flexDirection="column" flexGrow={1} width="48%" minWidth={24} backgroundColor={tint(hex!, 0.06)} borderStyle="round" borderColor={tint(hex!, 0.35)} paddingX={2} paddingY={1}>
+              <Text color={hex} size="caption" weight="bold">
+                {label}
+              </Text>
+              <Text>{inline(body!, G.ink)}</Text>
+            </Box>
+          ))}
+        </Box>,
+      )
+      return
+    }
+    // "(moved from GitHub issue #4; …)" — an aside.
+    if (/^\(.*\)$/s.test(p)) {
+      out.push(
+        <Text color={G.faint} size="footnote" italic>
+          {p.slice(1, -1)}
+        </Text>,
+      )
+      return
+    }
     const l = lead(p)
     if (l !== undefined && /^(decision|decided|note|warning|important|todo)\b/i.test(l.label)) {
       const warn = /^(warning|important|todo)/i.test(l.label)
@@ -131,12 +156,53 @@ export function markdown(ui: UI, text: string): RenderChildren {
   }
 
   let para: string[] = []
-  let list: RenderChildren[] = []
+  type Li = { depth: number; bullet: string; text: string }
+  let list: Li[] = []
+  let table: string[][] = []
+  const item = (l: Li) => {
+    const box = /^\[( |x|X)\]\s+(.*)$/s.exec(l.text)
+    const checked = box !== null && box[1] !== ' '
+    const mark = box === null ? l.bullet : checked ? '☑' : '☐'
+    const hex = box === null ? G.accent : checked ? STATUS_HEX.ready! : G.soft
+    return (
+      <Box flexDirection="row" gap={1} paddingLeft={1 + l.depth * 2}>
+        <Text color={hex}>{mark}</Text>
+        <Box flexShrink={1}>
+          <Text>{inline(box === null ? l.text : box[2]!, checked ? G.soft : G.ink)}</Text>
+        </Box>
+      </Box>
+    )
+  }
+  const grid = (rows: string[][]) => {
+    const cols = Math.max(...rows.map(r => r.length))
+    const w = `${Math.floor(100 / cols)}%`
+    return (
+      <Box flexDirection="column" borderStyle="round" borderColor={G.edge}>
+        {rows.map((r, n) => (
+          <Box flexDirection="row" paddingX={1} paddingY={n === 0 ? 1 : 0} backgroundColor={n === 0 ? 'rgba(255,255,255,0.05)' : n % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0)'}>
+            {Array.from({ length: cols }, (_, c) => (
+              <Box width={w} paddingRight={1} flexShrink={0}>
+                {n === 0 ? (
+                  <Text color={G.faint} size="caption" weight="bold">
+                    {(r[c] ?? '').replace(/[`*]/g, '').toUpperCase()}
+                  </Text>
+                ) : (
+                  <Text>{inline(r[c] ?? '', G.ink)}</Text>
+                )}
+              </Box>
+            ))}
+          </Box>
+        ))}
+      </Box>
+    )
+  }
   const flush = () => {
     if (para.length > 0) paragraph(para.join(' '))
     para = []
-    if (list.length > 0) out.push(<Box flexDirection="column">{list}</Box>)
+    if (list.length > 0) out.push(<Box flexDirection="column" gap={0}>{list.map(item)}</Box>)
     list = []
+    if (table.length > 0) out.push(grid(table))
+    table = []
   }
   let code: string[] | undefined
   for (const raw of text.split(/\r?\n/)) {
@@ -181,11 +247,12 @@ export function markdown(ui: UI, text: string): RenderChildren {
       continue
     }
     if (/^\s*\|/.test(line)) {
-      flush()
+      if (table.length === 0) flush()
       if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue
-      out.push(<Text color={G.soft} mono wrap="truncate">{line.trim()}</Text>)
+      table.push(line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()))
       continue
     }
+    if (table.length > 0) flush()
     if (/^\s*>/.test(line)) {
       flush()
       out.push(
@@ -200,15 +267,12 @@ export function markdown(ui: UI, text: string): RenderChildren {
     const li = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(line)
     if (li) {
       if (para.length > 0) flush()
-      const bullet = /\d/.test(li[2]!) ? li[2]! : '•'
-      list.push(
-        <Box flexDirection="row" gap={1} paddingLeft={2 + Math.floor(li[1]!.length / 2) * 2}>
-          <Text color={G.accent}>{bullet}</Text>
-          <Box flexShrink={1}>
-            <Text>{inline(li[3]!, G.ink)}</Text>
-          </Box>
-        </Box>,
-      )
+      list.push({ depth: Math.floor(li[1]!.length / 2), bullet: /\d/.test(li[2]!) ? li[2]! : '•', text: li[3]! })
+      continue
+    }
+    // An indented line under a list item is that item's wrapped tail.
+    if (list.length > 0 && /^\s+\S/.test(line)) {
+      list[list.length - 1]!.text += ` ${line.trim()}`
       continue
     }
     // A line that only continues the sentence above ("(any status → …)") joins it; a list item's wrapped tail joins nothing.
