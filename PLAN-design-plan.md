@@ -162,7 +162,7 @@ pane starts, as ticket writing does today.
 
 | Session | Started by | What happens | Writes |
 |---|---|---|---|
-| **Brainstorm** `/brainstorm [whole \| D3 \| P2 \| 0007]` | Start screen, or "Brainstorm" on a section, phase or ticket | With EGM installed **(default when present)**: runs `/egm:egm-brainstorm` with the item and its context. Without it: built-in version — 4 goldfish agents with no shared context, one lens each (user, simplest thing, risk, what's missing), then a synthesis that keeps / cuts concepts. | `design/brainstorms/<date>-<slug>.md`; "Fold into design" button feeds it to `/design` |
+| **Brainstorm** `/brainstorm [whole \| D3 \| P2 \| 0007]` | Start screen, or "Brainstorm" on a section, phase or ticket | With EGM installed **(default when present)**: runs `/egm:egm-brainstorm` with the item and its context. Without it: built-in version — an `elephant` agent holds the whole context (item, design, plan, code findings) for up to 3 rounds; each round it starts 4 goldfish agents in parallel with no shared context, one lens each (user, simplest thing, risk, what's missing), reads all four and decides what to keep, cut or re-ask (asking you between rounds when only a person can decide). The brief says which path ran. | `design/brainstorms/<date>-<slug>.md`; "Fold into design" button feeds it to `/design` |
 | **Design** `/design` | Start screen, Design view | superpowers-style: reads the code first (blank repo: skips), asks one question at a time, offers 2–3 approaches, writes DESIGN.md. Then a fresh-reader agent (EGM `egm-review` if installed) reads only the file and adds Open questions — which you answer in the pane like ticket questions. | DESIGN.md (`status: draft`) |
 | **Redesign** `/design D3` or `/design` on an approved design | Design view "Redesign" (whole or one section) | Same, scoped. Bumps `version` and each changed section's `Rev`, writes a change note. Never edits plan or tickets. | DESIGN.md, `changes/<date>-design-vN.md` |
 | **Plan** `/planning` | after you press **Approve design** | Reads DESIGN.md, the code and BOARD.md; writes phases and builds; runs the coverage self-review and fixes gaps before finishing. | PLAN.md |
@@ -171,7 +171,8 @@ pane starts, as ticket writing does today.
 | **Drift check** (optional) | Design view menu | EGM `egm-drift-report` if installed, else one agent compares code to DESIGN.md; findings become design Open questions. | DESIGN.md questions |
 
 New pieces: skills `brainstorm`, `design`, `planning` (`/plan` is a built-in command, hence
-`planning`); agents `goldfish` (one lens, no context), `fresh-reader`, `planner`; `ticket-writer`
+`planning`); agents `elephant` (holds the brainstorm context across rounds, keeps and cuts),
+`goldfish` (one lens, no context, read-only), `fresh-reader`, `planner`; `ticket-writer`
 and `/ticket` learn the `Plan:` / `Design:` lines. The writer guard keeps protecting BOARD.md;
 DESIGN.md / PLAN.md edits are allowed only from these skills and the pane.
 
@@ -285,7 +286,7 @@ Each milestone ends with typecheck + `claude plugin test .` green; publish at th
 | M1 | `docs/STANDARD.md` (the format in section 3) + templates `design.md`, `plan.md`, `brief.md`, `change.md` | S | standard reads complete; templates parse with the M2 parser |
 | M2 | `hooks/core/roadmap.ts`: `parseDesign`, `parsePlan`, `bindFromBoard`, `linkTickets`, `progress`, `coverage`, `checks`; `ticket.ts` reads `Plan:` / `Design:` | M | unit tests on a blank project, a full fixture, and a copy of the factory's `design/factory/plan.md` shape |
 | M3 | Project detection + Start screen (desktop and terminal) | M | pane tests: blank folder shows Start; folder with tickets shows board + banner |
-| M4 | Skills `brainstorm` (EGM bridge + built-in goldfish fallback), `design`, `planning`; agents `goldfish`, `fresh-reader`, `planner`; ticket-writer and `/ticket` write `Plan:` / `Design:` | M | `claude plugin validate` passes; skill text reviewed against section 5 |
+| M4 | Skills `brainstorm` (EGM bridge + built-in elephant and goldfish fallback), `design`, `planning`; agents `elephant`, `goldfish`, `fresh-reader`, `planner`; ticket-writer and `/ticket` write `Plan:` / `Design:` | M | `claude plugin validate` passes; skill text reviewed against section 5 |
 | M5 | Header Plan % tile, Roadmap summary card, Phase column + filter, ticket Properties links | M | pane tests on the fixture |
 | M6 | Plan view (list + timeline/hill SVG) and Design view (sections, coverage, questions, approve gate) | L | pane tests: navigate Board → Plan → ticket → Design and back |
 | M7 | Create tickets from builds (batch jobs), redesign change notes + stale detection, replan proposal review/apply | L | test: applying a proposal edits PLAN.md and adds draft tickets; done tickets untouched |

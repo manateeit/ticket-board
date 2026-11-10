@@ -1,6 +1,8 @@
 # 0000 — <Title>
 
 Type: feature   <!-- feature | bug | chore -->
+Plan: <build id>   <!-- optional: only for a ticket from a plan build, e.g. P2.3. Design: each section the build covers at its current Rev, e.g. D1@2, D3@1. Delete both lines for an off-plan ticket. -->
+Design: <section ids at their Rev>
 
 ## What
 

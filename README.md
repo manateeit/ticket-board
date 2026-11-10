@@ -62,7 +62,14 @@ The plugin includes:
 | The pane | The side panel, opened with `/board`. |
 | `/board` | A slash command to open the pane, or open it on one ticket. |
 | `ticket` skill | The `/ticket` ticket-writing rules plus the `TEMPLATE/` files, so `/ticket-board:ticket <idea>` works in any project. If your project has its own `.claude/skills/ticket`, the pane uses that one. |
-| `ticket-writer` agent | The background AI that writes and improves tickets for the pane. It can only write `rd.md` and `eval.md` inside the one ticket folder it was given. |
+| `ticket-writer` agent | The background AI that writes and improves tickets for the pane. It can only write `rd.md` and `eval.md` inside the one ticket folder it was given. When a ticket comes from a plan build it adds `Plan: P2.3` and `Design: D1@2, D3@1` lines under `Type:` (so does `/ticket`). |
+| `brainstorm` skill | `/ticket-board:brainstorm [whole \| D3 \| P2 \| 0007]` brainstorms the whole idea, a design section, a plan phase or a ticket and writes `design/brainstorms/<date>-<slug>.md` (problem, users, kept, cut, open questions). Uses EGM's `/egm:egm-brainstorm` when EGM is installed, else the built-in elephant and goldfish agents; the brief says which path ran. Never edits the design, plan or tickets. |
+| `design` skill | `/ticket-board:design` reads the code, asks one question at a time, offers 2–3 approaches and writes `design/DESIGN.md` (`status: draft`); a fresh reader (EGM `egm-review` when installed) then adds open questions you answer in the pane. `/ticket-board:design D3`, or `/design` on an approved design, is a redesign: it bumps `version` and section `Rev`s and writes `design/changes/<date>-design-vN.md`, never touching the plan or tickets. `/ticket-board:design <brief>` folds a brainstorm in. |
+| `planning` skill | `/ticket-board:planning` (after you approve the design) writes `design/PLAN.md`: phases and sized builds, with a coverage self-review that fixes gaps. When the plan is behind the design it writes only a replan proposal, `design/changes/<date>-replan.md` (add, change, drop build, follow-up ticket); done tickets are never rewritten. |
+| `elephant` agent | Runs the built-in brainstorm: holds the whole context for up to 3 rounds, starts 4 goldfish per round and decides what to keep, cut or re-ask, then writes the brief. |
+| `goldfish` agent | One brainstorm lens (user, simplest thing, risk, what's missing) with no shared context. Read-only. |
+| `fresh-reader` agent | Reads only DESIGN.md and returns the questions a stranger would have, per section. Read-only. |
+| `planner` agent | Drafts PLAN.md and runs the coverage review for `/ticket-board:planning`, or writes the replan proposal. |
 
 ## Quick start
 
@@ -329,7 +336,14 @@ hooks/store.ts                  reading and writing the board and tickets
 hooks/ai.ts                     ticket-writer jobs and answer suggestions
 hooks/core/                     pure parsing/editing (board table, questions, ready check, filters, roadmap parser and progress)
 agents/ticket-writer.md         the background writer agent
+agents/elephant.md              built-in brainstorm: holds context, runs goldfish rounds, writes the brief
+agents/goldfish.md              one read-only brainstorm lens, no shared context
+agents/fresh-reader.md          reads only DESIGN.md and returns open questions
+agents/planner.md               drafts PLAN.md + coverage review, or the replan proposal
 skills/ticket/                  the /ticket rules and templates
+skills/brainstorm/              /ticket-board:brainstorm (EGM bridge + built-in elephant/goldfish)
+skills/design/                  /ticket-board:design (design and redesign)
+skills/planning/                /ticket-board:planning (plan and replan)
 templates/BOARD.md              the empty board used by "Set up board"
 templates/design.md             starting points for the design and plan files
 templates/plan.md                 (format in docs/STANDARD.md)

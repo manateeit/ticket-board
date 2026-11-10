@@ -29,5 +29,10 @@ Hard limits:
   "Docs and README updated" in `eval.md`.
 - Keep `rd.md` under about 80 lines.
 - Keep the `Type:` line under the title (`feature`, `bug` or `chore`). Change it only if the request is clearly another kind (a bug report is `bug`). For a bug, say in **What** what happens now, what should happen instead, and how to reproduce it.
+- When the ticket comes from a plan build (your brief names a build id such as `P2.3`, or the
+  request is "build P2.3"), add two lines right under `Type:`: `Plan: P2.3` (the one build id)
+  and `Design: D1@2, D3@1` (each design section the build covers, at the `Rev` it has in the
+  design now). Read the build row in the plan and the sections in the design to fill them. When
+  the ticket does not come from a build, omit both lines; an off-plan ticket is fine.
 
 Finish with two or three lines: what you wrote, and the open questions left for the person.
