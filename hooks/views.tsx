@@ -3,7 +3,8 @@ import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, des
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { STATUSES } from './core/board'
-import { MODE_OPTIONS, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, titleFromIdea, type Filters } from './core/query'
+import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, titleFromIdea, type Filters } from './core/query'
+import { allBuilds, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
 import { startJob, suggestAnswer } from './ai'
@@ -18,6 +19,8 @@ import {
   jobFor,
   redraw,
   refresh,
+  phaseName,
+  roadmapView,
   rowOf,
   saveAnswer,
   saveFilters,
@@ -43,6 +46,7 @@ export const SORT_LABEL: Record<string, string> = {
   status: 'Status',
   questions: 'Open questions',
   updated: 'Recently edited',
+  phase: 'Phase',
 }
 const TONE: Record<string, string> = {
   draft: 'warning',
@@ -99,6 +103,142 @@ export function setFilters($: $, change: Partial<Filters>) {
   redraw($)
 }
 
+/** Everything a filter reset puts back (the phase filter included). */
+export const CLEARED: Partial<Filters> = { show: 'all', kind: 'any', mode: 'any', search: '', phase: 'any' }
+
+// ---------- Roadmap summary (shared by both surfaces) ----------
+
+export type PlanSummary = {
+  planPct: number
+  ticketPct: number
+  /** Current phase id (the last one once the plan is complete), as shown: `P2`. */
+  phase: string
+  phaseTitle: string
+  phasePct: number
+  phaseCount: number
+  /** Built and counted builds of the current phase (of the whole plan once complete). */
+  built: number
+  counted: number
+  isComplete: boolean
+  /** `P2.4 (no ticket)`; undefined when nothing is unblocked or the plan is complete. */
+  nextUp?: string
+  /** The tile's sub-line: `P2 of 4 · D 5/9 · tickets 67%`. */
+  sub: string
+  /** The terminal line: `Plan 46% · P2 60% · design v3 (plan behind) · tickets 67%`. */
+  compact: string
+  warnings: string[]
+  phases: { id: string; label: string; pct: number }[]
+}
+
+const listIds = (ids: string[]) => ids.join(', ')
+
+/** One short line per roadmap check (the 0003 `checks` output), worded for the board. */
+export function warningLine(a: Alert, designVersion: number | undefined): string {
+  const n = a.subjects.length
+  switch (a.id) {
+    case 'plan-behind':
+      return designVersion === undefined ? 'Plan is behind the design' : `Plan is behind design v${designVersion}`
+    case 'section-no-build':
+      return `${listIds(a.subjects)} ${n === 1 ? 'has' : 'have'} no build`
+    case 'build-no-ticket':
+      return n === 1 ? `${a.subjects[0]} has no ticket` : `${n} builds have no ticket: ${listIds(a.subjects)}`
+    case 'stale-tickets':
+      return `${n} stale ticket${n === 1 ? '' : 's'}: ${listIds(a.subjects)}`
+    case 'off-plan':
+      return `${n} off-plan`
+    default:
+      return a.message
+  }
+}
+
+/** The plan's progress for the header tile, the Roadmap card and the terminal line. Undefined with no plan bound. */
+export function planSummary(): PlanSummary | undefined {
+  const rm = roadmapView()?.rm
+  if (rm === undefined) return undefined
+  const all = items()
+  const done = all.filter(i => i.status === 'done').length
+  const ticketPct = all.length === 0 ? 0 : Math.round((done / all.length) * 100)
+  const prog = rm.progress
+  const isComplete = prog.currentPhase === undefined
+  const cur = prog.phases.find(p => p.id === prog.currentPhase) ?? prog.phases[prog.phases.length - 1]!
+  const phase = phaseName(cur.id)
+  const hasDesign = rm.design.sections.length > 0
+  const counted = isComplete ? prog.phases.reduce((s, p) => s + p.counted, 0) : cur.counted
+  const built = isComplete ? prog.phases.reduce((s, p) => s + p.built, 0) : cur.built
+  let nextUp: string | undefined
+  if (prog.nextUp !== undefined && !isComplete) {
+    const ts = rm.links.byBuild[prog.nextUp] ?? []
+    nextUp = `${prog.nextUp} (${ts.length === 0 ? 'no ticket' : ts.map(t => t.number).join(', ')})`
+  }
+  const isBehind = rm.checks.some(a => a.id === 'plan-behind')
+  const sub = [`${phase} of ${prog.phases.length}`, hasDesign ? `D ${rm.coverage.built}/${rm.coverage.counted}` : '', `tickets ${ticketPct}%`].filter(Boolean).join(' · ')
+  const compact = [
+    `Plan ${prog.planPct}%`,
+    `${phase} ${cur.pct}%`,
+    rm.design.version === undefined ? '' : `design v${rm.design.version}${isBehind ? ' (plan behind)' : ''}`,
+    `tickets ${ticketPct}%`,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return {
+    planPct: prog.planPct,
+    ticketPct,
+    phase,
+    phaseTitle: cur.title,
+    phasePct: cur.pct,
+    phaseCount: prog.phases.length,
+    built,
+    counted,
+    isComplete,
+    nextUp,
+    sub,
+    compact,
+    warnings: rm.checks.map(a => warningLine(a, rm.design.version)),
+    phases: prog.phases.map(p => ({ id: phaseName(p.id), label: p.title, pct: p.pct })),
+  }
+}
+
+/** Options for the phase filter: Any, each phase, then Off-plan. */
+export function phaseOptions(): { value: string; label: string }[] {
+  const rm = roadmapView()?.rm
+  if (rm === undefined) return []
+  return [{ value: 'any', label: 'Any' }, ...rm.plan.phases.map(p => ({ value: phaseName(p.id), label: phaseName(p.id) })), { value: OFF_PLAN, label: 'Off-plan' }]
+}
+
+export type TicketPlan = {
+  /** `P2.2 · One Accept per intent`, `Off-plan`, or `P9.9 — not in the plan`. */
+  item: string
+  isMissing: boolean
+  isOffPlan: boolean
+  chips: { label: string; isStale: boolean }[]
+  /** `Written against D3 rev 1, now rev 2`, one per stale reference. */
+  stale: string[]
+}
+
+/** The ticket's plan item and design chips. Undefined with no plan bound. */
+export function ticketPlan(number: string): TicketPlan | undefined {
+  const rv = roadmapView()
+  const rm = rv?.rm
+  if (rm === undefined) return undefined
+  const ref = rv!.refs.get(number)
+  const builds = allBuilds(rm.plan)
+  const linked = builds.find(b => (rm.links.byBuild[b.id] ?? []).some(t => t.number === number))
+  const named = ref?.plan === undefined ? undefined : builds.find(b => b.id === ref.plan)
+  const build = named ?? linked
+  const isMissing = ref?.plan !== undefined && named === undefined
+  const isOffPlan = !isMissing && build === undefined
+  const item = isMissing ? `${ref!.plan} — not in the plan` : build === undefined ? 'Off-plan' : `${build.id} · ${build.name}`
+  const chips: TicketPlan['chips'] = []
+  const stale: string[] = []
+  for (const d of ref?.design ?? []) {
+    const sec = rm.design.sections.find(x => x.id === d.id)
+    const isStale = sec !== undefined && !sec.isDropped && d.rev !== undefined && d.rev < sec.rev
+    chips.push({ label: d.rev === undefined ? d.id : `${d.id}@${d.rev}`, isStale })
+    if (isStale) stale.push(`Written against ${d.id} rev ${d.rev}, now rev ${sec!.rev}`)
+  }
+  return { item, isMissing, isOffPlan, chips, stale }
+}
+
 let glass = false
 
 function Header(ui: UI, title: string, $: $, back?: View) {
@@ -137,7 +277,10 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
   const board = S.snap?.board
   const before = board === undefined ? '' : lines.slice(0, board.headerLine).join('\n').trim()
   const after = board === undefined ? '' : lines.slice(board.lastLine + 1).join('\n').trim()
-  const isFiltered = S.filters.show !== 'all' || S.filters.mode !== 'any' || S.filters.search.trim() !== ''
+  const plan = planSummary()
+  const planWarning = roadmapView()?.warning
+  const phases = phaseOptions()
+  const isFiltered = S.filters.show !== 'all' || S.filters.mode !== 'any' || S.filters.search.trim() !== '' || (plan !== undefined && (S.filters.phase ?? 'any') !== 'any')
   return (
     <Box flexDirection="column" gap={1}>
       {bannerView($, ui)}
@@ -171,6 +314,15 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
           ))
         )}
       </Box>
+      {plan !== undefined && (
+        <Box key="plan-line" flexDirection="column">
+          <Text bold color="claude">
+            {plan.compact}
+          </Text>
+          {plan.warnings.length > 0 && <Text color="warning">{`⚠ ${plan.warnings[0]}`}</Text>}
+        </Box>
+      )}
+      {planWarning !== undefined && <Text color="warning">{`⚠ ${planWarning}`}</Text>}
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
         <Button key="new" label="+ New ticket" hotkey="n" variant="primary" onPress={() => go($, { kind: 'new' })} />
         {run.length > 0 && (
@@ -190,7 +342,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
           key="sort"
           label="Sort"
           value={S.filters.sort}
-          options={SORT_OPTIONS.map(v => ({ value: v, label: SORT_LABEL[v] ?? v }))}
+          options={SORT_OPTIONS.filter(v => v !== 'phase' || plan !== undefined).map(v => ({ value: v, label: SORT_LABEL[v] ?? v }))}
           onSelect={v => setFilters($, { sort: v as Filters['sort'] })}
         />
         <Select
@@ -200,6 +352,15 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
           options={MODE_OPTIONS.map(v => ({ value: v, label: v === 'any' ? 'Any mode' : v }))}
           onSelect={v => setFilters($, { mode: v as Filters['mode'] })}
         />
+        {phases.length > 0 && (
+          <Select
+            key="phase"
+            label="Phase"
+            value={S.filters.phase ?? 'any'}
+            options={phases.map(o => ({ value: o.value, label: o.value === 'any' ? 'Any phase' : o.label }))}
+            onSelect={v => setFilters($, { phase: v })}
+          />
+        )}
         <Button
           key="hide-done"
           label={S.filters.hideDone === true ? '[x] Hide done' : '[ ] Hide done'}
@@ -238,6 +399,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
             .filter(Boolean)
             .join(' ')
           const details = [
+            i.phase === undefined ? '' : i.phase === '' ? 'off-plan' : i.phase,
             i.mode !== '' ? i.mode : '',
             i.blockedBy.length > 0 ? `blocked by ${i.blockedBy.join(', ')}` : '',
             i.owner !== '' && i.owner !== '—' ? `owner ${i.owner}` : '',
@@ -351,6 +513,7 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval'): RenderChi
   const job = jobFor(number)
   const waiting = blockersOpen(row?.blockedBy ?? [])
   const path = f === undefined ? undefined : `${dir()}/${f.folder}`
+  const tp = ticketPlan(number)
   const isConfirming = (k: string) => S.confirm === `${number}:${k}`
   const confirm = (k: string) => {
     S.confirm = `${number}:${k}`
@@ -369,6 +532,17 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval'): RenderChi
         {row !== undefined && row.owner !== '' && row.owner !== '—' && <Text dimColor>owner {row.owner}</Text>}
       </Box>
       {row !== undefined && row.notes !== '' && <Text dimColor>Notes: {row.notes}</Text>}
+      {tp !== undefined && (
+        <Box key="plan-props" flexDirection="column">
+          <Text color={tp.isMissing ? 'error' : undefined} dimColor={!tp.isMissing}>
+            {`Plan item: ${tp.item}`}
+          </Text>
+          {tp.chips.length > 0 && <Text dimColor>{`Design: ${tp.chips.map(c => (c.isStale ? `${c.label} (stale)` : c.label)).join(', ')}`}</Text>}
+          {tp.stale.map(line => (
+            <Text key={`stale-${line}`} color="warning">{`⚠ ${line}`}</Text>
+          ))}
+        </Box>
+      )}
       {row === undefined && <Text color="error">⚠ BOARD.md has no row for this ticket folder.</Text>}
       {f === undefined && <Text color="error">⚠ No folder {dir()}/{number}-… for this row.</Text>}
       {Message(ui)}

@@ -8,10 +8,11 @@ import { startJob, suggestAnswer } from './ai'
 import { STATUSES } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
-import { G, HUE, SCHEMES, STATUS_HEX, barSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
-import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, rowOf, saveAnswer, say, statusOf, abs } from './store'
+import { G, HUE, SCHEMES, STATUS_HEX, barSvg, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
+import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs } from './store'
 import {
   ASK_NOTE,
+  CLEARED,
   ORIGIN_NOTE,
   bannerText,
   blockersOpen,
@@ -21,6 +22,8 @@ import {
   fail,
   fill,
   fillWithIdea,
+  phaseOptions,
+  planSummary,
   go,
   runTicket,
   runnable,
@@ -35,6 +38,8 @@ import {
   startIdea,
   startPrompt,
   stepMarks,
+  ticketPlan,
+  type PlanSummary,
   type Frame,
   type UI,
 } from './views'
@@ -364,20 +369,25 @@ export function ActivityBar($: $, ui: UI): RenderChildren {
 
 type Row = ReturnType<typeof items>[number]
 
-const COLS: { id: string; label: string; width: string; sort?: Sort }[] = [
-  { id: 'num', label: 'ID', width: '6%', sort: 'number' },
-  { id: 'kind', label: 'Type', width: '9%', sort: 'kind' },
-  { id: 'title', label: 'Title', width: '33%', sort: 'title' },
-  { id: 'status', label: 'Status', width: '11%', sort: 'status' },
-  { id: 'result', label: 'Result', width: '10%' },
-  { id: 'deps', label: 'Depends on', width: '10%' },
-  { id: 'q', label: 'Qs', width: '5%', sort: 'questions' },
-  { id: 'updated', label: 'Updated', width: '8%', sort: 'updated' },
-  { id: 'action', label: '', width: '8%' },
-]
+type Col = { id: string; label: string; width: string; sort?: Sort }
 
+/** The table's columns; the Phase column only while a plan is bound (it takes its width from Title). Widths total 100%. */
+export function boardCols(hasPlan: boolean): Col[] {
+  return [
+    { id: 'num', label: 'ID', width: '6%', sort: 'number' },
+    { id: 'kind', label: 'Type', width: '9%', sort: 'kind' },
+    { id: 'title', label: 'Title', width: hasPlan ? '27%' : '33%', sort: 'title' },
+    ...(hasPlan ? [{ id: 'phase', label: 'Phase', width: '6%', sort: 'phase' as Sort }] : []),
+    { id: 'status', label: 'Status', width: '11%', sort: 'status' },
+    { id: 'result', label: 'Result', width: '10%' },
+    { id: 'deps', label: 'Depends on', width: '10%' },
+    { id: 'q', label: 'Qs', width: '5%', sort: 'questions' },
+    { id: 'updated', label: 'Updated', width: '8%', sort: 'updated' },
+    { id: 'action', label: '', width: '8%' },
+  ]
+}
 
-function sortHeader($: $, ui: UI, c: (typeof COLS)[number]) {
+function sortHeader($: $, ui: UI, c: Col) {
   const f = S.filters
   const active = c.sort !== undefined && (f.sort === c.sort || (c.sort === 'number' && f.sort === 'number-desc'))
   const desc = f.desc === true || f.sort === 'number-desc'
@@ -418,12 +428,12 @@ function rowAction($: $, ui: UI, i: Row): RenderChildren {
   return null
 }
 
-function tableRow($: $, ui: UI, i: Row, n: number): RenderChildren {
+function tableRow($: $, ui: UI, i: Row, n: number, cols: Col[]): RenderChildren {
   const { Box, Text, Button } = ui
   const waiting = blockersOpen(i.blockedBy)
   const hex = hexOf(i.status)
   const cell = (id: string, children: RenderChildren) => (
-    <Box key={`c-${id}-${i.number}`} width={COLS.find(c => c.id === id)!.width} paddingRight={1} flexShrink={0} overflow="hidden">
+    <Box key={`c-${id}-${i.number}`} width={cols.find(c => c.id === id)!.width} paddingRight={1} flexShrink={0} overflow="hidden">
       {children}
     </Box>
   )
@@ -456,6 +466,13 @@ function tableRow($: $, ui: UI, i: Row, n: number): RenderChildren {
           </Button>
         </Box>,
       )}
+      {i.phase !== undefined &&
+        cell(
+          'phase',
+          <Text color={i.phase === '' ? G.faint : G.soft} mono size="footnote">
+            {i.phase === '' ? '—' : i.phase}
+          </Text>,
+        )}
       {cell('status', StatusPill(ui, i.status))}
       {cell(
         'result',
@@ -483,6 +500,48 @@ function tableRow($: $, ui: UI, i: Row, n: number): RenderChildren {
       )}
       {cell('action', rowAction($, ui, i))}
     </Box>
+  )
+}
+
+/**
+ * The Roadmap card: a static phase rail with a link per phase (each sets the phase filter), the
+ * Now line and the roadmap checks as short warnings. "Open plan", "Replan" and "Review" come with
+ * the Plan view (0007) and the flows (0008).
+ */
+function RoadmapCard($: $, ui: UI, plan: PlanSummary, phaseFilter: string): RenderChildren {
+  const { Box, Text, Button } = ui
+  const now = plan.isComplete
+    ? `Plan complete · ${plan.built} of ${plan.counted} builds built`
+    : `Now: ${plan.phase} · ${plan.phaseTitle} · ${plan.built} of ${plan.counted} builds built${plan.nextUp === undefined ? '' : ` · next up ${plan.nextUp}`}`
+  return Card(
+    ui,
+    [
+      ui.Svg !== undefined ? (
+        <ui.Svg key="rail" source={railSvg(plan.phases, G.accent)} alt={plan.phases.map(p => `${p.id} ${p.pct}%`).join(', ')} height={14} />
+      ) : null,
+      <Box key="rail-links" flexDirection="row" gap={1} flexWrap="wrap">
+        {plan.phases.map(p => (
+          <Button
+            key={`rail-${p.id}`}
+            plain
+            onPress={() => setFilters($, { phase: phaseFilter === p.id ? 'any' : p.id })}
+          >
+            <Text color={phaseFilter === p.id ? G.accent : p.pct >= 100 ? STATUS_HEX.done! : G.soft} weight={phaseFilter === p.id ? 'bold' : 'regular'} size="footnote">
+              {`${p.pct >= 100 ? '✓ ' : ''}${p.id} ${p.label} · ${p.pct}%`}
+            </Text>
+          </Button>
+        ))}
+      </Box>,
+      <Text key="rm-now" color={G.ink}>
+        {now}
+      </Text>,
+      ...plan.warnings.map((w, n) => (
+        <Text key={`rm-warn-${n}`} color={STATUS_HEX.draft!} size="footnote">
+          {`⚠ ${w}`}
+        </Text>
+      )),
+    ],
+    { key: 'roadmap-card', title: 'Roadmap', right: <Text color={G.faint} size="footnote">{`Plan ${plan.planPct}% · tickets ${plan.ticketPct}%`}</Text> },
   )
 }
 
@@ -522,7 +581,11 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
     { id: 'not-done', label: 'Open', n: total - done, hex: G.accent },
     ...STATUSES.filter(s => by(s) > 0).map(s => ({ id: s as Filters['show'], label: STATUS_NAME[s] ?? s, n: by(s), hex: hexOf(s) })),
   ]
-  const isFiltered = f.show !== 'all' || f.kind !== 'any' || f.mode !== 'any' || f.search.trim() !== ''
+  const plan = planSummary()
+  const planWarning = roadmapView()?.warning
+  const cols = boardCols(plan !== undefined)
+  const phaseFilter = f.phase ?? 'any'
+  const isFiltered = f.show !== 'all' || f.kind !== 'any' || f.mode !== 'any' || f.search.trim() !== '' || (plan !== undefined && phaseFilter !== 'any')
   const grouped = f.sort === 'status'
 
   return (
@@ -566,7 +629,9 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
         {Kpi(ui, 'kpi-ready', String(by('ready')), 'Ready to run', STATUS_HEX.ready!)}
         {Kpi(ui, 'kpi-active', String(active), 'In flight', STATUS_HEX['in-progress']!, 'building + checking')}
         {Kpi(ui, 'kpi-bugs', String(openBugs), 'Open bugs', KIND.bug.hex)}
-        {Kpi(ui, 'kpi-done', total === 0 ? '0%' : `${Math.round((done / total) * 100)}%`, 'Done', STATUS_HEX.done!, `${done} of ${total}`)}
+        {plan !== undefined
+          ? Kpi(ui, 'kpi-done', `${plan.planPct}%`, 'Plan', G.accent, plan.sub)
+          : Kpi(ui, 'kpi-done', total === 0 ? '0%' : `${Math.round((done / total) * 100)}%`, 'Done', STATUS_HEX.done!, `${done} of ${total}`)}
       </Box>
       {ui.Svg !== undefined && total > 0 && <ui.Svg key="bar" source={barSvg(counts, total)} alt={counts.map(([s, n]) => `${s} ${n}`).join(', ')} height={6} />}
       {S.showAgents && AgentsPanel($, ui, all)}
@@ -603,6 +668,9 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
           options={[{ value: 'any', label: 'Any' }, { value: 'solo', label: 'Solo' }, { value: 'team', label: 'Team' }]}
           onSelect={v => setFilters($, { mode: v as Filters['mode'] })}
         />
+        {plan !== undefined && (
+          <Select key="phase" label="Phase" value={phaseFilter} options={phaseOptions()} onSelect={v => setFilters($, { phase: v })} />
+        )}
         <Input
           key="search"
           placeholder="Search number, title, notes…"
@@ -613,13 +681,13 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
           }}
           onSubmit={v => setFilters($, { search: v })}
         />
-        {isFiltered && <Button key="clear" label="Clear filters" plain onPress={() => setFilters($, { show: 'all', kind: 'any', mode: 'any', search: '' })} />}
+        {isFiltered && <Button key="clear" label="Clear filters" plain onPress={() => setFilters($, CLEARED)} />}
       </Box>
 
       {/* Table */}
       <Box flexDirection="column" backgroundColor={wash(0.03)} borderStyle="round" borderColor={G.edge}>
         <Box flexDirection="row" alignItems="center" paddingX={1} paddingY={1} backgroundColor={wash(0.05)}>
-          {COLS.map(c => (
+          {cols.map(c => (
             <Box key={`h-${c.id}`} width={c.width} flexShrink={0} paddingRight={1}>
               {sortHeader($, ui, c)}
             </Box>
@@ -631,7 +699,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
             {total === 0 ? (
               <Button key="new-empty" label="+ Create the first ticket" variant="primary" onPress={() => go($, { kind: 'new' })} />
             ) : (
-              <Button key="clear-empty" label="Clear filters" onPress={() => setFilters($, { show: 'all', kind: 'any', mode: 'any', search: '' })} />
+              <Button key="clear-empty" label="Clear filters" onPress={() => setFilters($, CLEARED)} />
             )}
           </Box>
         )}
@@ -645,12 +713,19 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
                 </Text>
               </Box>
             ) : null
-          return [head, tableRow($, ui, i, n)]
+          return [head, tableRow($, ui, i, n, cols)]
         })}
       </Box>
       <Text color={G.faint} size="footnote">
         {`Showing ${rows.length} of ${total} · click a column to sort · open a ticket for its full notes`}
       </Text>
+
+      {plan !== undefined && RoadmapCard($, ui, plan, phaseFilter)}
+      {planWarning !== undefined && (
+        <Text key="plan-warning" color={STATUS_HEX.draft!} size="footnote">
+          {`⚠ ${planWarning}`}
+        </Text>
+      )}
 
       {boardNotes !== '' &&
         Card(ui, <ui.Markdown key="board-notes" text={boardNotes} />, {
@@ -853,6 +928,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
   const canReady = status === 'draft' && isReadyable(checks)
   const job = jobFor(number)
   const waiting = blockersOpen(row?.blockedBy ?? [])
+  const tp = ticketPlan(number)
   const list = query(items(), S.filters)
   const at = list.findIndex(i => i.number === number)
   const prev = at > 0 ? list[at - 1] : undefined
@@ -930,6 +1006,13 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
       {status === 'blocked' && (
         <Box backgroundColor={tint(STATUS_HEX.blocked!, 0.12)} borderStyle="round" borderColor={tint(STATUS_HEX.blocked!, 0.55)} paddingX={2} paddingY={1}>
           <Text color={STATUS_HEX.blocked!}>{`⛔ Blocked${row?.notes ? ` — ${row.notes}` : ''}`}</Text>
+        </Box>
+      )}
+      {tp !== undefined && tp.stale.length > 0 && (
+        <Box key="stale-notice" flexDirection="column" backgroundColor={tint(STATUS_HEX.draft!, 0.12)} borderStyle="round" borderColor={tint(STATUS_HEX.draft!, 0.55)} paddingX={2} paddingY={1}>
+          {tp.stale.map(line => (
+            <Text key={`stale-${line}`} color={STATUS_HEX.draft!}>{`⚠ ${line}`}</Text>
+          ))}
         </Box>
       )}
       {row === undefined && f !== undefined && <Text color={STATUS_HEX.blocked!}>⚠ This folder has no row on BOARD.md.</Text>}
@@ -1032,6 +1115,24 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
                   {`⛔ Waiting on ${waiting.join(', ')}`}
                 </Text>
               ) : null,
+              tp !== undefined
+                ? Prop(
+                    ui,
+                    'Plan item',
+                    <Text key="plan-item" color={tp.isMissing ? STATUS_HEX.blocked! : tp.isOffPlan ? G.soft : G.ink}>
+                      {tp.item}
+                    </Text>,
+                  )
+                : null,
+              tp !== undefined && tp.chips.length > 0
+                ? Prop(
+                    ui,
+                    'Design',
+                    <Box key="design-chips" flexDirection="row" gap={1} flexWrap="wrap">
+                      {tp.chips.map(c => Pill(ui, c.isStale ? `${c.label} · stale` : c.label, c.isStale ? STATUS_HEX.draft! : HUE.sky, `chip-${c.label}`))}
+                    </Box>,
+                  )
+                : null,
               Prop(ui, 'Owner', row?.owner && row.owner !== '—' ? row.owner : 'Unassigned'),
               Prop(ui, 'Updated', ago(item?.updatedMs ?? 0)),
               

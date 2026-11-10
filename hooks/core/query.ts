@@ -32,7 +32,7 @@ export function titleFromIdea(idea: string): string {
 
 export const SHOW_OPTIONS = ['needs-me', 'not-done', 'all', 'draft', 'ready', 'in-progress', 'in-check', 'blocked', 'done'] as const
 export type Show = (typeof SHOW_OPTIONS)[number]
-export const SORT_OPTIONS = ['number', 'number-desc', 'status', 'questions', 'updated', 'title', 'kind', 'mode'] as const
+export const SORT_OPTIONS = ['number', 'number-desc', 'status', 'questions', 'updated', 'title', 'kind', 'mode', 'phase'] as const
 export type Sort = (typeof SORT_OPTIONS)[number]
 export const MODE_OPTIONS = ['any', 'solo', 'team'] as const
 export type ModeFilter = (typeof MODE_OPTIONS)[number]
@@ -42,8 +42,12 @@ export type Kind = (typeof KINDS)[number]
 export const KIND_OPTIONS = ['any', ...KINDS] as const
 export type KindFilter = (typeof KIND_OPTIONS)[number]
 
-export type Filters = { show: Show; sort: Sort; mode: ModeFilter; search: string; kind: KindFilter; desc: boolean; hideDone?: boolean }
-export const DEFAULT_FILTERS: Filters = { show: 'all', sort: 'number', mode: 'any', search: '', kind: 'any', desc: false, hideDone: false }
+/** `any`, `off-plan`, or a phase id (`P2`). Applies only while a plan is bound. */
+export type PhaseFilter = string
+export const OFF_PLAN = 'off-plan'
+
+export type Filters = { show: Show; sort: Sort; mode: ModeFilter; search: string; kind: KindFilter; desc: boolean; hideDone?: boolean; phase?: PhaseFilter }
+export const DEFAULT_FILTERS: Filters = { show: 'all', sort: 'number', mode: 'any', search: '', kind: 'any', desc: false, hideDone: false, phase: 'any' }
 
 export type Item = {
   number: string
@@ -55,6 +59,8 @@ export type Item = {
   openQuestions: number
   updatedMs: number
   kind?: Kind
+  /** The plan phase of the build the ticket is linked to (`P2`); '' when off-plan; undefined when no plan is bound. */
+  phase?: string
 }
 
 export function matches(item: Item, f: Filters): boolean {
@@ -75,6 +81,10 @@ export function matches(item: Item, f: Filters): boolean {
   }
   if (f.mode !== 'any' && item.mode.toLowerCase() !== f.mode) return false
   if (f.kind !== undefined && f.kind !== 'any' && (item.kind ?? 'feature') !== f.kind) return false
+  // With no plan bound items carry no phase, and a remembered phase filter is ignored.
+  if (f.phase !== undefined && f.phase !== 'any' && item.phase !== undefined) {
+    if (f.phase === OFF_PLAN ? item.phase !== '' : item.phase !== f.phase) return false
+  }
   const q = f.search.trim().toLowerCase()
   if (q !== '') {
     const hay = `${item.number} ${item.title} ${item.notes} ${item.owner} ${item.status} ${item.kind ?? ''}`.toLowerCase()
@@ -103,7 +113,17 @@ export function sortItems<T extends Item>(items: T[], sort: Sort): T[] {
       return out.sort((a, b) => KINDS.indexOf(a.kind ?? 'feature') - KINDS.indexOf(b.kind ?? 'feature') || byNum(a, b))
     case 'mode':
       return out.sort((a, b) => a.mode.localeCompare(b.mode) || byNum(a, b))
+    case 'phase':
+      return out.sort((a, b) => comparePhase(a.phase, b.phase) || byNum(a, b))
   }
+}
+
+/** Phase order: `P2` before `P10`; off-plan ('' or none) last. */
+export function comparePhase(a: string | undefined, b: string | undefined): number {
+  const isOffA = a === undefined || a === ''
+  const isOffB = b === undefined || b === ''
+  if (isOffA || isOffB) return Number(isOffA) - Number(isOffB)
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
 }
 
 export function query<T extends Item>(items: T[], f: Filters): T[] {

@@ -95,14 +95,16 @@ It re-reads the board every few seconds while it is open, and right after any to
 
 **Desktop layout.** In the Claude desktop app the pane is a professional tracker drawn in one dark glass container (it paints its own background, so it looks the same on any app theme). In the terminal it uses compact views in your terminal's colors.
 
-- **Board.** A title bar with *+ New ticket*, *Refresh* and *▶ Run ready (N)*; five numbers (Need you, Ready to run, In flight, Open bugs, Done %) and a status bar; status tabs with counts (All, Needs me, Open, Draft, Ready, …); type filters (Features, Bugs, Chores); a mode filter and search. **Activity.** A strip across the top of every desktop view shows what the session is doing: a spinner and a moving light bar while Claude works (with the kind of step, e.g. "Running a command" or "Editing files", and when the turn started), how many agents are running, and how many tickets the AI writer is drafting. When nothing runs it shrinks to a quiet "Claude is idle". The pane's tab also reads `Tickets · ● working` while anything runs, so you can expand the pane to full size and still see that work is going on.
+- **Board.** A title bar with *+ New ticket*, *Refresh* and *▶ Run ready (N)*; five numbers (Need you, Ready to run, In flight, Open bugs, and **Plan %**) and a status bar; status tabs with counts (All, Needs me, Open, Draft, Ready, …); type filters (Features, Bugs, Chores); a mode filter, a phase filter (when there is a plan) and search. **Plan %** is the share of the plan's build weight that is built (S = 1, M = 3, L = 8; every counted build is in the total, including builds with no ticket yet, so a plan with few tickets reads low). Its sub-line reads `P2 of 4 · D 5/9 · tickets 60%`: the current phase of the phase count, the design sections built of the numbered, non-dropped ones (left out when there is no design), and the share of tickets done beside it, so the gap shows. A project with no plan keeps the old fifth number, **Done** = the share of tickets done (`N of M`). **Activity.** A strip across the top of every desktop view shows what the session is doing: a spinner and a moving light bar while Claude works (with the kind of step, e.g. "Running a command" or "Editing files", and when the turn started), how many agents are running, and how many tickets the AI writer is drafting. When nothing runs it shrinks to a quiet "Claude is idle". The pane's tab also reads `Tickets · ● working` while anything runs, so you can expand the pane to full size and still see that work is going on.
 
 **Hide done.** Next to the type buttons, **Hide done** (key `h` in the terminal) drops done tickets from every tab except Done itself, and is remembered per project.
 
 **Agents.** The **Agents** button in the title bar (key `a`) shows a count of running agents and opens a panel just below the summary tiles: every subagent or teammate this session is running (with its ticket, when it names one, and a Watch button), the tickets the board says are in flight, and the last few agents that finished. A router running in a different session shows up through the In flight tickets.
 
-Tickets are a **table** — ID, Type, Title, Status, Result (a one-word tag from the board's notes: Merged, Decided, From GitHub, Failing…), Depends on, Questions, Updated and one next-step button per row (*Answer 2*, *✓ Ready*, *▶ Run*, *Unblock*). Click any column header to sort, again to reverse; sorting by Status groups the rows. The text around the table on BOARD.md is shown below it as *Board notes*.
-- **Ticket.** A breadcrumb back to the board and *Prev / Next* through the current filtered list; the type, status and mode; a progress stepper (Draft → Ready → In progress → In check → Done); one primary action (*Answer questions*, *Mark ready* or *Run*) plus *Enhance with AI* and *Discuss in chat*. The left column holds the full progress notes from BOARD.md, the open questions (answer inline, *Suggest an answer*), the ready check and the ticket itself with *Requirements* (rd.md) and *Acceptance checks* (eval.md) tabs. The right column is a **Properties** panel where you change the type, mode and dependencies, see the owner and folder, and block or hand-fix the status.
+Tickets are a **table** — ID, Type, Title, Phase (when there is a plan), Status, Result (a one-word tag from the board's notes: Merged, Decided, From GitHub, Failing…), Depends on, Questions, Updated and one next-step button per row (*Answer 2*, *✓ Ready*, *▶ Run*, *Unblock*). Click any column header to sort, again to reverse; sorting by Status groups the rows. The text around the table on BOARD.md is shown below it as *Board notes*.
+
+**Roadmap.** When the board is bound to a plan (the `Design: … · Plan: …` line under the BOARD.md title, else `design/DESIGN.md` and `design/PLAN.md`; format in [docs/STANDARD.md](docs/STANDARD.md)), a **Roadmap** card sits above *Board notes*. It has a phase rail (one segment per phase, filled to the phase's %, a check mark at 100%; a static picture that never captures scrolling) with a link per phase underneath that sets the phase filter (press it again to clear it); a *Now* line with the current phase, *N of M builds built* and *next up P2.4 (no ticket)* (the first unbuilt build whose needs are built; left out once the plan is complete); and one short warning line per roadmap check, for example *Plan is behind design v3*, *D7 has no build*, *Open design questions in D4*, *3 builds have no ticket: …*, *1 stale ticket: 0005* and *2 off-plan* (tickets linked to no build). With no plan the card is not drawn. A plan file that cannot be read (no phase or build table in it, or the file BOARD.md names is missing) never breaks the board: it shows as with no plan, plus one warning line. The Plan and Design views, and the *Open plan*, *Replan* and *Review* buttons, come in a later release.
+- **Ticket.** A breadcrumb back to the board and *Prev / Next* through the current filtered list; the type, status and mode; a progress stepper (Draft → Ready → In progress → In check → Done); one primary action (*Answer questions*, *Mark ready* or *Run*) plus *Enhance with AI* and *Discuss in chat*. The left column holds the full progress notes from BOARD.md, the open questions (answer inline, *Suggest an answer*), the ready check and the ticket itself with *Requirements* (rd.md) and *Acceptance checks* (eval.md) tabs. The right column is a **Properties** panel where you change the type, mode and dependencies, see the plan item and design chips (when there is a plan), the owner and folder, and block or hand-fix the status.
 - **New ticket.** Pick Feature, Bug or Chore, give an optional title and a description (the placeholder tells you what a good bug report or feature request contains), set mode and dependencies, then *Create + AI enhance*.
 
 **Types.** Each ticket is a feature, a bug or a chore. The type is the `Type:` line under the title in rd.md (the AI writer and the /ticket skill keep it); tickets without one are guessed from the title ("Fix …" → bug, "Rename …" → chore, otherwise feature).
@@ -132,12 +134,14 @@ In the terminal the Start screen has the same content as plain text, with the st
 The board view **is** your `BOARD.md`, live and clickable. It shows the file as written: the heading and intro above the table, the table itself as interactive rows, and the status flow and legend below it. When the router, a worker or your editor changes the file, the view updates on its own.
 
 - **Counts** for each status, e.g. `draft 3  ready 2  in-progress 1  done 9`.
+- **Plan line** (when there is a plan): `Plan 46% · P2 60% · design v3 (plan behind) · tickets 40%` (plan %, the current phase and its %, the design version, and the share of tickets done), and the first roadmap warning under it.
 - **Buttons:** **+ New ticket**, **▶ Run ready (N)** (when any ticket can run), **Refresh**.
 - **Show:** *All* (the default, so it reads like the file), *Needs me* (draft + blocked), *Not done*, or one status.
-- **Sort:** number ↑ / ↓, status (flow order), most open questions, recently edited.
+- **Sort:** number ↑ / ↓, status (flow order), most open questions, recently edited, and phase (when there is a plan: P1, P2 … in order, off-plan last).
 - **Mode:** any, solo, team.
+- **Phase** (only when there is a plan): any, each phase of the plan, or *Off-plan*. A ticket's phase is the phase of the build it is linked to, by its rd.md `Plan:` line or by the plan's *Ticket* cell; off-plan means neither. A `Plan:` id the plan does not have counts under the phase its id names (`P9.9` → `P9`). *Clear filters* (desktop) resets it with the others.
 - **Search:** matches number, title, notes, owner and status. All words must match.
-- **Each ticket row** shows the number, status, title and marks. A second line shows the mode, *blocked by*, owner and notes, plus quick actions so you can work on the board without opening the ticket:
+- **Each ticket row** shows the number, status, title and marks. A second line shows the phase (`P2`, or `off-plan`; when there is a plan), the mode, *blocked by*, owner and notes, plus quick actions so you can work on the board without opening the ticket:
   - draft with open questions: **Answer (N)**
   - draft that passes the ready check: **✓ Ready**
   - ready: **▶ Run** and **↩ Draft**
@@ -148,13 +152,14 @@ The board view **is** your `BOARD.md`, live and clickable. It shows the file as 
   - `⛔`: waits on a ticket that is not done
   - `✎`: the AI writer is working on it
   - `⚠`: a ticket folder with no row on the board (or a row with no folder)
-- Long lists are paged. Your Show/Sort/Mode choices are remembered per project.
+- Long lists are paged. Your Show/Sort/Mode/Phase choices are remembered per project.
 
 Press a ticket number to open the full ticket.
 
 ### Ticket
 
 - Title, status, mode, *blocked by*, owner and the Notes column.
+- **Plan item and Design chips** (only when there is a plan), read from the rd.md `Plan:` and `Design:` lines: the plan item, e.g. `P2.2 · One Accept per intent` (or the build whose *Ticket* cell lists the ticket), *Off-plan*, or `P9.9 — not in the plan` for an id the plan does not have; and one chip per design reference (`D4`, `D3@1`). A chip written against an older Rev than the section has now is marked *stale*, and the ticket shows the notice *Written against D3 rev 1, now rev 2*. The pane only shows these lines; it does not write them. In the terminal they are plain text (`Plan item: …`, `Design: D1@2, D3@1 (stale)`).
 - **Ready check** (drafts only): each rule with ✓ or ✗ and why. See [below](#draft--ready-and-the-ready-check).
 - **Actions**, depending on the status:
   - `ready`: **▶ Run this ticket**, **Back to draft**
@@ -325,7 +330,7 @@ Change these in `/plugin` → ticket-board → configure:
 - **rd.md:** an answer is inserted as one `**Resolved <date> (human): …**` line under its question. Nothing else changes.
 - **Conflicts:** each edit reads the file again first. If the row's status is not what you were looking at, the edit is refused and the pane refreshes.
 - **AI writes** go only into the one ticket folder, enforced by a tool guard in the mod.
-- **What it remembers:** your Show/Sort/Mode choices, the list of AI jobs that are still running, and per project whether you skipped GitHub on the Start screen or dismissed the *No design or plan yet* banner. These live in the pane's own store, never in your project's files. Nothing leaves your machine except the model calls for the AI writer and *Suggest*.
+- **What it remembers:** your Show/Sort/Mode/Phase choices, the list of AI jobs that are still running, and per project whether you skipped GitHub on the Start screen or dismissed the *No design or plan yet* banner. These live in the pane's own store, never in your project's files. Nothing leaves your machine except the model calls for the AI writer and *Suggest*.
 
 ## Troubleshooting
 
@@ -379,7 +384,7 @@ examples/demo-board/            a demo project
 tests/                          claude plugin test suites
 ```
 
-The parsing and editing code in `hooks/core/` has no side effects and is covered by `tests/core.test.ts`. `tests/roadmap.test.ts` covers the roadmap parser (`hooks/core/roadmap.ts`) and the rd.md `Plan:` / `Design:` readers on three fixtures: a blank project, a full design and plan with every build state, coverage state, hill position and roadmap check, and a copy of the factory's phase-less `F1…` plan shape. `tests/pane.test.tsx` drives the real pane over an in-memory board on both surfaces: answer a question, mark ready, run a ticket, and the Start screen (a blank folder, the banner on a board with tickets, the stepper resuming from files, Skip remembered, and every Start button only filling the prompt). The Start screen's git and step detection is covered in `tests/core.test.ts`.
+The parsing and editing code in `hooks/core/` has no side effects and is covered by `tests/core.test.ts`. `tests/roadmap.test.ts` covers the roadmap parser (`hooks/core/roadmap.ts`) and the rd.md `Plan:` / `Design:` readers on three fixtures: a blank project, a full design and plan with every build state, coverage state, hill position and roadmap check, and a copy of the factory's phase-less `F1…` plan shape. `tests/pane.test.tsx` drives the real pane over an in-memory board on both surfaces: answer a question, mark ready, run a ticket, and the Start screen (a blank folder, the banner on a board with tickets, the stepper resuming from files, Skip remembered, and every Start button only filling the prompt), and plan progress on a roadmap fixture (a plan with 4 phases and a design at v3: the Plan % tile and terminal plan line against `progress()`, the Roadmap card and its warnings, the phase filter, sort and *Clear filters*, the ticket's plan item, design chips and stale notice, a plan that cannot be read, and the unchanged no-plan board). The Start screen's git and step detection, and the phase filter and sort, are covered in `tests/core.test.ts`.
 
 ## License
 
