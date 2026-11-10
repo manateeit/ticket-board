@@ -923,7 +923,10 @@ function docView($: $, ui: UI): RenderChildren {
 
 // ---------- Project line + README (terminal) ----------
 
-/** `Project · owner/repo · branch    [o README]` above the board. */
+/**
+ * `Project · owner/repo · branch    [o README]` above the board, a ticket, its questions, the
+ * new-ticket form and the README itself (there it reads ‹ Board): `o` works from every one of them.
+ */
 export function projectLine(): string {
   const p = S.project
   if (p === undefined) return ''
@@ -939,7 +942,7 @@ function withProject($: $, ui: UI, body: RenderChildren): RenderChildren {
         <Text bold color="claude" wrap="truncate">
           {projectLine() || 'Loading project…'}
         </Text>
-        <Button key="readme" label="README" hotkey="o" plain onPress={() => void openReadme($)} />
+        <Button key="readme" label={S.view.kind === 'readme' ? '‹ Board' : 'README'} hotkey="o" plain onPress={() => void openReadme($)} />
       </Box>
       {body}
     </Box>
@@ -951,7 +954,7 @@ function readmeView($: $, ui: UI): RenderChildren {
   const p = S.project
   return (
     <Box flexDirection="column" gap={1}>
-      {Header(ui, `README · ${projectLine()}`, $, { kind: 'board' })}
+      {Header(ui, p === undefined || p.readmePath === '' ? 'README.md' : p.readmePath.replace(`${p.folder}/`, ''), $, { kind: 'board' })}
       {p?.readme === undefined ? <Text dimColor>This project has no README.md yet.</Text> : <Markdown key="readme-doc" text={p.readme} />}
     </Box>
   )
@@ -1244,7 +1247,7 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
       </ui.Box>
     )
   }
-  if (v.kind === 'readme') return readmeView($, ui)
+  if (v.kind === 'readme') return withProject($, ui, readmeView($, ui))
   if (showsStart()) return withProject($, ui, startView($, ui))
   if (S.snap.board === undefined)
     return <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
@@ -1254,10 +1257,10 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
     case 'doc':
       return docView($, ui)
     case 'ticket':
-      return ticketView($, ui, v.number, v.tab)
+      return withProject($, ui, ticketView($, ui, v.number, v.tab))
     case 'questions':
-      return questionsView($, ui, v.number)
+      return withProject($, ui, questionsView($, ui, v.number))
     case 'new':
-      return newView($, ui)
+      return withProject($, ui, newView($, ui))
   }
 }
