@@ -5,7 +5,7 @@ import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } 
 import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import type { Scheme } from './glass'
 import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
-import { bindFromBoard } from './core/roadmap'
+import { allBuilds, bindFromBoard, roadmap, ticketRef, type Binding, type Roadmap, type TicketRef } from './core/roadmap'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
 
 type $ = EngineInterface
@@ -28,6 +28,8 @@ export type Snapshot = {
   boardMtime: number
   files: Map<string, TicketFiles>
   loadedAt: number
+  /** The design and plan the board is bound to (texts, when found), read on every refresh. */
+  binding?: Binding
 }
 
 export type View =
@@ -180,6 +182,11 @@ async function listOr($: $, path: string) {
  * are read first and handed back on a second pass.
  */
 async function findDesignAndPlan($: $, boardText: string | undefined): Promise<{ designPath: string; planPath: string }> {
+  const b = await readBinding($, boardText)
+  return { designPath: b.designPath ?? '', planPath: b.planPath ?? '' }
+}
+
+async function readBinding($: $, boardText: string | undefined): Promise<Binding> {
   const wanted: string[] = []
   bindFromBoard(boardText, p => (wanted.push(p), undefined))
   const texts = new Map<string, string>()
@@ -187,8 +194,7 @@ async function findDesignAndPlan($: $, boardText: string | undefined): Promise<{
     const t = await readOr($, p)
     if (t !== undefined) texts.set(p, t)
   }
-  const b = bindFromBoard(boardText, p => texts.get(p))
-  return { designPath: b.designPath ?? '', planPath: b.planPath ?? '' }
+  return bindFromBoard(boardText, p => texts.get(p))
 }
 
 /**
@@ -271,6 +277,8 @@ export async function refresh($: $, force = false): Promise<boolean> {
       S.project = await loadProject($, boardEntry === undefined ? undefined : boardText)
       if (JSON.stringify(S.project) !== was) changed = true
     }
+    const binding = boardEntry === undefined ? undefined : await readBinding($, boardText)
+    if (JSON.stringify(binding) !== JSON.stringify(prev?.binding)) changed = true
     if (force || prev === undefined) S.hasRouter = (await readOr($, abs('.claude/agents/router.md'))) !== undefined
     const files = new Map<string, TicketFiles>()
     const folders = entries.filter(e => e.kind === 'dir' && /^\d{1,5}-/.test(e.name))
@@ -299,7 +307,7 @@ export async function refresh($: $, force = false): Promise<boolean> {
       })
     }
     if (prev !== undefined && prev.files.size !== files.size) changed = true
-    S.snap = { hasBoard: boardEntry !== undefined, boardText, board, boardMtime, files, loadedAt: Date.now() }
+    S.snap = { hasBoard: boardEntry !== undefined, boardText, board, boardMtime, files, loadedAt: Date.now(), binding }
     if (changed) redraw($)
     return changed
   } finally {
@@ -319,9 +327,73 @@ export function statusOf(number: string): string | undefined {
   return rowOf(number)?.status
 }
 
+export type RoadmapView = {
+  /** Set when a plan is bound and has at least one phase or build. */
+  rm?: Roadmap
+  /** One short line when the plan is named or present but could not be used; the board then shows as with no plan. */
+  warning?: string
+  designPath: string
+  planPath: string
+  /** Ticket number → its `Plan:` / `Design:` lines as the roadmap read them. */
+  refs: Map<string, TicketRef>
+  /** Ticket number → phase id of the build it is linked to (`P2`); '' when off-plan. */
+  phaseOf: Map<string, string>
+}
+
+let roadmapMemo: { snap?: Snapshot; value?: RoadmapView } = {}
+
+/** A plan without phase headings has one phase with id ''; the board shows it as "Plan". */
+export const phaseName = (id: string) => (id === '' ? 'Plan' : id)
+
+/**
+ * The board's roadmap, from the design and plan it is bound to, computed by hooks/core/roadmap.ts.
+ * Undefined when there is no plan at all. Never throws: a plan that cannot be used gives a warning.
+ */
+export function roadmapView(): RoadmapView | undefined {
+  const snap = S.snap
+  if (snap === undefined) return undefined
+  if (roadmapMemo.snap === snap) return roadmapMemo.value
+  let value: RoadmapView | undefined
+  try {
+    value = computeRoadmap(snap)
+  } catch (e) {
+    value = { warning: `Could not read the plan: ${(e as Error).message}`, designPath: '', planPath: '', refs: new Map(), phaseOf: new Map() }
+  }
+  roadmapMemo = { snap, value }
+  return value
+}
+
+function computeRoadmap(snap: Snapshot): RoadmapView | undefined {
+  const b = snap.binding
+  if (b === undefined) return undefined
+  const base = { designPath: b.designPath ?? '', planPath: b.planPath ?? '', refs: new Map<string, TicketRef>(), phaseOf: new Map<string, string>() }
+  if (b.plan === undefined) {
+    const w = b.warnings.find(x => x.startsWith('plan'))
+    return w === undefined ? undefined : { ...base, warning: `${w}; showing tickets only` }
+  }
+  if (b.plan.trim() === '') return undefined
+  const listed = new Set(rows().map(r => r.number))
+  const tickets = [
+    ...rows().map(r => ticketRef(r, snap.files.get(r.number)?.rd)),
+    ...[...snap.files.values()].filter(f => !listed.has(f.number)).map(f => ticketRef({ number: f.number, status: 'unlisted' }, f.rd)),
+  ]
+  const rm = roadmap(b.design, b.plan, tickets)
+  if (rm.plan.phases.length === 0) return { ...base, warning: `${base.planPath} has no phases or builds the board can read; showing tickets only` }
+  const builds = allBuilds(rm.plan)
+  for (const t of tickets) {
+    base.refs.set(t.number, t)
+    const linked = builds.find(x => (rm.links.byBuild[x.id] ?? []).some(r => r.number === t.number))
+    const phase = linked !== undefined ? phaseName(linked.phase) : t.plan === undefined ? '' : (/^([A-Za-z]+\d+)\./.exec(t.plan)?.[1] ?? t.plan)
+    base.phaseOf.set(t.number, phase)
+  }
+  return { ...base, rm }
+}
+
 /** Board rows plus ticket folders that have no row (shown with a warning). */
 export function items(): (Item & { isUnlisted: boolean; blockedBy: string[] })[] {
   const files = S.snap?.files ?? new Map<string, TicketFiles>()
+  const rv = roadmapView()
+  const phaseOf = (n: string) => (rv?.rm === undefined ? undefined : (rv.phaseOf.get(n) ?? ''))
   const out = rows().map(r => {
     const f = files.get(r.number)
     return {
@@ -335,6 +407,7 @@ export function items(): (Item & { isUnlisted: boolean; blockedBy: string[] })[]
       openQuestions: r.status === 'done' ? 0 : (f?.questions.filter(q => !q.isResolved).length ?? 0),
       updatedMs: Math.max(f?.rdMtime ?? 0, f?.evMtime ?? 0),
       kind: kindOf(r.title || f?.title || '', f?.rd),
+      phase: phaseOf(r.number),
       isUnlisted: false,
       blockedBy: r.blockedBy,
     }
@@ -351,6 +424,7 @@ export function items(): (Item & { isUnlisted: boolean; blockedBy: string[] })[]
       openQuestions: f.questions.filter(q => !q.isResolved).length,
       updatedMs: Math.max(f.rdMtime, f.evMtime),
       kind: kindOf(f.title ?? f.folder, f.rd),
+      phase: phaseOf(f.number),
       isUnlisted: true,
       blockedBy: [],
     })

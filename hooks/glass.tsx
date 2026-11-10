@@ -436,6 +436,30 @@ export function barSvg(counts: ReadonlyArray<readonly [string, number]>, total: 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="6" viewBox="0 0 ${W} 6"><rect width="${W}" height="6" rx="3" fill="#808080" fill-opacity="0.2"/>${segs}</svg>`
 }
 
+/**
+ * The Roadmap card's phase rail: one segment per phase, filled to the phase's %, a check mark at
+ * 100%. A static image (no script, no animation, not interactive), so it never captures scroll.
+ */
+export function railSvg(phases: ReadonlyArray<{ pct: number }>, hex: string): string {
+  const W = 640
+  const H = 14
+  const gap = 6
+  const n = Math.max(1, phases.length)
+  const seg = (W - gap * (n - 1)) / n
+  const parts = phases
+    .map((p, i) => {
+      const x = i * (seg + gap)
+      const pct = Math.max(0, Math.min(100, p.pct))
+      const fill = (seg * pct) / 100
+      const check =
+        pct >= 100
+          ? `<path d="M${(x + seg / 2 - 5).toFixed(1)} 7 l3.5 3.5 l6.5 -7" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
+          : ''
+      return `<rect x="${x.toFixed(1)}" y="0" width="${seg.toFixed(1)}" height="${H}" rx="4" fill="#808080" fill-opacity="0.2"/><rect x="${x.toFixed(1)}" y="0" width="${fill.toFixed(1)}" height="${H}" rx="4" fill="${hex}" fill-opacity="0.85"/>${check}`
+    })
+    .join('')
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${parts}</svg>`
+}
 
 /** A thin bar with a light sweeping across it, for "Claude is working". SMIL runs in a drawn image, so no iframe and no scroll capture. */
 export function workingSvg(hex: string): string {

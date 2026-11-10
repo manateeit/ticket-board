@@ -18,7 +18,7 @@ import {
   startStep,
   type StartFacts,
 } from '../hooks/core/project'
-import { kindOf, nextNumber, resultOf, query, runLine, slugify, titleFromIdea, type Item } from '../hooks/core/query'
+import { DEFAULT_FILTERS, OFF_PLAN, comparePhase, kindOf, nextNumber, resultOf, query, runLine, slugify, sortItems, titleFromIdea, type Filters, type Item, type Sort } from '../hooks/core/query'
 import { answerQuestion, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
 
@@ -158,6 +158,38 @@ test('filters and sorts', () => {
   expect(query(list, { show: 'all', sort: 'number', mode: 'any', search: '0002', kind: 'any', desc: false }).map(i => i.number)).toEqual(['0002'])
   expect(query(list, { show: 'all', sort: 'number', mode: 'any', search: '', kind: 'bug', desc: false }).map(i => i.number)).toEqual(['0003'])
   expect(query(list, { show: 'all', sort: 'title', mode: 'any', search: '', kind: 'any', desc: true }).map(i => i.number)).toEqual(['0004', '0003', '0002', '0001'])
+})
+
+test('phase filter and sort', () => {
+  const base = { mode: 'solo', owner: '—', notes: '', updatedMs: 0, openQuestions: 0, status: 'ready' }
+  const list: Item[] = [
+    { ...base, number: '0001', title: 'a', phase: 'P10' },
+    { ...base, number: '0002', title: 'b', phase: '' },
+    { ...base, number: '0003', title: 'c', phase: 'P2' },
+    { ...base, number: '0004', title: 'd', phase: 'P1' },
+    { ...base, number: '0005', title: 'e', phase: 'P2' },
+  ]
+  const f = (phase: string, sort: Sort = 'number') => query(list, { ...DEFAULT_FILTERS, phase, sort }).map(i => i.number)
+  // The default filters keep every phase.
+  expect(DEFAULT_FILTERS.phase).toBe('any')
+  expect(query(list, DEFAULT_FILTERS).map(i => i.number)).toEqual(['0001', '0002', '0003', '0004', '0005'])
+  expect(f('any')).toEqual(['0001', '0002', '0003', '0004', '0005'])
+  expect(f('P2')).toEqual(['0003', '0005'])
+  expect(f(OFF_PLAN)).toEqual(['0002'])
+  expect(f('P7')).toEqual([])
+  // Filters saved before the phase filter existed have no phase: nothing is filtered out.
+  const { phase: _phase, ...old } = DEFAULT_FILTERS
+  expect(query(list, old as Filters).length).toBe(5)
+  // With no plan bound items carry no phase and a remembered phase filter is ignored.
+  const noPlan = list.map(({ phase: _p, ...i }) => i as Item)
+  expect(query(noPlan, { ...DEFAULT_FILTERS, phase: 'P2' }).length).toBe(5)
+  // Phase sort: numeric order (P2 before P10), off-plan last, number breaks ties; desc reverses.
+  expect(f('any', 'phase')).toEqual(['0004', '0003', '0005', '0001', '0002'])
+  expect(query(list, { ...DEFAULT_FILTERS, sort: 'phase', desc: true }).map(i => i.number)).toEqual(['0002', '0001', '0005', '0003', '0004'])
+  expect(sortItems(noPlan, 'phase').map(i => i.number)).toEqual(['0001', '0002', '0003', '0004', '0005'])
+  expect(comparePhase('P2', 'P10')).toBeLessThan(0)
+  expect(comparePhase('', 'P1')).toBeGreaterThan(0)
+  expect(comparePhase(undefined, '')).toBe(0)
 })
 
 test('ticket types', () => {

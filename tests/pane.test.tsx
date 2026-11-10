@@ -1,5 +1,9 @@
 import { expect, test, type TestBody } from 'claude-code/testing'
 
+import { roadmap, ticketRef } from '../hooks/core/roadmap'
+import { boardCols } from '../hooks/desk'
+import { railSvg } from '../hooks/glass'
+
 const BOARD = `# Ticket board
 
 | #    | Ticket                        | Status | Mode | Blocked by | Owner   | Notes |
@@ -566,3 +570,312 @@ test('tickets/ with a ticket folder but no BOARD.md auto-opens on Start', async 
   await ui.find({ type: 'Text', text: /Start a project/ })
   await ui.unmount()
 })
+
+// ---------- Plan progress on the board (roadmap fixture) ----------
+
+const RM_DESIGN = `---
+design: Salon
+version: 3
+status: approved
+updated: 2026-11-01
+---
+# Salon: design
+
+## D1 · Booking
+Rev: 2
+What: book a slot.
+
+## D2 · Accounts
+Rev: 1
+
+## D3 · Payments
+Rev: 2
+
+## D4 · Reminders
+Rev: 1
+
+### Open questions
+- [ ] SMS or email?
+
+## D5 · Reports
+Rev: 1
+
+## D6 · Staff
+Rev: 1
+
+## D7 · Waitlist
+Rev: 1
+`
+
+const RM_PLAN = `---
+plan: Salon
+design-version: 2
+updated: 2026-11-02
+---
+# Salon: plan
+
+## P1 · Foundations
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P1.1 | Accounts | S | — | D2 | sign in works | |
+| P1.2 | Booking core | M | P1.1 | D1 | a slot can be booked | |
+
+## P2 · Booking
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P2.1 | Payments | M | P1.2 | D3 | a card is charged | |
+| P2.2 | One Accept per intent | S | P2.3 | D1, D3 | one accept | |
+| P2.3 | Reminders | S | — | D4 | a reminder is sent | |
+| P2.4 | Calendar sync | S | P2.1 | D1 | synced | |
+
+## P3 · Reports
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P3.1 | Reports | M | P2.1 | D5 | a report shows | |
+
+## P4 · Staff
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P4.1 | Staff rota | L | P3.1 | D6 | a rota shows | |
+`
+
+const RM_BOARD = `# Salon board
+
+Design: design/DESIGN.md · Plan: design/PLAN.md
+
+| #    | Ticket          | Status      | Mode | Blocked by | Owner | Notes |
+|------|-----------------|-------------|------|------------|-------|-------|
+| 0001 | Accounts        | done        | solo | —          | —     | merged |
+| 0002 | Booking core    | done        | solo | —          | —     | merged |
+| 0003 | Payments        | done        | solo | —          | —     | merged |
+| 0004 | Accept once     | in-progress | solo | —          | —     | |
+| 0005 | Calendar sync   | draft       | solo | —          | —     | |
+| 0006 | Fix typo        | ready       | solo | —          | —     | |
+| 0007 | Lost build      | draft       | solo | —          | —     | |
+
+Status flow: draft → ready → in-progress → in-check → done
+`
+
+const rmRd = (n: string, title: string, head: string) => `# ${n} — ${title}
+
+Type: feature
+${head}
+
+## What
+
+Something.
+
+## Open questions
+
+- none
+`
+
+const RM_TICKETS: [string, string, string, string][] = [
+  ['0001', 'accounts', 'Accounts', 'Plan: P1.1\nDesign: D2'],
+  ['0002', 'booking-core', 'Booking core', 'Plan: P1.2\nDesign: D1@2'],
+  ['0003', 'payments', 'Payments', 'Plan: P2.1\nDesign: D3@2'],
+  ['0004', 'accept-once', 'Accept once', 'Plan: P2.2\nDesign: D1@2, D3@1'],
+  ['0005', 'calendar-sync', 'Calendar sync', 'Plan: P2.4'],
+  ['0006', 'fix-typo', 'Fix typo', ''],
+  ['0007', 'lost-build', 'Lost build', 'Plan: P9.9'],
+]
+
+function roadmapFiles(plan = RM_PLAN): Record<string, string> {
+  const out: Record<string, string> = { ...GIT_READY, 'tickets/BOARD.md': RM_BOARD, '/repo/design/DESIGN.md': RM_DESIGN, '/repo/design/PLAN.md': plan }
+  for (const [n, slug, title, head] of RM_TICKETS) {
+    out[`tickets/${n}-${slug}/rd.md`] = rmRd(n, title, head)
+    out[`tickets/${n}-${slug}/eval.md`] = EVAL
+  }
+  return out
+}
+
+/** What hooks/core/roadmap.ts computes for the fixture: the pane must show these numbers. */
+function fixtureRoadmap() {
+  const status: Record<string, string> = { '0001': 'done', '0002': 'done', '0003': 'done', '0004': 'in-progress', '0005': 'draft', '0006': 'ready', '0007': 'draft' }
+  const refs = RM_TICKETS.map(([n, , title, head]) => ticketRef({ number: n, status: status[n]! }, rmRd(n, title, head)))
+  return roadmap(RM_DESIGN, RM_PLAN, refs)
+}
+
+const RM_ALL = ['0001', '0002', '0003', '0004', '0005', '0006', '0007']
+/** Ticket rows in the order they are drawn. */
+const rowOrder = (drawn: string) =>
+  RM_ALL.filter(n => drawn.includes(`row-${n}`))
+    .map(n => [n, drawn.indexOf(`row-${n}`)] as const)
+    .sort((a, b) => a[1] - b[1])
+    .map(([n]) => n)
+
+for (const surface of ['terminal', 'desktop'] as const)
+  test(`plan bound: Plan % from progress(), not ticket Done % (${surface})`, async ($, on) => {
+    const rm = fixtureRoadmap()
+    const p = rm.progress
+    expect(p.currentPhase).toBe('P2')
+    const cur = p.phases.find(x => x.id === 'P2')!
+    expect(p.planPct).toBe(33)
+    expect(cur.pct).toBe(50)
+    const { ui } = await boot($, on, surface, roadmapFiles(), { blank: true })
+    await ui.find({ type: 'Text', text: /Accept once/ })
+    const drawn = await drawnText(ui)
+    if (surface === 'desktop') {
+      expect(drawn).toContain(`"${p.planPct}%"`)
+      expect(drawn).toContain('"Plan"')
+      expect(drawn).not.toContain('"Done"')
+      expect(drawn).toContain(`P2 of 4 · D ${rm.coverage.built}/${rm.coverage.counted} · tickets 43%`)
+    } else {
+      expect(drawn).toContain(`Plan ${p.planPct}% · P2 ${cur.pct}% · design v3 (plan behind) · tickets 43%`)
+      expect(drawn).toContain('⚠ Plan is behind design v3')
+    }
+    await ui.unmount()
+  })
+
+for (const surface of ['terminal', 'desktop'] as const)
+  test(`no plan: the tile stays Done with ticket %, no phase column or filter (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    const drawn = await drawnText(ui)
+    if (surface === 'desktop') {
+      expect(drawn).toContain('"Done"')
+      expect(drawn).toContain('"33%"')
+      expect(drawn).toContain('1 of 3')
+      expect(drawn).not.toContain('PHASE')
+      expect(drawn).not.toContain('ROADMAP')
+    } else {
+      expect(drawn).not.toMatch(/Plan \d+%/)
+    }
+    expect(drawn).not.toContain('Off-plan')
+    expect(drawn).not.toContain('"Phase"')
+    await ui.unmount()
+  })
+
+test('Roadmap card: rail, Now line, next up and warnings above Board notes (desktop)', async ($, on) => {
+  const rm = fixtureRoadmap()
+  const { ui } = await boot($, on, 'desktop', roadmapFiles(), { blank: true })
+  await ui.find({ type: 'Text', text: /Accept once/ })
+  const drawn = await drawnText(ui)
+  expect(drawn).toContain('ROADMAP')
+  expect(drawn.indexOf('ROADMAP')).toBeLessThan(drawn.indexOf('BOARD NOTES'))
+  // The rail is one static SVG: no script, no animation, not interactive.
+  expect(drawn).toContain('viewBox=\\"0 0 640 14\\"') // the rail
+  expect(drawn).not.toContain('isInteractive')
+  const rail = railSvg([{ pct: 100 }, { pct: 50 }, { pct: 0 }, { pct: 0 }], '#3B82F6')
+  expect(drawn).toContain('<path d=') // the check mark on the finished phase
+  expect(rail).not.toMatch(/<animate|<script|onclick/i)
+  const p2 = rm.progress.phases.find(x => x.id === 'P2')!
+  expect(rm.progress.nextUp).toBe('P2.3')
+  expect(drawn).toContain(`Now: P2 · Booking · ${p2.built} of ${p2.counted} builds built · next up P2.3 (no ticket)`)
+  expect(drawn).toContain('Plan is behind design v3')
+  expect(drawn).toContain('D7 has no build')
+  expect(rm.links.offPlan.length).toBe(1)
+  expect(drawn).toContain('1 off-plan')
+  expect(drawn).toContain('Open design questions in D4')
+  expect(drawn).toContain('3 builds have no ticket: P2.3, P3.1, P4.1')
+  expect(drawn).toContain('1 stale ticket: 0004')
+  // Not drawn until the Plan view and the flows land (0007, 0008).
+  expect(drawn).not.toContain('Open plan')
+  expect(drawn).not.toContain('Replan')
+  // A rail link sets the phase filter; pressing it again clears it.
+  await ui.press({ key: 'rail-P1' })
+  expect(rowOrder(await drawnText(ui))).toEqual(['0001', '0002'])
+  await ui.press({ key: 'rail-P1' })
+  expect(rowOrder(await drawnText(ui))).toEqual(RM_ALL)
+  await ui.unmount()
+})
+
+for (const surface of ['terminal', 'desktop'] as const)
+  test(`a plan that cannot be read leaves the board drawn with one warning line (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, roadmapFiles('this is not a plan\n\nno phases, no tables\n'), { blank: true })
+    await ui.find({ type: 'Text', text: /Accept once/ })
+    const drawn = await drawnText(ui)
+    expect(drawn.split('showing tickets only').length - 1).toBe(1)
+    expect(drawn).not.toContain('ROADMAP')
+    expect(drawn).not.toMatch(/Plan \d+%/)
+    if (surface === 'desktop') expect(drawn).toContain('"Done"')
+    await ui.unmount()
+  })
+
+test('phase column and filter: P2, Off-plan, Clear filters, sort by phase (desktop)', async ($, on) => {
+  const store = new Map<string, unknown>()
+  const { ui } = await boot($, on, 'desktop', roadmapFiles(), { blank: true, store })
+  await ui.find({ type: 'Text', text: /Accept once/ })
+  expect(await drawnText(ui)).toContain('PHASE')
+  expect(rowOrder(await drawnText(ui))).toEqual(RM_ALL)
+  await ui.select({ key: 'phase', value: 'P2' } as any)
+  expect(rowOrder(await drawnText(ui))).toEqual(['0003', '0004', '0005'])
+  expect((store.get('filters:/repo') as any).phase).toBe('P2')
+  await ui.select({ key: 'phase', value: 'off-plan' } as any)
+  expect(rowOrder(await drawnText(ui))).toEqual(['0006'])
+  await ui.press({ key: 'clear' })
+  expect(rowOrder(await drawnText(ui))).toEqual(RM_ALL)
+  expect((store.get('filters:/repo') as any).phase).toBe('any')
+  await ui.press({ key: 'sort-phase' })
+  // P1, P2, P9 (the phase the missing build's id names), then off-plan.
+  expect(rowOrder(await drawnText(ui))).toEqual(['0001', '0002', '0003', '0004', '0005', '0007', '0006'])
+  await ui.press({ key: 'sort-phase' })
+  expect(rowOrder(await drawnText(ui))).toEqual(['0006', '0007', '0005', '0004', '0003', '0002', '0001'])
+  await ui.unmount()
+})
+
+test('phase filter in the terminal', async ($, on) => {
+  const { ui } = await boot($, on, 'terminal', roadmapFiles(), { blank: true })
+  await ui.find({ type: 'Text', text: /Accept once/ })
+  await ui.select({ key: 'phase', value: 'P1' } as any)
+  const drawn = await drawnText(ui)
+  expect(drawn).toContain('Booking core')
+  expect(drawn).not.toContain('Accept once')
+  await ui.unmount()
+})
+
+test('board columns total 100% with and without the Phase column', () => {
+  for (const hasPlan of [false, true]) {
+    const cols = boardCols(hasPlan)
+    expect(cols.reduce((s, c) => s + Number(c.width.replace('%', '')), 0)).toBe(100)
+    expect(cols.some(c => c.id === 'phase')).toBe(hasPlan)
+  }
+})
+
+test('ticket Properties: Plan item, Design chips, stale notice, off-plan, missing build (desktop)', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop', roadmapFiles(), { blank: true })
+  await ui.find({ type: 'Text', text: /Accept once/ })
+  await ui.press({ key: 'open-0004' })
+  await ui.find({ type: 'Text', text: /PROPERTIES/ })
+  let drawn = await drawnText(ui)
+  expect(drawn).toContain('PLAN ITEM')
+  expect(drawn).toContain('P2.2 · One Accept per intent')
+  expect(drawn).toContain(' D1@2 ')
+  expect(drawn).toContain('D3@1 · stale')
+  expect(drawn).not.toContain('D1@2 · stale')
+  expect(drawn).toContain('Written against D3 rev 1, now rev 2')
+  expect(drawn).not.toContain('Review')
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'open-0006' })
+  drawn = await drawnText(ui)
+  expect(drawn).toContain('Off-plan')
+  expect(drawn).not.toContain('Written against')
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'open-0007' })
+  drawn = await drawnText(ui)
+  expect(drawn).toContain('P9.9 — not in the plan')
+  await ui.unmount()
+})
+
+test('ticket view lists the plan item and design chips as text (terminal)', async ($, on) => {
+  const { ui } = await boot($, on, 'terminal', roadmapFiles(), { blank: true })
+  await ui.find({ type: 'Text', text: /Accept once/ })
+  await ui.press({ key: 'open-0004' })
+  const drawn = await drawnText(ui)
+  expect(drawn).toContain('Plan item: P2.2 · One Accept per intent')
+  expect(drawn).toContain('Design: D1@2, D3@1 (stale)')
+  expect(drawn).toContain('Written against D3 rev 1, now rev 2')
+  await ui.unmount()
+})
+
+for (const surface of ['terminal', 'desktop'] as const)
+  test(`no plan: the ticket page shows no plan item or design chips (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    await ui.press({ key: 'open-0003' })
+    const drawn = await drawnText(ui)
+    expect(drawn).not.toContain('PLAN ITEM')
+    expect(drawn).not.toContain('Plan item')
+    expect(drawn).not.toContain('Off-plan')
+    await ui.unmount()
+  })
