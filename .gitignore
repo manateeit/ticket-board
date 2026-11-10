@@ -4,5 +4,5 @@ node_modules/
 .claude-plugin/types/
 .claude/
 graft/
-PLAN.md
+/PLAN.md
 .ignore
