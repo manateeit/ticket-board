@@ -2,7 +2,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
-import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadStartFlags, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
 import { drawPane, go, type UI } from './views'
 
@@ -22,6 +22,7 @@ function readOptions(o: Readonly<Record<string, unknown>>): Options {
     pollSeconds: Number.isFinite(n) && n >= 1 ? n : 3,
     autoOpen: o.autoOpen !== false,
     writerModel: typeof o.writerModel === 'string' ? o.writerModel.trim() : '',
+    showVersion: o.showVersion !== false,
   }
 }
 
@@ -76,6 +77,7 @@ export const register: Register = (on, options) => {
     await loadScheme($)
     await loadJobs($)
     await loadStartFlags($)
+    await loadVersion($)
     await refresh($)
     // Opens on its own only where a tickets/ folder exists (with or without BOARD.md); where it lands
     // (Start or the board) is up to drawPane. Elsewhere /board opens Start.

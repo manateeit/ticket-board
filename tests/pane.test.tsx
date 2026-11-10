@@ -94,7 +94,8 @@ const PANE = {
 } as const
 
 // `gate.wait`, while set, holds every fs.list: a refresh stays in flight until the test lets it go.
-type BootOptions = { blank?: boolean; store?: Map<string, unknown>; dirs?: string[]; gate?: { wait?: Promise<void> } }
+// `manifest`, when set, is what the plugin reads as its own .claude-plugin/plugin.json; left out, that read fails.
+type BootOptions = { blank?: boolean; store?: Map<string, unknown>; dirs?: string[]; gate?: { wait?: Promise<void> }; manifest?: string }
 
 async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | 'desktop', extra: Record<string, string> = {}, opts: BootOptions = {}) {
   const fs = fakeFs()
@@ -125,7 +126,8 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
   on('fs.read', (_: unknown, e: { path: string }) => {
     // The plugin's own templates, for Set up board.
     const template = /\/templates\/BOARD\.md$/.test(e.path) ? BLANK_BOARD : /\/skills\/ticket\/TEMPLATE\/(rd|eval)\.md$/.test(e.path) ? '# template\n' : undefined
-    const text = fs.files.get(fs.clean(e.path)) ?? template
+    const manifest = /\/\.claude-plugin\/plugin\.json$/.test(e.path) ? opts.manifest : undefined
+    const text = fs.files.get(fs.clean(e.path)) ?? template ?? manifest
     if (text === undefined) throw new Error(`ENOENT ${e.path}`)
     return { value: text }
   })
@@ -1226,3 +1228,69 @@ test('an empty desktop board: + Create the first ticket opens the form', async (
   await ui.find({ type: 'Text', text: /What happens next/ })
   await ui.unmount()
 })
+
+// ---------- 0014: the plugin version on the board ----------
+
+{
+  /**
+   * Tests cannot read files themselves, but the engine reads .claude-plugin/plugin.json to load the
+   * plugin and hands its name and version to `plugin.register`. Those are what the plugin then reads
+   * back as its own manifest here, so the label checked is the real manifest's version.
+   */
+  const fromManifest = (on: any) => {
+    const seen = { version: '', opts: {} as BootOptions }
+    on('plugin.register', (_: unknown, e: { name: string; version?: string }) => {
+      if (e.name === 'ticket-board') {
+        seen.version = e.version ?? ''
+        seen.opts.manifest = JSON.stringify({ name: e.name, version: e.version })
+      }
+      return { allow: true as const }
+    })
+    return seen
+  }
+  const BUTTONS = ['new', 'refresh', 'agents', 'readme']
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`the board shows the running version from the manifest (${surface})`, async ($, on) => {
+      const m = fromManifest(on)
+      const { ui } = await boot($, on, surface, {}, m.opts)
+      expect(m.version).toMatch(/^\d+\.\d+\.\d+/)
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      const drawn = JSON.stringify(await ui.drawn())
+      expect(drawn).toContain(`ticket-board ${m.version}`)
+      for (const key of BUTTONS) await ui.find({ key })
+      await ui.unmount()
+    })
+
+    test(`Show version off hides the label (${surface})`, { options: { showVersion: false } }, async ($, on) => {
+      const m = fromManifest(on)
+      const { ui } = await boot($, on, surface, {}, m.opts)
+      expect(m.version).not.toBe('')
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      const drawn = JSON.stringify(await ui.drawn())
+      expect(drawn).not.toContain(m.version)
+      expect(drawn).not.toContain('ticket-board ')
+      expect(drawn).toContain('Health endpoint')
+      for (const key of BUTTONS) await ui.find({ key })
+      await ui.unmount()
+    })
+
+    const unreadable: [string, string | undefined][] = [
+      ['missing', undefined],
+      ['not JSON', '{ not json'],
+      ['without a version', '{"name":"ticket-board"}'],
+      ['not a version', '{"version":"<b>9</b> and a very long string that is no version"}'],
+    ]
+    for (const [why, bad] of unreadable) {
+      test(`a manifest ${why} draws the board without a version label (${surface})`, async ($, on) => {
+        const { ui } = await boot($, on, surface, {}, bad === undefined ? {} : { manifest: bad })
+        await ui.find({ type: 'Text', text: /Dark mode/ })
+        const drawn = JSON.stringify(await ui.drawn())
+        expect(drawn).toContain('Health endpoint')
+        expect(drawn).not.toContain('ticket-board ')
+        for (const key of BUTTONS) await ui.find({ key })
+        await ui.unmount()
+      })
+    }
+  }
+}

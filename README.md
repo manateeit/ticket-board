@@ -143,6 +143,7 @@ In the terminal the Start screen has the same content as plain text, with the st
 The board view **is** your `BOARD.md`, live and clickable. It shows the file as written: the heading and intro above the table, the table itself as interactive rows, and the status flow and legend below it. When the router, a worker or your editor changes the file, the view updates on its own.
 
 - **Counts** for each status, e.g. `draft 3  ready 2  in-progress 1  done 9`.
+- **Version label:** a small, muted `ticket-board 0.4.15` (the version that is actually running, read from the plugin's own `plugin.json`): at the end of the counts line in the terminal, after `tickets/BOARD.md · N tickets` under the title on the desktop. Turn it off with the *Show version* setting; when the version cannot be read it is simply not shown.
 - **Plan line** (when there is a plan): `Plan 46% · P2 60% · design v3 (plan behind) · tickets 40%` (plan %, the current phase and its %, the design version, and the share of tickets done), and the first roadmap warning under it.
 - **Buttons:** **+ New ticket**, **▶ Run ready (N)** (when any ticket can run), **Refresh**, **Agents ● N** (opens the [Agents](#the-pane-view-by-view) panel).
 - **Show:** *All* (the default, so it reads like the file), *Needs me* (draft + blocked), *Not done*, or one status.
@@ -334,6 +335,7 @@ Change these in `/plugin` → ticket-board → configure:
 | Refresh every (seconds) | `3` | How often the open pane re-reads the board |
 | Open at start | on | Open the pane automatically when a session starts in a project that has a `tickets/` folder: on the board, or on the Start screen when there is no `BOARD.md` yet or no design, plan or tickets. Projects without `tickets/` never open it on their own; run `/board` there to see Start |
 | Ticket writer model | *(session's)* | Model for the AI writer, e.g. `opus` or `sonnet` |
+| Show version | on | Show the running ticket-board version (`ticket-board 0.4.15`) as a small label on the board, so after an update and reload you can tell the new version loaded |
 
 ## How it edits your files
 
@@ -354,6 +356,7 @@ Change these in `/plugin` → ticket-board → configure:
 | **Mark ready** missing | The ready check is failing. Open the ticket to see which rule. |
 | *…is now in-progress, not draft — refreshed* | Someone (usually the router) changed that ticket first. Nothing was written. |
 | Buttons (README, + New ticket, Agents) do nothing | Version 0.4.12 or older: when an agent was listed twice, the pane stopped redrawing, so every button looked dead. Update the plugin. Keys such as `o` and `n` only work while the pane has focus; click the pane first. |
+| Not sure which version is running | Look at the version on the board: `ticket-board 0.4.15` on the counts line (terminal) or under the board title (desktop). No label? *Show version* is off in Settings. If an update does not show the new number, reload the session. |
 | The pane doesn't open at start | It only opens on its own where it can sit beside the chat. Run `/board`. |
 | The AI writer stopped | The note says why. **Watch** opens its transcript; **✎ Enhance with AI** starts it again. |
 | *The prompt box is busy* | Something else is in the prompt box. Copy the line shown and paste it yourself. |
