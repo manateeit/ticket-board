@@ -1,5 +1,6 @@
 import { expect, test, type TestBody } from 'claude-code/testing'
 
+import { parseBoard } from '../hooks/core/board'
 import { roadmap, ticketRef } from '../hooks/core/roadmap'
 import { boardCols } from '../hooks/desk'
 import { railSvg } from '../hooks/glass'
@@ -1490,8 +1491,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(drawn).toContain('not started')
     expect(drawn).toContain('built')
     expect(drawn).toContain('no ticket')
-    // 0008 is not built: no Create ticket buttons.
-    expect(drawn).not.toContain('Create ticket')
+    // Create ticket (0008) only on the build with no ticket; phases with every build ticketed have no Create tickets.
+    await ui.find({ key: 'build-create-P3.1' })
+    await ui.find({ key: 'phase-create-P3' })
+    for (const id of ['P1.1', 'P1.2', 'P2.1', 'P2.2', 'P2.3', 'P2.4']) expect(drawn).not.toContain(`build-create-${id}`)
+    for (const id of ['P1', 'P2']) expect(drawn).not.toContain(`phase-create-${id}`)
     if (surface === 'desktop') {
       for (const h of ['SIZE', 'NEEDS', 'COVERS', 'TICKET', 'STATE']) expect(drawn).toContain(h)
       expect(PLAN_COLS.reduce((s, c) => s + Number(c.width.replace('%', '')), 0)).toBe(100)
@@ -1747,3 +1751,301 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 }
+
+// ---------- Tickets from the plan (0008) ----------
+
+const T8_DESIGN = `---
+design: Salon
+version: 2
+status: approved
+updated: 2026-11-10
+---
+# Salon: design
+
+## D1 · Accounts
+Rev: 1
+What: Email sign-in.
+Done when:
+- a person can sign in
+
+## D2 · Booking
+Rev: 2
+What: Book a slot.
+Done when:
+- a free slot can be booked
+- a taken slot cannot be booked twice
+
+## D3 · Reminders
+Rev: 1
+Done when:
+- a reminder mail goes out a day before
+`
+
+// Five builds: P1.1 already has ticket 0001; P1.2 needs P1.1 and P1.4; P1.3 needs P1.2; P1.5 needs P1.4.
+const T8_PLAN = `---
+plan: Salon
+design-version: 2
+updated: 2026-11-10
+---
+# Salon: plan
+
+## P1 · Foundations
+Goal: people can book a slot.
+Appetite: 2 weeks
+Exit: a booked slot shows on the calendar
+
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P1.1 | Accounts | S | — | D1 | sign in works | 0001 |
+| P1.2 | Booking core | M | P1.1, P1.4 | D2 | a slot is booked | — |
+| P1.3 | Calendar | S | P1.2 | D2, D3 | calendar shows bookings | — |
+| P1.4 | Slots | S | — | D2 | slots listed | — |
+| P1.5 | Reminders | S | P1.4 | D3 | reminder sent | — |
+`
+
+const T8_BOARD = `# Salon board
+
+Design: design/DESIGN.md · Plan: design/PLAN.md
+
+| #    | Ticket   | Status | Mode | Blocked by | Owner | Notes  |
+|------|----------|--------|------|------------|-------|--------|
+| 0001 | Accounts | done   | solo | —          | —     | merged |
+`
+
+function t8Files(): Record<string, string> {
+  return {
+    ...GIT_READY,
+    'tickets/BOARD.md': T8_BOARD,
+    '/repo/design/DESIGN.md': T8_DESIGN,
+    '/repo/design/PLAN.md': T8_PLAN,
+    'tickets/0001-accounts/rd.md': rmRd('0001', 'Accounts', 'Plan: P1.1\nDesign: D1@1'),
+    'tickets/0001-accounts/eval.md': EVAL,
+  }
+}
+
+type Spawned = { prompt: string; description: string; agentId: string }
+
+/**
+ * A fake agent spawner: records each writer start, counts live jobs, denies descriptions matching
+ * `deny`. A spawn the pane starts gets no id back in tests, so each writer is also listed by
+ * agent.list (as the pane finds it there).
+ */
+function fakeWriter(on: any, deny?: RegExp) {
+  const spawned: Spawned[] = []
+  const toasts: string[] = []
+  const live = new Set<string>()
+  const peak = { n: 0 }
+  const listed: any[] = []
+  AGENTS_OVERRIDE = listed
+  on('agent.spawn', (_: unknown, e: { prompt: string; description: string }) => {
+    if (deny !== undefined && deny.test(e.description)) return { deny: 'no agents left today' }
+    const agentId = `w${spawned.length + 1}`
+    spawned.push({ prompt: e.prompt, description: e.description, agentId })
+    listed.push({ id: agentId, description: e.description, type: 'ticket-board:ticket-writer', status: 'running' })
+    live.add(agentId)
+    peak.n = Math.max(peak.n, live.size)
+    return { model: 'sonnet', agentId }
+  })
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('ui.toast', (_: unknown, e: unknown) => (toasts.push(JSON.stringify(e)), { value: undefined }))
+  /** The writer `agentId` finishes (or fails, with another reason). */
+  const finish = async ($: any, agentId: string, reason = 'answer') => {
+    live.delete(agentId)
+    const a = listed.find(x => x.id === agentId)
+    if (a !== undefined) a.status = reason === 'answer' ? 'completed' : 'failed'
+    await $.turn.complete({ reason, answer: reason === 'answer' ? 'Wrote the ticket.' : '', isAborted: reason !== 'answer', agentId, turnId: `t-${agentId}`, durationMs: 1 } as any)
+  }
+  const done = () => {
+    AGENTS_OVERRIDE = undefined
+  }
+  return { spawned, toasts, live, peak, finish, done }
+}
+
+async function until(check: () => boolean | Promise<boolean>, what: string, ms = 3000) {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (await check()) return
+    await new Promise(r => setTimeout(r, 10))
+  }
+  throw new Error(`timed out waiting for ${what}`)
+}
+
+const rowsOf = (fs: { files: Map<string, string> }) => parseBoard(fs.files.get('tickets/BOARD.md')!)!.rows
+const t8Row = (fs: { files: Map<string, string> }, n: string) => rowsOf(fs).find(r => r.number === n)!
+const t8Folder = (fs: { files: Map<string, string> }, n: string) => [...fs.files.keys()].find(k => k.startsWith(`tickets/${n}-`) && k.endsWith('/rd.md'))!.replace(/\/rd\.md$/, '')
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Create tickets for a phase: 4 skeletons, Blocked by from Needs, Plan cells, 3 writers at a time (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t8Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-create-P1' })
+    // Every build without a ticket offers Create ticket; the one with a ticket does not.
+    for (const id of ['P1.2', 'P1.3', 'P1.4', 'P1.5']) await ui.find({ key: `build-create-${id}` })
+    expect(await drawnText(ui)).not.toContain('build-create-P1.1')
+    await ui.press({ key: 'phase-create-P1' })
+    await until(async () => (await drawnText(ui)).includes('build-queued-P1.5'), 'the 4th build to show queued')
+    for (const id of ['P1.2', 'P1.3', 'P1.4']) await ui.find({ key: `build-writing-${id}` })
+    // Keys stay unique with the queued and writing states drawn.
+    const keys = [...(await drawnText(ui)).matchAll(/"key":"([^"]+)"/g)].map(m => m[1]!)
+    expect(keys.filter((k, i) => keys.indexOf(k) !== i)).toEqual([])
+
+    // 4 skeleton folders and 4 draft rows; the existing ticket is skipped and the toast says so.
+    const made = ['0002', '0003', '0004', '0005']
+    for (const n of made) {
+      expect(fs.files.has(`${t8Folder(fs, n)}/eval.md`)).toBe(true)
+      expect(t8Row(fs, n).status).toBe('draft')
+      expect(t8Row(fs, n).mode).toBe('solo')
+    }
+    expect(rowsOf(fs).length).toBe(5)
+    // Needed builds in the batch come first: P1.4 → 0002, P1.2 → 0003, P1.3 → 0004, P1.5 → 0005.
+    expect(t8Row(fs, '0002').title).toBe('Slots')
+    expect(t8Row(fs, '0003').title).toBe('Booking core')
+    expect(t8Row(fs, '0003').blockedBy).toEqual(['0001', '0002'])
+    expect(t8Row(fs, '0004').blockedBy).toEqual(['0003'])
+    expect(t8Row(fs, '0005').blockedBy).toEqual(['0002'])
+    expect(t8Row(fs, '0005').notes).toContain('AI queued')
+    const plan = fs.files.get('/repo/design/PLAN.md')!
+    for (const [id, n] of [['P1.4', '0002'], ['P1.2', '0003'], ['P1.3', '0004'], ['P1.5', '0005']])
+      expect(plan.split('\n').find(l => l.startsWith(`| ${id} |`))!.trim().endsWith(`| ${n} |`)).toBe(true)
+    expect(plan).toContain('| P1.1 | Accounts | S | — | D1 | sign in works | 0001 |')
+    let drawn = await drawnText(ui)
+    expect(drawn).toContain('Created 4 draft tickets from P1 (0002–0005)')
+    expect(drawn).toContain('skipped 1 build that already has a ticket')
+    // The Plan view shows the new ticket numbers.
+    for (const [id, n] of [['P1.4', '0002'], ['P1.2', '0003'], ['P1.3', '0004'], ['P1.5', '0005']]) await ui.find({ key: `pill-${id}-${n}` })
+    // The draft rows are on the board.
+    await ui.press({ key: 'tab-board' })
+    await ui.find({ type: 'Text', text: /Reminders/ })
+    for (const title of ['Slots', 'Booking core', 'Calendar']) expect(await drawnText(ui)).toContain(title)
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'build-queued-P1.5' })
+
+    // Never more than 3 writers live; the 4th waits until one ends.
+    expect(w.spawned.length).toBe(3)
+    expect(w.peak.n).toBe(3)
+    expect(w.spawned.map(s => s.description)).toEqual(['Write ticket 0002 (P1.4)', 'Write ticket 0003 (P1.2)', 'Write ticket 0004 (P1.3)'])
+    // The brief: covered sections' Done when lines, phase Goal and Exit, Plan and Design lines.
+    const brief = w.spawned[2]!.prompt
+    for (const part of ['Phase goal: people can book a slot.', 'Phase exit: a booked slot shows on the calendar', '- a free slot can be booked', '- a reminder mail goes out a day before', 'Plan: P1.3', 'Design: D2@2, D3@1', 'Docs and README updated', 'README.md'])
+      expect(brief).toContain(part)
+
+    // The writer for 0002 finishes with a complete ticket: the 4th build starts.
+    await w.finish($, 'w1')
+    await until(() => w.spawned.length === 4, 'the 4th writer to start')
+    expect(w.spawned[3]!.description).toBe('Write ticket 0005 (P1.5)')
+    expect(w.peak.n).toBe(3)
+    await until(async () => (await drawnText(ui)).includes('build-writing-P1.5'), 'P1.5 to show writing')
+    expect(t8Row(fs, '0002').notes).toContain('AI draft done')
+    expect(t8Row(fs, '0002').notes).not.toContain('missing')
+    drawn = await drawnText(ui)
+    expect(drawn).not.toContain('build-queued-')
+    // Nothing became ready.
+    expect(rowsOf(fs).filter(r => r.status === 'ready')).toEqual([])
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`a plan ticket's files: Plan and Design lines, one check per Done when, docs gaps reported (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t8Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'build-create-P1.3' })
+    await ui.press({ key: 'build-create-P1.3' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    const folder = t8Folder(fs, '0002')
+    const rd = fs.files.get(`${folder}/rd.md`)!
+    expect(rd).toContain('# 0002 — Calendar')
+    expect(rd).toContain('Type: feature\nPlan: P1.3\nDesign: D2@2, D3@1\n')
+    expect(rd).toContain('## Docs\n- README.md')
+    const ev = fs.files.get(`${folder}/eval.md`)!
+    expect(ev).toContain('1. a free slot can be booked')
+    expect(ev).toContain('2. a taken slot cannot be booked twice')
+    expect(ev).toContain('3. a reminder mail goes out a day before')
+    expect(ev).toContain('4. Docs and README updated')
+    expect(ev.match(/- Run: /g)?.length).toBe(3)
+    expect(ev.match(/- Pass: /g)?.length).toBe(3)
+    // The writer drops ## Docs and the docs check: the pane reports both in the row Notes and the toast.
+    fs.files.set(`${folder}/rd.md`, rd.replace(/## Docs\n[^#]*/, ''))
+    fs.files.set(`${folder}/eval.md`, '# Eval — 0002 — Calendar\n\n## Checks\n1. a free slot can be booked\n   - Run: `npm test`\n   - Pass: exit 0\n')
+    fs.mtimes.set(`${folder}/rd.md`, 900)
+    fs.mtimes.set(`${folder}/eval.md`, 901)
+    await w.finish($, 'w1')
+    const notes = t8Row(fs, '0002').notes
+    expect(notes).toContain('missing ## Docs naming README.md')
+    expect(notes).toContain('Docs and README updated')
+    expect(w.toasts.join(' ')).toContain('missing ## Docs naming README.md')
+    expect(await drawnText(ui)).toContain('missing ## Docs naming README.md')
+    expect(t8Row(fs, '0002').status).toBe('draft')
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`one build whose needed build is not selected; a failed writer can be created again (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t8Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'build-create-P1.2' })
+    await ui.press({ key: 'build-create-P1.2' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    // P1.2 needs P1.1 (ticket 0001) and P1.4 (no ticket, not selected).
+    const row = t8Row(fs, '0002')
+    expect(row.blockedBy).toEqual(['0001'])
+    expect(row.notes).toContain('needs P1.4')
+    expect(fs.files.get('/repo/design/PLAN.md')!).toContain('| P1.4 | Slots | S | — | D2 | slots listed | — |')
+    // The writer fails: the build shows the reason and offers Create again on the same ticket.
+    await w.finish($, 'w1', 'error')
+    await until(async () => (await drawnText(ui)).includes('failed: error'), 'the failure to show')
+    expect(t8Row(fs, '0002').notes).toContain('needs P1.4')
+    await ui.find({ key: 'build-retry-P1.2' })
+    await ui.press({ key: 'build-retry-P1.2' })
+    await until(() => w.spawned.length === 2, 'the writer to start again')
+    expect(w.spawned[1]!.description).toBe('Write ticket 0002 (P1.2)')
+    await until(async () => (await drawnText(ui)).includes('build-writing-P1.2'), 'P1.2 to show writing')
+    expect(await drawnText(ui)).not.toContain('failed: error')
+    // Still one ticket for the build, never ready.
+    expect(rowsOf(fs).length).toBe(2)
+    expect(rowsOf(fs).filter(r => r.status === 'ready')).toEqual([])
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`a writer that cannot start shows why; Create tickets for all not started (${surface})`, async ($, on) => {
+    const w = fakeWriter(on, /P1\.4/)
+    const { ui, fs } = await boot($, on, surface, t8Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'plan-create-all' })
+    expect(await drawnText(ui)).toContain('Create tickets for all not started (4)')
+    await ui.press({ key: 'plan-create-all' })
+    await until(async () => (await drawnText(ui)).includes('failed: no agents left today'), 'the start failure to show')
+    await ui.find({ key: 'build-retry-P1.4' })
+    // The denied one does not hold a slot: the other three all start.
+    expect(w.spawned.map(s => s.description)).toEqual(['Write ticket 0003 (P1.2)', 'Write ticket 0004 (P1.3)', 'Write ticket 0005 (P1.5)'])
+    expect(t8Row(fs, '0002').notes).toContain('failed')
+    expect(rowsOf(fs).filter(r => r.status === 'draft').length).toBe(4)
+    expect(await drawnText(ui)).not.toContain('plan-create-all')
+    w.done()
+    await ui.unmount()
+  })
+}
+
+test('the plan queue survives a redraw and a trip to the board and back (desktop)', async ($, on) => {
+  const w = fakeWriter(on)
+  const { ui } = await boot($, on, 'desktop', t8Files(), { blank: true })
+  await ui.find({ key: 'tab-plan' })
+  await ui.press({ key: 'tab-plan' })
+  await ui.press({ key: 'phase-create-P1' })
+  await until(async () => (await drawnText(ui)).includes('build-queued-P1.5'), 'the 4th build to show queued')
+  await ui.press({ key: 'tab-board' })
+  await ui.find({ type: 'Text', text: /Booking core/ })
+  await ui.press({ key: 'tab-plan' })
+  await ui.find({ key: 'build-queued-P1.5' })
+  await w.finish($, 'w2')
+  await until(() => w.spawned.length === 4, 'the queued writer to start')
+  w.done()
+  await ui.unmount()
+})

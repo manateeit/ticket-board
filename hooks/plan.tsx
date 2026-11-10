@@ -2,9 +2,10 @@
 // timeline) and the bound DESIGN.md (sections, coverage, open questions, the approve gate), plus
 // the Board / Plan / Design tabs. Every number comes from hooks/core/roadmap.ts (0003); nothing is
 // recomputed here. Buttons only fill the prompt, except answering a design question and Approve,
-// which write DESIGN.md.
+// which write DESIGN.md, and Create tickets (0008), which makes draft tickets from builds.
 import type { EngineInterface, RenderChildren } from 'claude-code'
 
+import { createPlanTickets, isCreatable, planJobOf, retryPlanBuild } from './ai'
 import { historyOf } from './core/designfile'
 import { runLine } from './core/query'
 import { allBuilds, type Build, type BuildState, type Hill, type Phase, type Roadmap } from './core/roadmap'
@@ -16,9 +17,6 @@ import { blockersOpen, fail, fill, go, runnable, type UI } from './views'
 type $ = EngineInterface
 type PlanView = Extract<View, { kind: 'plan' }>
 type DesignView = Extract<View, { kind: 'design' }>
-
-/** Create tickets hands off to the 0008 job. Until that job exists the buttons are hidden, not dead. */
-export const HAS_CREATE_TICKETS = false
 
 const RUN_NOTE = 'Run line is in your prompt box — press Enter to send it'
 const START_NOTE = 'In your prompt box — press Enter to start'
@@ -140,6 +138,27 @@ export function runBuilds($: $, rm: Roadmap, buildIds: readonly string[], what: 
   const nums = readyOf(rm, buildIds)
   if (nums.length === 0) return say($, whyNoneReady(rm, buildIds, what), 'warning')
   void fill($, runLine(nums, S.hasRouter), RUN_NOTE)
+}
+
+/** Builds among `builds` that Create tickets would make a ticket for. */
+export function creatableIds(rm: Roadmap, builds: readonly Build[]): string[] {
+  return builds.filter(b => isCreatable(rm, b)).map(b => b.id)
+}
+
+/** Every build that is not started and has no ticket: what "Create tickets for all not started" makes. */
+export function notStartedIds(rm: Roadmap): string[] {
+  return allBuilds(rm.plan)
+    .filter(b => isCreatable(rm, b) && (rm.progress.states[b.id] ?? 'not-started') === 'not-started')
+    .map(b => b.id)
+}
+
+/** Create tickets for some builds (0008): skeletons, Plan cells and queued writer jobs. */
+export function createTickets($: $, ids: readonly string[], what: string) {
+  void createPlanTickets($, ids, what).catch(err => fail($, err))
+}
+
+export function retryBuild($: $, id: string) {
+  void retryPlanBuild($, id).catch(err => fail($, err))
 }
 
 export function brainstorm($: $, id: string) {
@@ -305,6 +324,7 @@ function deskBuildRow($: $, ui: UI, rm: Roadmap, b: Build, n: number, focus: str
   const state = rm.progress.states[b.id]
   const hasReady = ts.some(t => t.status === 'ready')
   const ready = readyOf(rm, [b.id])
+  const job = planJobOf(b.id)
   const cell = (id: string, children: RenderChildren) => (
     <Box key={`bc-${id}-${b.id}`} width={PLAN_COLS.find(c => c.id === id)!.width} paddingRight={1} flexShrink={0} overflow="hidden">
       {children}
@@ -371,9 +391,26 @@ function deskBuildRow($: $, ui: UI, rm: Roadmap, b: Build, n: number, focus: str
       {cell(
         'action',
         hasReady ? (
-          <Button key={`build-run-${b.id}`} label="▶ Run" variant={ready.length > 0 ? 'primary' : undefined} {...(ready.length > 0 ? {} : { dimColor: true })} onPress={() => runBuilds($, rm, [b.id], b.id)} />
-        ) : HAS_CREATE_TICKETS && ts.length === 0 && b.status === '' ? (
-          <Button key={`build-create-${b.id}`} label="+ Create ticket" onPress={() => undefined} />
+          <Button key={`build-run-${b.id}`} label="▶ Run" {...(ready.length > 0 ? { variant: 'primary' as const } : { dimColor: true })} onPress={() => runBuilds($, rm, [b.id], b.id)} />
+        ) : job?.state === 'queued' ? (
+          <Box key={`build-queued-${b.id}`}>
+            <Text color={HUE.teal} size="footnote">
+              ⏳ queued
+            </Text>
+          </Box>
+        ) : job?.state === 'writing' ? (
+          <Box key={`build-writing-${b.id}`}>
+            <Text color={G.accent} size="footnote">
+              ✎ writing
+            </Text>
+          </Box>
+        ) : job?.state === 'failed' ? (
+          <Box key={`build-failed-${b.id}`} flexDirection="column">
+            <Text color={STATUS_HEX.blocked!} size="footnote">{`failed: ${job.reason ?? 'unknown'}`}</Text>
+            <Button key={`build-retry-${b.id}`} label="↻ Create again" plain onPress={() => retryBuild($, b.id)} />
+          </Box>
+        ) : isCreatable(rm, b) ? (
+          <Button key={`build-create-${b.id}`} label="+ Create ticket" plain onPress={() => createTickets($, [b.id], b.id)} />
         ) : null,
       )}
     </Box>
@@ -389,6 +426,7 @@ function deskPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefine
   const isOpen = isPhaseOpen(rm, p, focus)
   const ids = p.builds.map(b => b.id)
   const ready = readyOf(rm, ids)
+  const creatable = creatableIds(rm, p.builds)
   const what = p.id === '' ? 'the plan' : p.id
   const meta = [p.appetite === '' ? '' : `Appetite ${p.appetite}`, p.exit === '' ? '' : `Exit: ${p.exit}`].filter(Boolean).join(' · ')
   return Card(
@@ -412,7 +450,7 @@ function deskPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefine
         </Text>
       ),
       <Box key={`phase-actions-${pid}`} flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
-        {HAS_CREATE_TICKETS && p.id !== '' ? <Button key={`phase-create-${pid}`} label={`Create tickets for ${p.id}`} onPress={() => undefined} /> : null}
+        {creatable.length > 0 ? <Button key={`phase-create-${pid}`} label={`+ Create tickets for ${what} (${creatable.length})`} onPress={() => createTickets($, ids, what)} /> : null}
         {p.id !== '' ? <Button key={`phase-brainstorm-${pid}`} label="✨ Brainstorm" onPress={() => brainstorm($, p.id)} /> : null}
         <Button
           key={`phase-run-${pid}`}
@@ -518,6 +556,7 @@ export function deskPlan($: $, ui: UI, v: PlanView): RenderChildren {
     )
   }
   const mode = S.planMode
+  const fresh = notStartedIds(rm)
   const sub = [
     rm.plan.designVersion === undefined ? '' : `made from design v${rm.plan.designVersion}`,
     rm.plan.updated === '' ? '' : `updated ${rm.plan.updated}`,
@@ -538,6 +577,7 @@ export function deskPlan($: $, ui: UI, v: PlanView): RenderChildren {
           </Text>
         </Box>
         <Box key="plan-modes" flexDirection="row" gap={1}>
+          {fresh.length > 0 ? <Button key="plan-create-all" label={`+ Create tickets for all not started (${fresh.length})`} onPress={() => createTickets($, fresh, 'all not started builds')} /> : null}
           <Button key="plan-list" label="List" variant={mode === 'list' ? 'primary' : 'secondary'} onPress={() => void setPlanMode($, 'list')} />
           <Button key="plan-timeline" label="Timeline" variant={mode === 'timeline' ? 'primary' : 'secondary'} onPress={() => void setPlanMode($, 'timeline')} />
         </Box>
@@ -776,6 +816,7 @@ function termBuild($: $, ui: UI, rm: Roadmap, b: Build, focus: string | undefine
   const ts = ticketsOf(rm, b.id)
   const needs = [...b.needs, ...b.needsOther]
   const ready = readyOf(rm, [b.id])
+  const job = planJobOf(b.id)
   const line = `${b.id === focus ? '›' : ' '} ${b.id}  ${b.name}${b.status === '' ? '' : ` (${b.status})`} · ${b.size || '—'} · needs ${needs.length === 0 ? '—' : needs.join(', ')} · ${stateName(rm.progress.states[b.id])}`
   return (
     <Box key={`build-${b.id}`} flexDirection="column" paddingLeft={2}>
@@ -792,7 +833,22 @@ function termBuild($: $, ui: UI, rm: Roadmap, b: Build, focus: string | undefine
         ))}
         {ts.some(t => t.status === 'ready') ? (
           <Button key={`build-run-${b.id}`} label="▶ Run" plain {...(ready.length > 0 ? {} : { dimColor: true })} onPress={() => runBuilds($, rm, [b.id], b.id)} />
+        ) : job?.state === 'queued' ? (
+          <Box key={`build-queued-${b.id}`}>
+            <Text color="warning">queued</Text>
+          </Box>
+        ) : job?.state === 'writing' ? (
+          <Box key={`build-writing-${b.id}`}>
+            <Text color="claude">✎ writing</Text>
+          </Box>
+        ) : job?.state === 'failed' ? (
+          <Box key={`build-failed-${b.id}`}>
+            <Text color="error">{`failed: ${job.reason ?? 'unknown'}`}</Text>
+          </Box>
+        ) : isCreatable(rm, b) ? (
+          <Button key={`build-create-${b.id}`} label="+ Create ticket" plain onPress={() => createTickets($, [b.id], b.id)} />
         ) : null}
+        {job?.state === 'failed' ? <Button key={`build-retry-${b.id}`} label="↻ Create again" plain onPress={() => retryBuild($, b.id)} /> : null}
       </Box>
     </Box>
   )
@@ -806,6 +862,7 @@ function termPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefine
   const isOpen = isPhaseOpen(rm, p, focus)
   const ids = p.builds.map(b => b.id)
   const ready = readyOf(rm, ids)
+  const creatable = creatableIds(rm, p.builds)
   const what = p.id === '' ? 'the plan' : p.id
   const meta = [p.appetite === '' ? '' : `Appetite ${p.appetite}`, p.exit === '' ? '' : `Exit: ${p.exit}`].filter(Boolean).join(' · ')
   return (
@@ -821,6 +878,7 @@ function termPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefine
         </Box>
       )}
       <Box flexDirection="row" columnGap={1} flexWrap="wrap" paddingLeft={2}>
+        {creatable.length > 0 ? <Button key={`phase-create-${pid}`} label={`+ Create tickets for ${what} (${creatable.length})`} plain onPress={() => createTickets($, ids, what)} /> : null}
         {p.id !== '' ? <Button key={`phase-brainstorm-${pid}`} label="Brainstorm" plain onPress={() => brainstorm($, p.id)} /> : null}
         <Button key={`phase-run-${pid}`} label={`▶ Run ready (${ready.length})`} plain {...(ready.length > 0 ? {} : { dimColor: true })} onPress={() => runBuilds($, rm, ids, what)} />
         {ready.length === 0 ? <Text dimColor>{whyNoneReady(rm, ids, what)}</Text> : null}
@@ -877,12 +935,14 @@ export function planView($: $, ui: UI, v: PlanView): RenderChildren {
     )
   }
   const mode = S.planMode
+  const fresh = notStartedIds(rm)
   return (
     <Box flexDirection="column" gap={1}>
       {termHeader($, ui, `Plan · ${rm.plan.name || 'Plan'} · ${rm.progress.planPct}%${rm.plan.designVersion === undefined ? '' : ` · made from design v${rm.plan.designVersion}`}`, v.from)}
       <Box key="plan-modes" flexDirection="row" columnGap={1}>
         <Button key="plan-list" label={mode === 'list' ? '[List]' : 'List'} plain onPress={() => void setPlanMode($, 'list')} />
         <Button key="plan-timeline" label={mode === 'timeline' ? '[Timeline]' : 'Timeline'} plain onPress={() => void setPlanMode($, 'timeline')} />
+        {fresh.length > 0 ? <Button key="plan-create-all" label={`+ Create tickets for all not started (${fresh.length})`} plain onPress={() => createTickets($, fresh, 'all not started builds')} /> : null}
       </Box>
       {termMessage(ui)}
       {rm.plan.warnings.map((w, n) => (

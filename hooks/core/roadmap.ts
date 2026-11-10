@@ -3,7 +3,7 @@
 // Only `bindFromBoard` reads files, through the reader callback it is given.
 // The rules are PLAN-design-plan.md sections 3 and 4.
 
-import { cells, isTableLine, type BoardRow } from './board'
+import { cells, isTableLine, replaceCell, type BoardRow } from './board'
 import { parseDesignRefs, parsePlanRef, parseQuestions, type DesignRef } from './ticket'
 
 // ── Design ────────────────────────────────────────────────────────────────
@@ -720,4 +720,151 @@ export function roadmap(designMd: string | undefined, planMd: string | undefined
     checks: checks(design, plan, links),
     isBlank: design.sections.length === 0 && plan.phases.length === 0 && designMd === undefined && planMd === undefined,
   }
+}
+
+// ── Tickets from the plan (0008) ──────────────────────────────────────────
+
+/** What a Create tickets press does with the builds it was given. */
+export type Batch = {
+  /** Builds that get a new ticket, in creation order: a needed build in the batch comes before the build that needs it. */
+  create: Build[]
+  /** Builds that already have a ticket (Ticket cell or a ticket's `Plan:` line). */
+  skipped: Build[]
+  /** Deferred or dropped builds: never created. */
+  left: Build[]
+}
+
+/**
+ * Splits the selected build ids (duplicates and unknown ids ignored) into those to create, those
+ * skipped and those left out, and orders the ones to create so `Needs` inside the batch come first.
+ */
+export function planBatch(plan: Plan, links: Links, ids: readonly string[]): Batch {
+  const wanted = new Set(ids.map(i => i.toUpperCase()))
+  const out: Batch = { create: [], skipped: [], left: [] }
+  const todo: Build[] = []
+  for (const b of allBuilds(plan)) {
+    if (!wanted.has(b.id)) continue
+    if (b.status !== '') out.left.push(b)
+    else if ((links.byBuild[b.id] ?? []).length > 0 || b.tickets.length > 0) out.skipped.push(b)
+    else todo.push(b)
+  }
+  const inBatch = new Map(todo.map(b => [b.id, b]))
+  const done = new Set<string>()
+  const visiting = new Set<string>()
+  const visit = (b: Build) => {
+    if (done.has(b.id) || visiting.has(b.id)) return
+    visiting.add(b.id)
+    for (const n of b.needs) {
+      const need = inBatch.get(n)
+      if (need !== undefined) visit(need)
+    }
+    visiting.delete(b.id)
+    done.add(b.id)
+    out.create.push(b)
+  }
+  for (const b of todo) visit(b)
+  return out
+}
+
+/**
+ * A new ticket's Blocked by from its build's `Needs`: the tickets of each needed build (existing
+ * ones, or `created` earlier in this batch). A needed build with no ticket is left out and listed in `missing`.
+ */
+export function blockedByFor(build: Build, links: Links, created: ReadonlyMap<string, string>): { blockedBy: string[]; missing: string[] } {
+  const blockedBy: string[] = []
+  const missing: string[] = []
+  for (const n of build.needs) {
+    const made = created.get(n)
+    const nums = [...(links.byBuild[n] ?? []).map(t => t.number), ...(made === undefined ? [] : [made])]
+    if (nums.length === 0) missing.push(n)
+    for (const x of nums) if (!blockedBy.includes(x)) blockedBy.push(x)
+  }
+  return { blockedBy: blockedBy.sort(), missing }
+}
+
+/** The row note for needed builds that have no ticket. Empty when nothing is missing. */
+export function missingNote(missing: readonly string[]): string {
+  return missing.length === 0 ? '' : `needs ${missing.join(', ')}: no ticket yet, not in Blocked by`
+}
+
+/** The `Design:` line value for the sections a build covers, at their current Rev: `D1@2, D3@1`. */
+export function designLine(design: Design, covers: readonly string[]): string {
+  return covers
+    .map(id => {
+      const s = design.sections.find(x => x.id === id)
+      return s === undefined ? id : `${id}@${s.rev}`
+    })
+    .join(', ')
+}
+
+/** Every `Done when` line of the live sections a build covers, in Covers order. */
+export function coveredDoneWhen(design: Design, build: Build): string[] {
+  return build.covers.flatMap(id => design.sections.find(s => s.id === id && !s.isDropped)?.doneWhen ?? [])
+}
+
+/**
+ * What the ticket writer is told about one build: the build row, its phase Goal and Exit, and each
+ * covered design section with its Rev and `Done when` lines, plus the head lines to write.
+ */
+export function planBrief(design: Design, plan: Plan, build: Build): string {
+  const phase = plan.phases.find(p => p.id === build.phase)
+  const needs = [...build.needs, ...build.needsOther]
+  const lines = [
+    `Build ${build.id} · ${build.name}${build.size === '' ? '' : ` (size ${build.size})`}`,
+    `Needs: ${needs.length === 0 ? '—' : needs.join(', ')} · Covers: ${build.covers.length === 0 ? '—' : build.covers.join(', ')}`,
+    `Build done when: ${build.doneWhen.trim() === '' ? '—' : build.doneWhen.trim()}`,
+    '',
+    phase === undefined || phase.id === '' ? 'Phase: (the plan has no phases)' : `Phase ${phase.id} · ${phase.title}`,
+    `Phase goal: ${phase?.goal || '—'}`,
+    `Phase exit: ${phase?.exit || '—'}`,
+    '',
+    'Lines under the title of rd.md:',
+    'Type: feature',
+    `Plan: ${build.id}`,
+    ...(build.covers.length === 0 ? [] : [`Design: ${designLine(design, build.covers)}`]),
+  ]
+  for (const id of build.covers) {
+    const s = design.sections.find(x => x.id === id)
+    lines.push('')
+    if (s === undefined) {
+      lines.push(`${id}: not found in the design.`)
+      continue
+    }
+    lines.push(`${s.id} · ${s.title} (Rev ${s.rev})${s.isDropped ? ' (dropped)' : ''}`)
+    if (s.why !== '') lines.push(`Why: ${s.why}`)
+    if (s.what !== '') lines.push(`What: ${s.what}`)
+    lines.push('Done when:')
+    if (s.doneWhen.length === 0) lines.push('- (none written)')
+    for (const d of s.doneWhen) lines.push(`- ${d}`)
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Adds a ticket number to a build's `Ticket` cell in PLAN.md (`—` becomes `0016`; `0004` becomes
+ * `0004, 0016`). Every other line is kept as it was. Unchanged when the build or the column is missing.
+ */
+export function setPlanTicket(md: string, buildId: string, number: string): string {
+  const eol = md.includes('\r\n') ? '\r\n' : '\n'
+  const lines = md.split(/\r?\n/)
+  const want = buildId.toUpperCase()
+  for (let i = 0; i < lines.length; i++) {
+    if (!isTableLine(lines[i] ?? '')) continue
+    const head = cells(lines[i]!).map(c => stripMd(c).toLowerCase())
+    const idCol = head.findIndex(c => PLAN_HEADERS[c] === 'id')
+    const tCol = head.findIndex(c => PLAN_HEADERS[c] === 'tickets')
+    let j = i + 1
+    for (; j < lines.length && isTableLine(lines[j] ?? ''); j++) {
+      if (idCol === -1 || tCol === -1) continue
+      const c = cells(lines[j]!)
+      if (stripMd(c[idCol] ?? '').toUpperCase() !== want) continue
+      const old = (c[tCol] ?? '').trim()
+      const have = (old.match(/\d{1,5}/g) ?? []).map(n => n.padStart(4, '0'))
+      if (have.includes(number)) return md
+      lines[j] = replaceCell(lines[j]!, tCol, have.length === 0 ? number : `${old}, ${number}`)
+      return lines.join(eol)
+    }
+    i = j - 1
+  }
+  return md
 }

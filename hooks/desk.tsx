@@ -1032,7 +1032,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
         {primary}
         {job !== undefined && (
           <Box flexDirection="row" gap={1} alignItems="center" backgroundColor={tint(G.accent, 0.1)} borderStyle="round" borderColor={tint(G.accent, 0.5)} paddingX={2}>
-            <Text color={G.accent}>{`✎ AI is ${job.kind === 'draft' ? 'writing' : job.kind === 'fold' ? 'folding answers into' : 'improving'} this ticket…`}</Text>
+            <Text color={G.accent}>{`✎ AI is ${job.kind === 'draft' || job.kind === 'plan' ? 'writing' : job.kind === 'fold' ? 'folding answers into' : 'improving'} this ticket…`}</Text>
             <Button key="viewagent" label="Watch" plain onPress={() => void $.ui.view({ agentId: job.agentId }).catch(() => undefined)} />
           </Box>
         )}
