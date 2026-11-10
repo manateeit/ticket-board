@@ -44,6 +44,8 @@ import {
   type UI,
 } from './views'
 import { startStep } from './core/project'
+import { brainstorm, openDesign, openPlan, viewName } from './plan'
+import type { View } from './store'
 
 type $ = EngineInterface
 
@@ -67,7 +69,7 @@ const STATUS_NAME: Record<string, string> = {
 
 const FLOW = ['draft', 'ready', 'in-progress', 'in-check', 'done'] as const
 
-const hexOf = (status: string) => STATUS_HEX[status] ?? G.soft
+export const hexOf = (status: string) => STATUS_HEX[status] ?? G.soft
 
 function ago(ms: number): string {
   if (ms <= 0) return '—'
@@ -81,7 +83,7 @@ function ago(ms: number): string {
 
 // ---------- Small parts ----------
 
-function Pill(ui: UI, text: string, hex: string, key?: string) {
+export function Pill(ui: UI, text: string, hex: string, key?: string) {
   return (
     <ui.Text key={key} color={hex} backgroundColor={tint(hex, 0.16)} weight="semibold" size="footnote">
       {` ${text} `}
@@ -89,7 +91,7 @@ function Pill(ui: UI, text: string, hex: string, key?: string) {
   )
 }
 
-function StatusPill(ui: UI, status: string) {
+export function StatusPill(ui: UI, status: string) {
   return Pill(ui, `● ${STATUS_NAME[status] ?? status}`, hexOf(status))
 }
 
@@ -102,7 +104,7 @@ function KindTag(ui: UI, kind: Kind | undefined) {
   )
 }
 
-function Card(ui: UI, children: RenderChildren, opts: { key?: string; accent?: string; title?: string; right?: RenderChildren } = {}) {
+export function Card(ui: UI, children: RenderChildren, opts: { key?: string; accent?: string; title?: string; right?: RenderChildren } = {}) {
   const { Box, Text } = ui
   return (
     <Box
@@ -130,7 +132,7 @@ function Card(ui: UI, children: RenderChildren, opts: { key?: string; accent?: s
   )
 }
 
-function Toast(ui: UI): RenderChildren {
+export function Toast(ui: UI): RenderChildren {
   if (S.message === undefined) return null
   const hex = S.message.tone === 'error' ? STATUS_HEX.blocked! : S.message.tone === 'warning' ? STATUS_HEX.draft! : STATUS_HEX.ready!
   return (
@@ -805,7 +807,7 @@ function Stepper(ui: UI, status: string): RenderChildren {
   )
 }
 
-function Prop(ui: UI, label: string, value: RenderChildren) {
+export function Prop(ui: UI, label: string, value: RenderChildren) {
   return (
     <ui.Box flexDirection="column">
       <ui.Text color={G.faint} size="caption" weight="bold">
@@ -919,7 +921,7 @@ function QuestionsCard($: $, ui: UI, number: string, focus: boolean): RenderChil
   )
 }
 
-export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', focusQuestions: boolean): RenderChildren {
+export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', focusQuestions: boolean, from?: View): RenderChildren {
   const { Box, Text, Button, Input, Select } = ui
   const row = rowOf(number)
   const f = S.snap?.files.get(number)
@@ -943,6 +945,8 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
     S.confirm = isConfirming(what) ? undefined : `${number}:${what}`
     redraw($)
   }
+  /** Prev / Next and the rd / eval tabs keep where Back returns to. */
+  const keep = from === undefined ? {} : { from }
 
   if (focusQuestions) {
     return (
@@ -974,7 +978,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
       {/* Breadcrumb + prev/next */}
       <Box flexDirection="row" justifyContent="space-between" alignItems="center">
         <Box flexDirection="row" gap={1} alignItems="center">
-          <Button key="back" label="‹ Board" plain onPress={() => go($, { kind: 'board' })} />
+          <Button key="back" label={`‹ ${viewName(from)}`} plain onPress={() => go($, from ?? { kind: 'board' })} />
           <Text color={G.faint} mono>
             {`/ ${number}`}
           </Text>
@@ -985,8 +989,8 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
               {`${at + 1} of ${list.length}`}
             </Text>
           )}
-          {prev !== undefined && <Button key="prev-ticket" label="‹ Prev" hotkey="k" plain onPress={() => go($, { kind: 'ticket', number: prev.number, tab })} />}
-          {next !== undefined && <Button key="next-ticket" label="Next ›" hotkey="j" plain onPress={() => go($, { kind: 'ticket', number: next.number, tab })} />}
+          {prev !== undefined && <Button key="prev-ticket" label="‹ Prev" hotkey="k" plain onPress={() => go($, { kind: 'ticket', number: prev.number, tab, ...keep })} />}
+          {next !== undefined && <Button key="next-ticket" label="Next ›" hotkey="j" plain onPress={() => go($, { kind: 'ticket', number: next.number, tab, ...keep })} />}
         </Box>
       </Box>
 
@@ -1038,6 +1042,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
         {status === 'ready' && <Button key="draft" label="↩ Back to draft" hotkey="d" onPress={() => void setStatus($, number, 'draft', 'ready')} />}
         {status === 'blocked' && <Button key="unblock-draft" label="Unblock → draft" onPress={() => void setStatus($, number, 'draft', 'blocked')} />}
         {job === undefined && f !== undefined && <Button key="enhance" label="✨ Enhance with AI" hotkey="e" onPress={() => void startJob($, number, 'enhance')} />}
+        <Button key="brainstorm" label="✨ Brainstorm" hotkey="b" onPress={() => brainstorm($, number)} />
         <Button key="discuss" label="Discuss in chat" plain onPress={() => void fill($, `Let's look at ticket ${number} (${path ?? dir()}/rd.md). `, 'Started a message in your prompt box')} />
       </Box>
 
@@ -1066,8 +1071,8 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
               { key: 'checks-card', title: canReady ? 'Ready check · passes' : 'Ready check', accent: tint(canReady ? STATUS_HEX.ready! : STATUS_HEX.draft!, 0.45) },
             )}
           <Box key="doc-tabs" flexDirection="row" gap={1} alignItems="center" paddingTop={1}>
-            <Button key="tab-rd" label="Requirements" variant={tab === 'rd' ? 'primary' : 'secondary'} onPress={() => go($, { kind: 'ticket', number, tab: 'rd' })} />
-            <Button key="tab-eval" label="Acceptance checks" variant={tab === 'eval' ? 'primary' : 'secondary'} onPress={() => go($, { kind: 'ticket', number, tab: 'eval' })} />
+            <Button key="tab-rd" label="Requirements" variant={tab === 'rd' ? 'primary' : 'secondary'} onPress={() => go($, { kind: 'ticket', number, tab: 'rd', ...keep })} />
+            <Button key="tab-eval" label="Acceptance checks" variant={tab === 'eval' ? 'primary' : 'secondary'} onPress={() => go($, { kind: 'ticket', number, tab: 'eval', ...keep })} />
             <Text color={G.faint} size="footnote" mono>
               {`${tab === 'rd' ? 'rd' : 'eval'}.md`}
             </Text>
@@ -1124,9 +1129,15 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
                 ? Prop(
                     ui,
                     'Plan item',
-                    <Text key="plan-item" color={tp.isMissing ? STATUS_HEX.blocked! : tp.isOffPlan ? G.soft : G.ink}>
-                      {tp.item}
-                    </Text>,
+                    tp.build === undefined ? (
+                      <Text key="plan-item" color={tp.isMissing ? STATUS_HEX.blocked! : tp.isOffPlan ? G.soft : G.ink}>
+                        {tp.item}
+                      </Text>
+                    ) : (
+                      <Button key="plan-item" plain onPress={() => openPlan($, tp.build)}>
+                        <Text color={G.accent}>{`${tp.item} ›`}</Text>
+                      </Button>
+                    ),
                   )
                 : null,
               tp !== undefined && tp.chips.length > 0
@@ -1134,7 +1145,11 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
                     ui,
                     'Design',
                     <Box key="design-chips" flexDirection="row" gap={1} flexWrap="wrap">
-                      {tp.chips.map(c => Pill(ui, c.isStale ? `${c.label} · stale` : c.label, c.isStale ? STATUS_HEX.draft! : HUE.sky, `chip-${c.label}`))}
+                      {tp.chips.map(c => (
+                        <Button key={`chip-${c.id}`} plain onPress={() => openDesign($, c.id)}>
+                          {Pill(ui, c.isStale ? `${c.label} · stale` : c.label, c.isStale ? STATUS_HEX.draft! : HUE.sky)}
+                        </Button>
+                      ))}
                     </Box>,
                   )
                 : null,

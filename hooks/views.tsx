@@ -8,6 +8,7 @@ import { allBuilds, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
 import { startJob, suggestAnswer } from './ai'
+import { Tabs, brainstorm, deskDesign, deskPlan, designView, openDesign, openPlan, planView, viewName } from './plan'
 import { G, STATUS_HEX, barSvg, heroSvg, tint } from './glass'
 import {
   S,
@@ -212,9 +213,12 @@ export function phaseOptions(): { value: string; label: string }[] {
 export type TicketPlan = {
   /** `P2.2 · One Accept per intent`, `Off-plan`, or `P9.9 — not in the plan`. */
   item: string
+  /** The build id when the ticket is on the plan: the Plan item opens the Plan view there. */
+  build?: string
   isMissing: boolean
   isOffPlan: boolean
-  chips: { label: string; isStale: boolean }[]
+  /** `id` is the section (`D3`) a chip opens in the Design view. */
+  chips: { id: string; label: string; isStale: boolean }[]
   /** `Written against D3 rev 1, now rev 2`, one per stale reference. */
   stale: string[]
 }
@@ -237,19 +241,19 @@ export function ticketPlan(number: string): TicketPlan | undefined {
   for (const d of ref?.design ?? []) {
     const sec = rm.design.sections.find(x => x.id === d.id)
     const isStale = sec !== undefined && !sec.isDropped && d.rev !== undefined && d.rev < sec.rev
-    chips.push({ label: d.rev === undefined ? d.id : `${d.id}@${d.rev}`, isStale })
+    chips.push({ id: d.id, label: d.rev === undefined ? d.id : `${d.id}@${d.rev}`, isStale })
     if (isStale) stale.push(`Written against ${d.id} rev ${d.rev}, now rev ${sec!.rev}`)
   }
-  return { item, isMissing, isOffPlan, chips, stale }
+  return { item, ...(build === undefined || isMissing ? {} : { build: build.id }), isMissing, isOffPlan, chips, stale }
 }
 
 let glass = false
 
-function Header(ui: UI, title: string, $: $, back?: View) {
+function Header(ui: UI, title: string, $: $, back?: View, backLabel = 'Back') {
   const { Box, Text, Button } = ui
   return (
     <Box flexDirection="row" gap={1} {...(glass ? { paddingBottom: 1 } : {})}>
-      {back !== undefined && <Button key="back" label="‹ Back" plain onPress={() => go($, back)} />}
+      {back !== undefined && <Button key="back" label={`‹ ${backLabel}`} plain onPress={() => go($, back)} />}
       <Text bold wrap="truncate" {...(glass ? { size: 'heading' as const, weight: 'bold' as const } : {})}>
         {title}
       </Text>
@@ -549,7 +553,7 @@ export async function setStatus($: $, number: string, to: string, from: string, 
   }
 }
 
-function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval'): RenderChildren {
+function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval', from?: View): RenderChildren {
   const { Box, Text, Button, Input, Select, Markdown } = ui
   const row = rowOf(number)
   const f = S.snap?.files.get(number)
@@ -571,7 +575,7 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval'): RenderChi
 
   return (
     <Box flexDirection="column" gap={1}>
-      {Header(ui, `${number} — ${title}`, $, { kind: 'board' })}
+      {Header(ui, `${number} — ${title}`, $, from ?? { kind: 'board' }, viewName(from))}
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
         <Text color={TONE[status]} bold>
           {status}
@@ -587,6 +591,14 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval'): RenderChi
             {`Plan item: ${tp.item}`}
           </Text>
           {tp.chips.length > 0 && <Text dimColor>{`Design: ${tp.chips.map(c => (c.isStale ? `${c.label} (stale)` : c.label)).join(', ')}`}</Text>}
+          {(tp.build !== undefined || tp.chips.length > 0) && (
+            <Box key="plan-links" flexDirection="row" flexWrap="wrap" columnGap={1}>
+              {tp.build !== undefined && <Button key="plan-item" label={`Open ${tp.build} in Plan`} plain onPress={() => openPlan($, tp.build)} />}
+              {tp.chips.map(c => (
+                <Button key={`chip-${c.id}`} label={`Open ${c.id}`} plain onPress={() => openDesign($, c.id)} />
+              ))}
+            </Box>
+          )}
           {tp.stale.map(line => (
             <Text key={`stale-${line}`} color="warning">{`⚠ ${line}`}</Text>
           ))}
@@ -687,6 +699,7 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval'): RenderChi
           plain
           onPress={() => void fill($, `Let's look at ticket ${number} (${path ?? dir()}/rd.md). `, 'Started a message in your prompt box')}
         />
+        <Button key="brainstorm" label="Brainstorm" hotkey="b" plain onPress={() => brainstorm($, number)} />
         {path !== undefined && (
           <Button key="copy" label="Copy path" plain onPress={p => void $.ui.copy({ text: path, surface: p.surface }).then(() => say($, `Copied ${path}`))} />
         )}
@@ -727,8 +740,8 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval'): RenderChi
       {f !== undefined && (
         <Box flexDirection="column">
           <Box flexDirection="row" gap={1}>
-            <Button key="tab-rd" label={tab === 'rd' ? '[rd.md]' : 'rd.md'} plain onPress={() => go($, { kind: 'ticket', number, tab: 'rd' })} />
-            <Button key="tab-eval" label={tab === 'eval' ? '[eval.md]' : 'eval.md'} plain onPress={() => go($, { kind: 'ticket', number, tab: 'eval' })} />
+            <Button key="tab-rd" label={tab === 'rd' ? '[rd.md]' : 'rd.md'} plain onPress={() => go($, { kind: 'ticket', number, tab: 'rd', ...(from === undefined ? {} : { from }) })} />
+            <Button key="tab-eval" label={tab === 'eval' ? '[eval.md]' : 'eval.md'} plain onPress={() => go($, { kind: 'ticket', number, tab: 'eval', ...(from === undefined ? {} : { from }) })} />
           </Box>
           <Markdown key={`md-${number}-${tab}`} text={(tab === 'rd' ? f.rd : f.ev) ?? `_No ${tab === 'rd' ? 'rd' : 'eval'}.md yet._`} />
         </Box>
@@ -950,6 +963,7 @@ function withProject($: $, ui: UI, body: RenderChildren): RenderChildren {
         </Text>
         <Button key="readme" label={S.view.kind === 'readme' ? '‹ Board' : 'README'} hotkey="o" plain onPress={() => void openReadme($)} />
       </Box>
+      {showsStart() ? null : Tabs($, ui, false)}
       {body}
     </Box>
   )
@@ -1241,14 +1255,19 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
             : v.kind === 'board' || v.kind === 'doc'
               ? deskBoard($, ui, frame)
               : v.kind === 'ticket'
-                ? deskTicket($, ui, v.number, v.tab, false)
+                ? deskTicket($, ui, v.number, v.tab, false, v.from)
                 : v.kind === 'questions'
                   ? deskTicket($, ui, v.number, 'rd', true)
-                  : deskNew($, ui)
+                  : v.kind === 'plan'
+                    ? deskPlan($, ui, v)
+                    : v.kind === 'design'
+                      ? deskDesign($, ui, v)
+                      : deskNew($, ui)
     return (
       <ui.Box flexDirection="column" gap={1}>
         {ProjectBar($, ui)}
         {ActivityBar($, ui)}
+        {showsStart() ? null : Tabs($, ui, true)}
         {body}
       </ui.Box>
     )
@@ -1263,10 +1282,14 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
     case 'doc':
       return docView($, ui)
     case 'ticket':
-      return withProject($, ui, ticketView($, ui, v.number, v.tab))
+      return withProject($, ui, ticketView($, ui, v.number, v.tab, v.from))
     case 'questions':
       return withProject($, ui, questionsView($, ui, v.number))
     case 'new':
       return withProject($, ui, newView($, ui))
+    case 'plan':
+      return withProject($, ui, planView($, ui, v))
+    case 'design':
+      return withProject($, ui, designView($, ui, v))
   }
 }

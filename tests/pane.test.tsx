@@ -3,6 +3,8 @@ import { expect, test, type TestBody } from 'claude-code/testing'
 import { roadmap, ticketRef } from '../hooks/core/roadmap'
 import { boardCols } from '../hooks/desk'
 import { railSvg } from '../hooks/glass'
+import { runLine } from '../hooks/core/query'
+import { PLAN_COLS } from '../hooks/plan'
 
 const BOARD = `# Ticket board
 
@@ -1293,4 +1295,455 @@ test('an empty desktop board: + Create the first ticket opens the form', async (
       })
     }
   }
+}
+
+// ---------- Plan and Design (0007) ----------
+
+const P7_DESIGN = `---
+design: Salon
+version: 2
+status: draft
+updated: 2026-11-08
+---
+# Salon: design
+
+## Vision
+Book a salon without phone tag.
+
+## D1 · Accounts
+Rev: 1
+Why: People sign in.
+What: Email sign-in.
+Done when:
+- a person can sign in
+
+## D2 · Booking
+Rev: 1
+What: Book a slot.
+
+## D3 · Payments
+Rev: 1
+Why: Owners want deposits.
+What: Take a card deposit at booking.
+Done when:
+- a deposit is charged
+
+### Open questions
+- [ ] Stripe or Adyen? [Stripe · Adyen]
+
+## D4 · Reminders
+Rev: 1
+
+### Open questions
+- [ ] SMS or email?
+- [x] Should reminders be optional?
+  **Resolved 2026-11-01 (human): yes**
+
+## D5 · ~~Loyalty~~
+Status: dropped in v2
+`
+
+const P7_PLAN = `---
+plan: Salon
+design-version: 2
+updated: 2026-11-09
+---
+# Salon: plan
+
+## P1 · Foundations
+Appetite: 1 week
+Exit: a person can sign in and see the calendar
+
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P1.1 | Accounts | S | — | D1 | sign in works | 0001 |
+| P1.2 | Booking core | M | P1.1 | D2, D3 | a slot is booked | 0007 |
+
+## P2 · Payments
+Appetite: 2 weeks
+Exit: a deposit is charged
+
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P2.1 | Card form | S | P1.1 | D3 | form shows | 0002 |
+| P2.2 | Charge | M | P2.1, GitHub origin | D3 | charged | 0003 |
+| P2.3 | Refunds | S | P2.1, P2.2 | D3 | refunded | 0004 |
+| P2.4 | Receipts | S | — | D3 | receipt sent | 0005 |
+
+## P3 · Reminders
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P3.1 | Reminder mails | L | P2.3 | D4 | a reminder is sent | |
+`
+
+const P7_BOARD = `# Salon board
+
+Design: design/DESIGN.md · Plan: design/PLAN.md
+
+| #    | Ticket        | Status | Mode | Blocked by | Owner | Notes |
+|------|---------------|--------|------|------------|-------|-------|
+| 0001 | Accounts      | done   | solo | —          | —     | merged |
+| 0002 | Card form     | ready  | solo | 0001       | —     | |
+| 0003 | Charge        | ready  | solo | —          | —     | |
+| 0004 | Refunds       | ready  | solo | 0005       | —     | |
+| 0005 | Receipts      | draft  | solo | —          | —     | |
+| 0007 | Booking core  | draft  | solo | —          | —     | |
+`
+
+const P7_TICKETS: [string, string, string, string][] = [
+  ['0001', 'accounts', 'Accounts', 'Plan: P1.1\nDesign: D1'],
+  ['0002', 'card-form', 'Card form', 'Plan: P2.1\nDesign: D3'],
+  ['0003', 'charge', 'Charge', 'Plan: P2.2\nDesign: D3'],
+  ['0004', 'refunds', 'Refunds', 'Plan: P2.3'],
+  ['0005', 'receipts', 'Receipts', 'Plan: P2.4'],
+  ['0007', 'booking-core', 'Booking core', 'Plan: P1.2\nDesign: D2, D3@1'],
+]
+
+const P7_CHANGES = ['2026-11-01-design-v1.md', '2026-11-08-design-v2.md', '2026-11-09-replan.md']
+
+function p7Files(opts: { design?: string | null; plan?: string | null; router?: boolean; changes?: boolean } = {}): Record<string, string> {
+  const out: Record<string, string> = { ...GIT_READY, 'tickets/BOARD.md': P7_BOARD }
+  if (opts.design !== null) out['/repo/design/DESIGN.md'] = opts.design ?? P7_DESIGN
+  if (opts.plan !== null) out['/repo/design/PLAN.md'] = opts.plan ?? P7_PLAN
+  if (opts.router === true) out['/repo/.claude/agents/router.md'] = '# router\n'
+  if (opts.changes !== false) for (const c of P7_CHANGES) out[`/repo/design/changes/${c}`] = `# ${c}\n`
+  for (const [n, slug, title, head] of P7_TICKETS) {
+    out[`tickets/${n}-${slug}/rd.md`] = rmRd(n, title, head)
+    out[`tickets/${n}-${slug}/eval.md`] = EVAL
+  }
+  return out
+}
+
+/** What hooks/core/roadmap.ts computes for this fixture. */
+function p7Roadmap(design = P7_DESIGN) {
+  const status: Record<string, string> = { '0001': 'done', '0002': 'ready', '0003': 'ready', '0004': 'ready', '0005': 'draft', '0007': 'draft' }
+  return roadmap(design, P7_PLAN, P7_TICKETS.map(([n, , title, head]) => ticketRef({ number: n, status: status[n]! }, rmRd(n, title, head))))
+}
+
+const hotkeyed = async (ui: any, key: string) => (await ui.findAll({ type: 'Button' })).filter((b: any) => b.props.hotkey === key).map((b: any) => b.key)
+const count = (text: string, part: string) => text.split(part).length - 1
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Plan and Design: tabs, ticket pill, Design chip and Back each step (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, p7Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    // p and d each press exactly one Button.
+    expect(await hotkeyed(ui, 'p')).toEqual(['tab-plan'])
+    expect(await hotkeyed(ui, 'd')).toEqual(['tab-design'])
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D1' })
+    await ui.press({ key: 'tab-board' })
+    await ui.find({ key: 'tab-plan' })
+    expect(await drawnText(ui)).not.toContain('sec-D1')
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    expect(await hotkeyed(ui, 'p')).toEqual(['tab-plan'])
+    expect(await hotkeyed(ui, 'd')).toEqual(['tab-design'])
+    await ui.press({ key: 'pill-P1.2-0007' })
+    await ui.find({ key: 'brainstorm' })
+    expect(await drawnText(ui)).toContain('Booking core')
+    expect((await ui.find({ key: 'back' })).props.label).toBe('‹ Plan')
+    await ui.press({ key: 'chip-D3' })
+    await ui.find({ key: 'brainstorm-section' })
+    let drawn = await drawnText(ui)
+    expect(drawn.toLowerCase()).toContain('d3 · payments')
+    expect(drawn).toContain('Take a card deposit at booking.')
+    expect((await ui.find({ key: 'back' })).props.label).toBe('‹ 0007')
+    await ui.press({ key: 'back' })
+    await ui.find({ key: 'brainstorm' })
+    await ui.press({ key: 'back' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    expect((await ui.find({ key: 'back' })).props.label).toBe('‹ Board')
+    await ui.press({ key: 'back' })
+    await ui.find({ type: 'Text', text: /Card form/ })
+    drawn = await drawnText(ui)
+    expect(drawn).not.toContain('phase-toggle-P1')
+    // The ticket's Plan item opens the Plan at its build.
+    await ui.press({ key: 'tab-plan' })
+    await ui.press({ key: 'pill-P1.2-0007' })
+    await ui.press({ key: 'plan-item' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    if (surface === 'terminal') expect(await drawnText(ui)).toContain('› P1.2')
+    await ui.unmount()
+  })
+
+  test(`Plan list: phases with %, builds with Size / Needs / Covers / Ticket / State (${surface})`, async ($, on) => {
+    const rm = p7Roadmap()
+    const { ui } = await boot($, on, surface, p7Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-toggle-P3' })
+    const drawn = await drawnText(ui)
+    for (const p of rm.progress.phases) expect(drawn).toContain(`${p.pct}%`)
+    expect(drawn).toContain(`${rm.progress.planPct}%`)
+    expect(drawn).toContain('Appetite 2 weeks')
+    expect(drawn).toContain('Exit: a deposit is charged')
+    for (const h of rm.hill) expect(drawn).toContain(h.side === 'uphill' ? '⛰ uphill' : h.side === 'top' ? 'at the top' : 'over the hill')
+    // A build row: id, name, size, needs (the non-build need too), covers chips, ticket pills, state.
+    expect(drawn).toContain('Charge')
+    expect(drawn).toContain('P2.1, GitHub origin')
+    for (const key of ['dchip-P2.2-D3', 'pill-P2.2-0003', 'dchip-P1.2-D2', 'pill-P1.1-0001']) await ui.find({ key })
+    expect(drawn).toContain(surface === 'desktop' ? '0003 Ready' : '0003 ready')
+    expect(drawn).toContain(surface === 'desktop' ? '0001 Done' : '0001 done')
+    expect(rm.progress.states['P1.1']).toBe('built')
+    expect(rm.progress.states['P3.1']).toBe('not-started')
+    expect(drawn).toContain('not started')
+    expect(drawn).toContain('built')
+    expect(drawn).toContain('no ticket')
+    // 0008 is not built: no Create ticket buttons.
+    expect(drawn).not.toContain('Create ticket')
+    if (surface === 'desktop') {
+      for (const h of ['SIZE', 'NEEDS', 'COVERS', 'TICKET', 'STATE']) expect(drawn).toContain(h)
+      expect(PLAN_COLS.reduce((s, c) => s + Number(c.width.replace('%', '')), 0)).toBe(100)
+    }
+    // Collapsible.
+    await ui.press({ key: 'phase-toggle-P2' })
+    expect(await drawnText(ui)).not.toContain('pill-P2.2-0003')
+    await ui.press({ key: 'phase-toggle-P2' })
+    await ui.find({ key: 'pill-P2.2-0003' })
+    await ui.unmount()
+  })
+
+  test(`Plan timeline: lanes, Needs arrows, hill dots, remembered (${surface})`, async ($, on) => {
+    const rm = p7Roadmap()
+    const store = new Map<string, unknown>()
+    const { ui } = await boot($, on, surface, p7Files(), { blank: true, store })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.press({ key: 'plan-timeline' })
+    await ui.find({ key: 'tl-P3.1' })
+    expect(store.get('plan-mode:/repo')).toBe('timeline')
+    let drawn = await drawnText(ui)
+    const pairs = rm.plan.phases.flatMap(p => p.builds).flatMap(b => b.needs.map(n => `${n}>${b.id}`))
+    expect(pairs.length).toBe(6)
+    if (surface === 'desktop') {
+      expect(count(drawn, 'class=\\"lane\\"')).toBe(rm.plan.phases.length)
+      expect(count(drawn, 'class=\\"dep\\"')).toBe(pairs.length)
+      for (const p of pairs) expect(drawn).toContain(`data-need=\\"${p}\\"`)
+      expect(count(drawn, 'class=\\"hill-dot\\"')).toBe(rm.plan.phases.length)
+      // Static: no script, no animation, not interactive (so no scroll capture).
+      const svgs = (await ui.findAll({ type: 'Svg' })).filter((x: any) => /class="(lane|hill-dot)"/.test(x.props.source))
+      expect(svgs.length).toBe(2)
+      for (const svg of svgs) {
+        expect(svg.props.source).not.toMatch(/<animate|<script|onclick/i)
+        expect(svg.props.isInteractive).toBeUndefined()
+      }
+    } else {
+      for (const p of rm.plan.phases) expect(drawn).toContain(`${p.id.padEnd(4)} │`)
+      expect(drawn).toContain('P2.1+P2.2 → P2.3')
+      expect(drawn).toContain('Hill: P1')
+    }
+    // A link button under the timeline per build.
+    for (const b of rm.plan.phases.flatMap(p => p.builds)) await ui.find({ key: `tl-${b.id}` })
+    // Reopening keeps Timeline.
+    await ui.press({ key: 'tab-board' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'tl-P1.1' })
+    drawn = await drawnText(ui)
+    expect(drawn).not.toContain('phase-toggle-P1')
+    await ui.unmount()
+  })
+
+  test(`Plan timeline is remembered across sessions (${surface})`, async ($, on) => {
+    const store = new Map<string, unknown>([['plan-mode:/repo', 'timeline']])
+    const { ui } = await boot($, on, surface, p7Files(), { blank: true, store })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'tl-P1.1' })
+    await ui.press({ key: 'plan-list' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    expect(store.get('plan-mode:/repo')).toBe('list')
+    await ui.unmount()
+  })
+
+  test(`Run for a phase and a build fills the board's run line, ready tickets only (${surface})`, async ($, on) => {
+    const { ui, filled, writes } = await boot($, on, surface, p7Files({ router: true }), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    // The board's own Run ready, for comparison: same rule, same text.
+    await ui.press({ key: 'runall' })
+    expect(filled).toEqual([runLine(['0002', '0003'], true)])
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-run-P2' })
+    expect((await ui.find({ key: 'phase-run-P2' })).props.label).toBe('▶ Run ready (2)')
+    await ui.press({ key: 'phase-run-P2' })
+    // 0002 (blocker 0001 done, outside the phase) and 0003; not 0004 (waits on 0005) or 0005 (draft).
+    expect(filled[1]).toBe(runLine(['0002', '0003'], true))
+    expect(filled[1]).toContain('as the router')
+    await ui.press({ key: 'build-run-P2.2' })
+    expect(filled[2]).toBe(runLine(['0003'], true))
+    // A ready ticket that waits on another: the build's Run is disabled and says why.
+    const blocked = await ui.find({ key: 'build-run-P2.3' })
+    expect(blocked.props.dimColor).toBe(true)
+    await ui.press({ key: 'build-run-P2.3' })
+    expect(filled.length).toBe(3)
+    expect(await drawnText(ui)).toContain('0004 waits on 0005')
+    // A phase with nothing ready: disabled, with the reason beside it.
+    const none = await ui.find({ key: 'phase-run-P3' })
+    expect(none.props.label).toBe('▶ Run ready (0)')
+    expect(none.props.dimColor).toBe(true)
+    expect(await drawnText(ui)).toContain('No tickets in P3 yet')
+    await ui.press({ key: 'phase-run-P3' })
+    expect(filled.length).toBe(3)
+    // No build Run where the build has no ready ticket.
+    expect(await drawnText(ui)).not.toContain('build-run-P2.4')
+    expect(writes).toEqual([])
+    await ui.unmount()
+  })
+
+  test(`Run without a router project file fills the plain run line (${surface})`, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface, p7Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.press({ key: 'phase-run-P2' })
+    expect(filled).toEqual([runLine(['0002', '0003'], false)])
+    expect(filled[0]).toBe('Run tickets 0002 and 0003.')
+    await ui.unmount()
+  })
+
+  test(`Brainstorm: ticket page, design section and phase fill the prompt (${surface})`, async ($, on) => {
+    const { ui, filled, writes } = await boot($, on, surface, p7Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.press({ key: 'pill-P1.2-0007' })
+    expect(await hotkeyed(ui, 'b')).toEqual(['brainstorm'])
+    await ui.press({ key: 'brainstorm' })
+    expect(filled).toEqual(['/brainstorm 0007'])
+    await ui.press({ key: 'chip-D3' })
+    await ui.press({ key: 'brainstorm-section' })
+    await ui.press({ key: 'redesign-section' })
+    expect(filled.slice(1)).toEqual(['/brainstorm D3', '/design D3'])
+    await ui.press({ key: 'tab-plan' })
+    await ui.press({ key: 'phase-brainstorm-P2' })
+    expect(filled[3]).toBe('/brainstorm P2')
+    expect(writes).toEqual([])
+    await ui.unmount()
+  })
+
+  test(`Design view: coverage, inline answers, approve gate, history (${surface})`, async ($, on) => {
+    const rm = p7Roadmap()
+    const { ui, fs, filled, writes } = await boot($, on, surface, p7Files(), { blank: true })
+    await ui.find({ key: 'tab-design' })
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D1' })
+    let drawn = await drawnText(ui)
+    expect(drawn).toContain(`Design ${rm.coverage.designPct}%`)
+    for (const c of rm.coverage.sections) expect(drawn).toContain(`${c.id} ${c.title}`)
+    for (const st of new Set(rm.coverage.sections.map(c => c.state))) expect(drawn).toContain(st)
+    expect(drawn).toContain('D5 Loyalty')
+    expect(drawn).toContain('dropped')
+    // History, newest first.
+    expect(drawn).toContain('Design v2')
+    expect(drawn.indexOf('2026-11-09-replan.md')).toBeLessThan(drawn.indexOf('2026-11-08-design-v2.md'))
+    expect(drawn.indexOf('2026-11-08-design-v2.md')).toBeLessThan(drawn.indexOf('2026-11-01-design-v1.md'))
+    // Approve is disabled while two questions are open.
+    expect((await ui.find({ key: 'approve-design' })).props.dimColor).toBe(true)
+    await ui.press({ key: 'approve-design' })
+    expect(writes).toEqual([])
+    expect(filled).toEqual([])
+    expect(await drawnText(ui)).toContain('Answer the 2 open questions first (D3, D4)')
+    // Answer D3's question inline.
+    await ui.press({ key: 'sec-D3' })
+    await ui.input({ key: 'dq-D3-0', text: 'Stripe', kind: 'submit' } as any)
+    let md = fs.files.get('/repo/design/DESIGN.md')!
+    expect(md).toMatch(/- \[x\] Stripe or Adyen\? \[Stripe · Adyen\]\n {2}\*\*Resolved \d{4}-\d{2}-\d{2} \(human\): Stripe\*\*/)
+    expect((await ui.find({ key: 'approve-design' })).props.dimColor).toBe(true)
+    await ui.press({ key: 'sec-D4' })
+    await ui.input({ key: 'dq-D4-0', text: 'Email first', kind: 'submit' } as any)
+    md = fs.files.get('/repo/design/DESIGN.md')!
+    expect(md).toContain('(human): Email first**')
+    // Both answered: Approve sets status: approved and fills /planning.
+    expect((await ui.find({ key: 'approve-design' })).props.dimColor).toBeUndefined()
+    await ui.press({ key: 'approve-design' })
+    md = fs.files.get('/repo/design/DESIGN.md')!
+    expect(md).toContain('status: approved')
+    expect(md).not.toContain('status: draft')
+    expect(filled).toEqual(['/planning'])
+    expect([...new Set(writes)]).toEqual(['/repo/design/DESIGN.md'])
+    // Approved: the gate is gone.
+    expect(await drawnText(ui)).not.toContain('approve-design')
+    await ui.unmount()
+  })
+
+  test(`Design view without design/changes/ lists no history (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, p7Files({ changes: false }), { blank: true })
+    await ui.find({ key: 'tab-design' })
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D1' })
+    const drawn = await drawnText(ui)
+    expect(drawn).not.toContain('History')
+    expect(drawn).not.toContain('Design v2')
+    await ui.unmount()
+  })
+
+  test(`no plan and no design: no tabs; /board plan and /board design show empty states (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    expect(await drawnText(ui)).not.toContain('tab-plan')
+    await $.command.run({ command: 'board', args: 'plan' } as any)
+    await ui.find({ key: 'empty-start' })
+    expect(await drawnText(ui)).toContain('No plan yet')
+    await $.command.run({ command: 'board', args: 'design' } as any)
+    await ui.find({ key: 'empty-start' })
+    expect(await drawnText(ui)).toContain('No design yet')
+    await ui.press({ key: 'tab-board' })
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    if (surface === 'desktop') await ui.press({ key: 'show-all' })
+    await ui.press({ key: 'open-0003' })
+    await ui.find({ key: 'brainstorm' })
+    await ui.unmount()
+  })
+
+  test(`design only: Plan tab shows an empty state pointing to /planning (${surface})`, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface, p7Files({ plan: null }), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    expect((await ui.find({ key: 'tab-plan' })).props.dimColor).toBe(true)
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'empty-planning' })
+    expect(await drawnText(ui)).toContain('No plan yet. Plan the builds from the design with /planning.')
+    await ui.press({ key: 'empty-planning' })
+    expect(filled).toEqual(['/planning'])
+    // The Design view still works without a plan.
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D1' })
+    expect(await drawnText(ui)).toContain('unplanned')
+    await ui.unmount()
+  })
+
+  test(`plan only: Design tab shows an empty state pointing to Start (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, p7Files({ design: null }), { blank: true })
+    await ui.find({ key: 'tab-design' })
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'empty-start' })
+    expect(await drawnText(ui)).toContain('No design yet. Write one with /design, or open Start.')
+    await ui.press({ key: 'empty-start' })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await ui.unmount()
+  })
+
+  test(`a malformed PLAN.md: the Plan tab warns, the board still works (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, p7Files({ plan: 'not a plan\n\nno phases\n', design: '## not a design\n' }), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'empty-start' })
+    expect(await drawnText(ui)).toContain('⚠ design/PLAN.md has no phases or builds the board can read')
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'design-none' })
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('⚠ design: no front matter')
+    expect(drawn).toContain('No numbered sections')
+    await ui.press({ key: 'tab-board' })
+    await ui.find({ type: 'Text', text: /Card form/ })
+    await ui.unmount()
+  })
+
+  test(`a ready ticket keeps d for Back to draft: the Design tab has no hotkey there (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, p7Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.press({ key: 'pill-P2.2-0003' })
+    await ui.find({ key: 'brainstorm' })
+    expect(await hotkeyed(ui, 'd')).toEqual(['draft'])
+    expect(await hotkeyed(ui, 'p')).toEqual(['tab-plan'])
+    await ui.unmount()
+  })
 }

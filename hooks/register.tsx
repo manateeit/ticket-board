@@ -2,7 +2,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder } from './ai'
-import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadPlanMode, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
 import { drawPane, go, type UI } from './views'
 
@@ -70,13 +70,14 @@ export const register: Register = (on, options) => {
     resetSession(e.cwd)
     await $.command.register({
       name: 'board',
-      description: 'Open the ticket board pane: /board · /board 14 · /board new <idea>',
-      argumentHint: '[ticket number | new <idea>]',
+      description: 'Open the ticket board pane: /board · /board 14 · /board new <idea> · /board plan · /board design',
+      argumentHint: '[ticket number | new <idea> | plan | design]',
     })
     await loadFilters($)
     await loadScheme($)
     await loadJobs($)
     await loadStartFlags($)
+    await loadPlanMode($)
     await loadVersion($)
     await refresh($)
     // Opens on its own only where a tickets/ folder exists (with or without BOARD.md); where it lands
@@ -104,12 +105,14 @@ export const register: Register = (on, options) => {
       const idea = args.replace(/^new\s*/i, '')
       if (idea !== '') S.drafts.set('new-idea', idea)
       go($, { kind: 'new' })
+    } else if (args === 'plan' || args === 'design') {
+      go($, { kind: args })
     } else if (args === 'close') {
       await $.ui.close({ id: PANE })
       S.isOpen = false
       return { text: 'Ticket board closed.', isTextDisplayOnly: true }
     } else if (args !== '') {
-      return { text: 'Usage: /board · /board <number> · /board new <idea> · /board close', isTextDisplayOnly: true }
+      return { text: 'Usage: /board · /board <number> · /board new <idea> · /board plan · /board design · /board close', isTextDisplayOnly: true }
     }
     const r = await open($, true)
     if (!r.isPlaced) return { text: `The ticket board pane could not open here (${r.reason}).`, isTextDisplayOnly: true }

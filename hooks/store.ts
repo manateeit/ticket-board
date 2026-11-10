@@ -7,6 +7,7 @@ import type { Scheme } from './glass'
 import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
 import { allBuilds, bindFromBoard, roadmap, ticketRef, type Binding, type Roadmap, type TicketRef } from './core/roadmap'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
+import { answerDesignQuestion, approveDesignText } from './core/designfile'
 
 type $ = EngineInterface
 
@@ -30,17 +31,24 @@ export type Snapshot = {
   loadedAt: number
   /** The design and plan the board is bound to (texts, when found), read on every refresh. */
   binding?: Binding
+  /** File names in `design/changes/` next to the bound DESIGN.md; undefined when there is no such folder. */
+  changes?: string[]
 }
 
 export type View =
   | { kind: 'board' }
   | { kind: 'doc' }
-  | { kind: 'ticket'; number: string; tab: 'rd' | 'eval' }
+  | { kind: 'ticket'; number: string; tab: 'rd' | 'eval'; from?: View }
   | { kind: 'questions'; number: string }
   | { kind: 'new' }
   | { kind: 'readme' }
   | { kind: 'start' }
+  /** The roadmap (0007): `focus` is a build id to open and show, `from` the view Back returns to. */
+  | { kind: 'plan'; focus?: string; from?: View }
+  /** The design (0007): `section` is the D id shown (the first one when absent). */
+  | { kind: 'design'; section?: string; from?: View }
 
+export type PlanMode = 'list' | 'timeline'
 export type Job = { agentId: string; number: string; kind: 'draft' | 'enhance' | 'fold'; startedAt: number }
 
 export type Options = { ticketsDir: string; pollSeconds: number; autoOpen: boolean; writerModel: string; showVersion: boolean }
@@ -92,6 +100,10 @@ export const S = {
   startFlags: { ...NO_START_FLAGS } as StartFlags,
   /** The person chose the board over the Start screen this session ("Set up board only", "Show the board"). */
   showBoard: false,
+  /** Plan view: List or Timeline, remembered per project. */
+  planMode: 'list' as PlanMode,
+  /** Plan view phases the person opened (true) or closed (false) this session; others follow their %. */
+  planOpen: new Map<string, boolean>(),
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -119,7 +131,9 @@ export function resetSession(cwd: string) {
     // The last session's agents and the panel's open state must not carry over (0012).
     agents: [],
     showAgents: false,
+    planMode: 'list',
   })
+  S.planOpen.clear()
   S.jobs.clear()
   S.agentLog.clear()
   S.watching = ''
@@ -298,6 +312,8 @@ export async function refresh($: $, force = false): Promise<boolean> {
     }
     const binding = boardEntry === undefined ? undefined : await readBinding($, boardText)
     if (JSON.stringify(binding) !== JSON.stringify(prev?.binding)) changed = true
+    const changes = binding?.designPath === undefined ? undefined : await listChanges($, binding.designPath)
+    if (JSON.stringify(changes) !== JSON.stringify(prev?.changes)) changed = true
     if (force || prev === undefined) S.hasRouter = (await readOr($, abs('.claude/agents/router.md'))) !== undefined
     const files = new Map<string, TicketFiles>()
     const folders = entries.filter(e => e.kind === 'dir' && /^\d{1,5}-/.test(e.name))
@@ -326,11 +342,23 @@ export async function refresh($: $, force = false): Promise<boolean> {
       })
     }
     if (prev !== undefined && prev.files.size !== files.size) changed = true
-    S.snap = { hasBoard: boardEntry !== undefined, boardText, board, boardMtime, files, loadedAt: Date.now(), binding }
+    S.snap = { hasBoard: boardEntry !== undefined, boardText, board, boardMtime, files, loadedAt: Date.now(), binding, changes }
     if (changed) redraw($)
     return changed
   } finally {
     S.isRefreshing = false
+  }
+}
+
+/** The `changes/` folder beside DESIGN.md (design/changes/): its .md names, or undefined when it does not exist or is empty. */
+async function listChanges($: $, designPath: string): Promise<string[] | undefined> {
+  const folder = `${designPath.includes('/') ? designPath.slice(0, designPath.lastIndexOf('/')) : '.'}/changes`
+  try {
+    const entries = await $.fs.list(abs(folder))
+    const names = entries.filter(e => e.kind === 'file' && /\.md$/i.test(e.name)).map(e => e.name).sort()
+    return names.length === 0 ? undefined : names
+  } catch {
+    return undefined
   }
 }
 
@@ -382,6 +410,35 @@ export function roadmapView(): RoadmapView | undefined {
   return value
 }
 
+let fullMemo: { snap?: Snapshot; value?: Roadmap } = {}
+
+/**
+ * The bound design and plan computed together, also when only one of them exists (the Design view
+ * works without a plan). Undefined with no board binding or neither file. Never throws.
+ */
+export function fullRoadmap(): Roadmap | undefined {
+  const snap = S.snap
+  const b = snap?.binding
+  if (snap === undefined || b === undefined || (b.design === undefined && b.plan === undefined)) return undefined
+  if (fullMemo.snap === snap) return fullMemo.value
+  let value: Roadmap | undefined
+  try {
+    value = roadmap(b.design, b.plan, ticketRefs(snap))
+  } catch {
+    value = undefined
+  }
+  fullMemo = { snap, value }
+  return value
+}
+
+function ticketRefs(snap: Snapshot): TicketRef[] {
+  const listed = new Set(rows().map(r => r.number))
+  return [
+    ...rows().map(r => ticketRef(r, snap.files.get(r.number)?.rd)),
+    ...[...snap.files.values()].filter(f => !listed.has(f.number)).map(f => ticketRef({ number: f.number, status: 'unlisted' }, f.rd)),
+  ]
+}
+
 function computeRoadmap(snap: Snapshot): RoadmapView | undefined {
   const b = snap.binding
   if (b === undefined) return undefined
@@ -391,11 +448,7 @@ function computeRoadmap(snap: Snapshot): RoadmapView | undefined {
     return w === undefined ? undefined : { ...base, warning: `${w}; showing tickets only` }
   }
   if (b.plan.trim() === '') return undefined
-  const listed = new Set(rows().map(r => r.number))
-  const tickets = [
-    ...rows().map(r => ticketRef(r, snap.files.get(r.number)?.rd)),
-    ...[...snap.files.values()].filter(f => !listed.has(f.number)).map(f => ticketRef({ number: f.number, status: 'unlisted' }, f.rd)),
-  ]
+  const tickets = ticketRefs(snap)
   const rm = roadmap(b.design, b.plan, tickets)
   if (rm.plan.phases.length === 0) return { ...base, warning: `${base.planPath} has no phases or builds the board can read; showing tickets only` }
   const builds = allBuilds(rm.plan)
@@ -466,6 +519,44 @@ export async function saveAnswer($: $, number: string, q: Question, answer: stri
   const text = await $.fs.read(abs(path))
   await $.fs.write(abs(path), answerQuestion(text, q.index, q.text, answer, today(Date.now())))
   await refresh($)
+}
+
+/** Answers one open question of a design section in DESIGN.md (the only file written). */
+export async function saveDesignAnswer($: $, sectionId: string, question: string, answer: string) {
+  const path = S.snap?.binding?.designPath
+  if (path === undefined) throw new Error('No DESIGN.md is bound to this board')
+  const text = await $.fs.read(abs(path))
+  await $.fs.write(abs(path), answerDesignQuestion(text, sectionId, question, answer, today(Date.now())))
+  await refresh($, true)
+}
+
+/** Sets `status: approved` in DESIGN.md: a person's action, never an agent's. Writes only DESIGN.md. */
+export async function approveDesign($: $) {
+  const path = S.snap?.binding?.designPath
+  if (path === undefined) throw new Error('No DESIGN.md is bound to this board')
+  const text = await $.fs.read(abs(path))
+  await $.fs.write(abs(path), approveDesignText(text, today(Date.now())))
+  await refresh($, true)
+}
+
+export async function loadPlanMode($: $) {
+  try {
+    const saved = await $.store.get(`plan-mode:${S.cwd}`)
+    if (saved === 'list' || saved === 'timeline') S.planMode = saved
+  } catch {
+    // default list
+  }
+}
+
+/** List or Timeline in the Plan view, remembered per project (in the pane store). */
+export async function setPlanMode($: $, mode: PlanMode) {
+  S.planMode = mode
+  redraw($)
+  try {
+    await $.store.set(`plan-mode:${S.cwd}`, mode)
+  } catch {
+    // a convenience
+  }
 }
 
 export function folderOf(number: string): string | undefined {
