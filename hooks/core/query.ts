@@ -42,8 +42,8 @@ export type Kind = (typeof KINDS)[number]
 export const KIND_OPTIONS = ['any', ...KINDS] as const
 export type KindFilter = (typeof KIND_OPTIONS)[number]
 
-export type Filters = { show: Show; sort: Sort; mode: ModeFilter; search: string; kind: KindFilter; desc: boolean }
-export const DEFAULT_FILTERS: Filters = { show: 'all', sort: 'number', mode: 'any', search: '', kind: 'any', desc: false }
+export type Filters = { show: Show; sort: Sort; mode: ModeFilter; search: string; kind: KindFilter; desc: boolean; hideDone?: boolean }
+export const DEFAULT_FILTERS: Filters = { show: 'all', sort: 'number', mode: 'any', search: '', kind: 'any', desc: false, hideDone: false }
 
 export type Item = {
   number: string
@@ -59,6 +59,8 @@ export type Item = {
 
 export function matches(item: Item, f: Filters): boolean {
   const s = item.status
+  // "Hide done" sticks across every tab except the Done tab itself.
+  if (f.hideDone === true && s === 'done' && f.show !== 'done') return false
   switch (f.show) {
     case 'needs-me':
       if (s !== 'draft' && s !== 'blocked') return false
@@ -120,11 +122,15 @@ export function kindOf(title: string, rd?: string): Kind {
 }
 
 /** `Run tickets 0011, 0013 and 0014.` */
-export function runLine(numbers: readonly string[]): string {
-  if (numbers.length === 1) return `Run ticket ${numbers[0]}.`
+export function runLine(numbers: readonly string[], asRouter = false): string {
   const head = numbers.slice(0, -1).join(', ')
-  return `Run tickets ${head} and ${numbers[numbers.length - 1]}.`
+  const line = numbers.length === 1 ? `Run ticket ${numbers[0]}` : `Run tickets ${head} and ${numbers[numbers.length - 1]}`
+  return asRouter ? `${line}${ROUTER_TAIL}` : `${line}.`
 }
+
+/** Makes a run line work in any session: the router already is one, any other session takes the role from the file. */
+export const ROUTER_TAIL =
+  ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself.'
 
 export function today(nowMs: number): string {
   const d = new Date(nowMs)

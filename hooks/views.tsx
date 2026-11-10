@@ -84,7 +84,8 @@ export function runnable(): string[] {
 
 export function runTicket($: $, number: string) {
   const open = blockersOpen(rowOf(number)?.blockedBy ?? [])
-  const text = open.length === 0 ? `Run ticket ${number}.` : `Run ticket ${number} once ${open.join(', ')} ${open.length === 1 ? 'is' : 'are'} done.`
+  const base = runLine([number], S.hasRouter)
+  const text = open.length === 0 ? base : `${base.replace(/\.$/, '')} — but only once ${open.join(', ')} ${open.length === 1 ? 'is' : 'are'} done.`
   void fill($, text, 'In your prompt box — press Enter to send it')
 }
 
@@ -169,7 +170,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
         <Button key="new" label="+ New ticket" hotkey="n" variant="primary" onPress={() => go($, { kind: 'new' })} />
         {run.length > 0 && (
-          <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run), 'In your prompt box — press Enter to send it to the router')} />
+          <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter), 'In your prompt box — press Enter to send it to the router')} />
         )}
         <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'), () => undefined)} />
       </Box>
@@ -194,6 +195,13 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
           value={S.filters.mode}
           options={MODE_OPTIONS.map(v => ({ value: v, label: v === 'any' ? 'Any mode' : v }))}
           onSelect={v => setFilters($, { mode: v as Filters['mode'] })}
+        />
+        <Button
+          key="hide-done"
+          label={S.filters.hideDone === true ? '[x] Hide done' : '[ ] Hide done'}
+          hotkey="h"
+          plain
+          onPress={() => setFilters($, { hideDone: S.filters.hideDone !== true })}
         />
       </Box>
       <Input

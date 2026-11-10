@@ -1,6 +1,6 @@
 {
   "name": "ticket-board",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Your tickets/BOARD.md in a side pane: browse, sort and filter tickets, answer their open questions, flip draft to ready, create tickets that an AI writer turns into build-ready rd.md + eval.md, and hand ready tickets to the router.",
   "author": {
     "name": "manateeit"

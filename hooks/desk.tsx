@@ -468,7 +468,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
           </Text>
         </Box>
         <Box flexDirection="row" gap={1} alignItems="center">
-          {run.length > 0 && <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run), 'Run line is in your prompt box — press Enter to send it')} />}
+          {run.length > 0 && <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter), 'Run line is in your prompt box — press Enter to send it')} />}
           <Button
             key="agents"
             hotkey="a"
@@ -517,6 +517,14 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
             </Button>
           ))}
         </Box>
+        <Button
+          key="hide-done"
+          variant={f.hideDone === true ? 'primary' : 'secondary'}
+          onPress={() => setFilters($, { hideDone: f.hideDone !== true })}
+        >
+          {f.hideDone === true ? `✓ Hiding done ` : 'Hide done '}
+          <Text color={f.hideDone === true ? undefined : G.faint}>{String(done)}</Text>
+        </Button>
         <Select
           key="mode"
           label="Mode"

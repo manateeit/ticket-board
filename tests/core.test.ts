@@ -152,10 +152,20 @@ test('ticket types', () => {
 test('run lines', () => {
   expect(runLine(['0011'])).toBe('Run ticket 0011.')
   expect(runLine(['0011', '0013', '0014'])).toBe('Run tickets 0011, 0013 and 0014.')
+  expect(runLine(['0011'], true)).toStartWith('Run ticket 0011 as the router. If this session is not already the router, first read .claude/agents/router.md')
 })
 
 test('result tags from board notes', () => {
   expect(resultOf('merged f681c3c (merge commit, local, no push); 3 worker rounds')?.label).toBe('Merged')
   expect(resultOf('moved from GitHub issue #2 2026-11-09')?.label).toBe('From GitHub')
   expect(resultOf('—')).toBeUndefined()
+})
+
+test('hide done works across tabs but not on the Done tab', () => {
+  const it = (number: string, status: string) => ({ number, title: number, status, mode: 'solo', owner: '', notes: '', openQuestions: 0, updatedMs: 0, kind: 'feature' as const, isUnlisted: false, blockedBy: [] })
+  const all = [it('0001', 'done'), it('0002', 'ready'), it('0003', 'draft')]
+  const base = { show: 'all' as const, sort: 'number' as const, mode: 'any' as const, search: '', kind: 'any' as const, desc: false }
+  expect(query(all, { ...base, hideDone: true }).map(i => i.number)).toEqual(['0002', '0003'])
+  expect(query(all, { ...base, show: 'done', hideDone: true }).map(i => i.number)).toEqual(['0001'])
+  expect(query(all, base).length).toBe(3)
 })

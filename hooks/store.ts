@@ -64,6 +64,8 @@ export const S = {
   /** The main Claude loop: working since (ms), and the tool it is on. */
   busySince: 0,
   busyTool: '',
+  /** The project defines a `router` agent (.claude/agents/router.md): run lines ask for it by name. */
+  hasRouter: false,
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -145,6 +147,7 @@ export async function refresh($: $, force = false): Promise<boolean> {
       board = parseBoard(boardText)
       changed = true
     }
+    if (force || prev === undefined) S.hasRouter = (await readOr($, `${S.cwd}/.claude/agents/router.md`)) !== undefined
     const files = new Map<string, TicketFiles>()
     const folders = entries.filter(e => e.kind === 'dir' && /^\d{1,5}-/.test(e.name))
     for (const f of folders) {

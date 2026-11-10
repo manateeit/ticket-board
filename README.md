@@ -90,6 +90,8 @@ It re-reads the board every few seconds while it is open, and right after any to
 
 - **Board.** A title bar with *+ New ticket*, *Refresh* and *▶ Run ready (N)*; five numbers (Need you, Ready to run, In flight, Open bugs, Done %) and a status bar; status tabs with counts (All, Needs me, Open, Draft, Ready, …); type filters (Features, Bugs, Chores); a mode filter and search. **Activity.** A strip across the top of every desktop view shows what the session is doing: a spinner and a moving light bar while Claude works (with the kind of step, e.g. "Running a command" or "Editing files", and when the turn started), how many agents are running, and how many tickets the AI writer is drafting. When nothing runs it shrinks to a quiet "Claude is idle". The pane's tab also reads `Tickets · ● working` while anything runs, so you can expand the pane to full size and still see that work is going on.
 
+**Hide done.** Next to the type buttons, **Hide done** (key `h` in the terminal) drops done tickets from every tab except Done itself, and is remembered per project.
+
 **Agents.** The **Agents** button in the title bar (key `a`) shows a count of running agents and opens a panel just below the summary tiles: every subagent or teammate this session is running (with its ticket, when it names one, and a Watch button), the tickets the board says are in flight, and the last few agents that finished. A router running in a different session shows up through the In flight tickets.
 
 Tickets are a **table** — ID, Type, Title, Status, Result (a one-word tag from the board's notes: Merged, Decided, From GitHub, Failing…), Depends on, Questions, Updated and one next-step button per row (*Answer 2*, *✓ Ready*, *▶ Run*, *Unblock*). Click any column header to sort, again to reverse; sorting by Status groups the rows. The text around the table on BOARD.md is shown below it as *Board notes*.
@@ -201,16 +203,25 @@ The writer is boxed in. A guard in the mod refuses any write by that agent outsi
 
 ## Run this ticket
 
-On a **ready** ticket, **▶ Run this ticket** (key `x`) puts this in your prompt box:
+On a **ready** ticket, **▶ Run this ticket** (key `x`) puts a run line in your prompt box. It **never sends it**. You press Enter, so the instruction comes from you, and the session it lands in does the work and moves the status. The pane never sets in-progress itself.
+
+In a plain project the line is just:
 
 ```
 Run ticket 0014.
 ```
 
-It **never sends it**. You press Enter, so the instruction comes from you, and the session it lands in (normally the router) does the work and moves the status. The pane never sets in-progress itself.
+If the project defines a router agent (`.claude/agents/router.md`), the line asks for it by name, so it works in **any** session, including a Claude desktop session you could not start with `--agent router`:
 
-- If a *blocked by* ticket is not done yet, the text becomes `Run ticket 0014 once 0008 is done.`, and the ticket view says what it is waiting for.
-- On the board, **▶ Run ready (N)** counts the ready tickets whose blockers are all done and fills one line for all of them: `Run tickets 0011, 0013 and 0014.`
+```
+Run ticket 0014 as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself.
+```
+
+A real router session reads that as itself and carries on. Any other session takes on the router's job from the file and starts the `worker` and `checker` agents itself.
+
+- If a *blocked by* ticket is not done yet, the line adds `— but only once 0008 is done.`, and the ticket view says what it is waiting for.
+- On the board, **▶ Run ready (N)** counts the ready tickets whose blockers are all done and fills one line for all of them (`Run tickets 0011, 0013 and 0014 …`).
+- To make *every* new session in a project the router, desktop included, put `{ "agent": "router" }` in that project's `.claude/settings.local.json`.
 
 ## Using it with the super-agent router
 
