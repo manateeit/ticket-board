@@ -226,3 +226,16 @@ export function readiness({ rd, ev, blockedBy, statusOf }: ReadyInput): Check[] 
 }
 
 export const isReadyable = (checks: Check[]) => checks.every(c => c.isOk || !c.isHard)
+
+/**
+ * What a ticket created from the plan is missing of its docs step (0008): a `## Docs` section that
+ * names README.md, and the "Docs and README updated" check in eval.md. Empty when both are there.
+ */
+export function docsGaps(rd: string | undefined, ev: string | undefined): string[] {
+  const out: string[] = []
+  const docs = rd === undefined ? undefined : findSection(rd, 'Docs')
+  if (docs === undefined || !/readme/i.test(docs.body)) out.push('## Docs naming README.md')
+  const checks = ev === undefined ? undefined : findSection(ev, 'Checks')
+  if (checks === undefined || !/docs and readme updated/i.test(checks.body)) out.push('the "Docs and README updated" check')
+  return out
+}

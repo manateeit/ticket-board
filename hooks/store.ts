@@ -5,7 +5,7 @@ import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } 
 import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import type { Scheme } from './glass'
 import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
-import { allBuilds, bindFromBoard, roadmap, ticketRef, type Binding, type Roadmap, type TicketRef } from './core/roadmap'
+import { allBuilds, bindFromBoard, roadmap, setPlanTicket, ticketRef, type Binding, type Roadmap, type TicketRef } from './core/roadmap'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
 import { answerDesignQuestion, approveDesignText } from './core/designfile'
 
@@ -49,7 +49,11 @@ export type View =
   | { kind: 'design'; section?: string; from?: View }
 
 export type PlanMode = 'list' | 'timeline'
-export type Job = { agentId: string; number: string; kind: 'draft' | 'enhance' | 'fold'; startedAt: number }
+/** A writer job. `plan` jobs (0008) write a ticket from a plan build: `build` is its id, `extra` a note kept after the AI status. */
+export type Job = { agentId: string; number: string; kind: 'draft' | 'enhance' | 'fold' | 'plan'; startedAt: number; build?: string; extra?: string }
+
+/** A plan ticket whose skeleton exists and whose writer waits for a free slot. */
+export type PlanQueued = { number: string; folder: string; build: string; brief: string; extra: string }
 
 export type Options = { ticketsDir: string; pollSeconds: number; autoOpen: boolean; writerModel: string; showVersion: boolean }
 
@@ -104,6 +108,12 @@ export const S = {
   planMode: 'list' as PlanMode,
   /** Plan view phases the person opened (true) or closed (false) this session; others follow their %. */
   planOpen: new Map<string, boolean>(),
+  /** Tickets from the plan (0008) waiting for a writer slot, oldest first. Kept across redraws, not restarts. */
+  planQueue: [] as PlanQueued[],
+  /** Plan builds whose writer failed: build id → its ticket and the reason. Create again restarts it. */
+  planFailed: new Map<string, { number: string; reason: string }>(),
+  /** A Create tickets press is making skeletons. */
+  isCreating: false,
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -132,8 +142,11 @@ export function resetSession(cwd: string) {
     agents: [],
     showAgents: false,
     planMode: 'list',
+    planQueue: [],
+    isCreating: false,
   })
   S.planOpen.clear()
+  S.planFailed.clear()
   S.jobs.clear()
   S.agentLog.clear()
   S.watching = ''
@@ -598,7 +611,17 @@ export function folderOf(number: string): string | undefined {
 /** Reserves the next number: creates the folder with skeleton files and adds a draft row. */
 export async function createSkeleton(
   $: $,
-  idea: { title: string; text: string; mode: string; blockedBy: string[]; kind?: string },
+  idea: {
+    title: string
+    text: string
+    mode: string
+    blockedBy: string[]
+    kind?: string
+    /** From a plan build (0008): its id for the `Plan:` line, the `Design:` value and the covered `Done when` lines as eval checks. */
+    plan?: string
+    design?: string
+    checks?: string[]
+  },
   notes: string,
 ): Promise<{ number: string; folder: string }> {
   await refresh($, true)
@@ -618,6 +641,8 @@ export async function createSkeleton(
     `# ${number} — ${idea.title}`,
     '',
     `Type: ${idea.kind ?? 'feature'}`,
+    ...(idea.plan === undefined ? [] : [`Plan: ${idea.plan}`]),
+    ...(idea.design === undefined || idea.design === '' ? [] : [`Design: ${idea.design}`]),
     '',
     '## What',
     '<2–5 sentences: what the feature does and why. Being written by the ticket writer.>',
@@ -642,12 +667,15 @@ export async function createSkeleton(
     quoted,
     '',
   ].join('\n')
+  const checks = idea.checks ?? []
   const ev = [
     `# Eval — ${number} — ${idea.title}`,
     '',
     '## Checks',
-    '1. <how to run it — pass criterion>',
-    '2. Docs and README updated — read the files under ## Docs in rd.md and README.md; pass when they describe the change as built.',
+    ...(checks.length === 0
+      ? ['1. <how to run it — pass criterion>']
+      : checks.flatMap((c, i) => [`${i + 1}. ${c}`, '   - Run: <command — the ticket writer fills this in>', `   - Pass: ${c}`])),
+    `${Math.max(checks.length, 1) + 1}. Docs and README updated — read the files under ## Docs in rd.md and README.md; pass when they describe the change as built.`,
     '',
     '## Not checked by automation',
     '- <...>',
@@ -662,6 +690,15 @@ export async function createSkeleton(
   )
   await refresh($, true)
   return { number, folder }
+}
+
+/** Adds a new ticket's number to its build's `Ticket` cell in the bound PLAN.md. Only the pane writes PLAN.md. */
+export async function addPlanTicket($: $, buildId: string, number: string): Promise<void> {
+  const path = S.snap?.binding?.planPath
+  if (path === undefined) throw new Error('No PLAN.md is bound to this board')
+  const text = await $.fs.read(abs(path))
+  const next = setPlanTicket(text, buildId, number)
+  if (next !== text) await $.fs.write(abs(path), next)
 }
 
 export async function loadFilters($: $) {

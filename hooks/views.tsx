@@ -622,7 +622,7 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval', from?: Vie
 
       {job !== undefined && (
         <Box flexDirection="row" gap={1}>
-          <Text color="claude">✎ AI is {job.kind === 'draft' ? 'writing' : job.kind === 'enhance' ? 'enhancing' : 'folding answers into'} this ticket…</Text>
+          <Text color="claude">✎ AI is {job.kind === 'draft' || job.kind === 'plan' ? 'writing' : job.kind === 'enhance' ? 'enhancing' : 'folding answers into'} this ticket…</Text>
           <Button key="viewagent" label="Watch" plain onPress={() => void $.ui.view({ agentId: job.agentId }).catch(() => undefined)} />
         </Box>
       )}

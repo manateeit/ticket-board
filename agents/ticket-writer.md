@@ -34,5 +34,19 @@ Hard limits:
   and `Design: D1@2, D3@1` (each design section the build covers, at the `Rev` it has in the
   design now). Read the build row in the plan and the sections in the design to fill them. When
   the ticket does not come from a build, omit both lines; an off-plan ticket is fine.
+- **Plan-build brief** (the pane's *Create tickets* in the Plan view): the brief holds the build
+  row (id, name, size, Needs, Covers, its own Done when), the phase's Goal and Exit, and each
+  covered design section with its `Rev`, Why, What and `Done when` lines, plus the exact
+  `Type:` / `Plan:` / `Design:` lines to keep under the title. The folder already holds a
+  skeleton with those lines, a `## Docs` section and one eval check per `Done when` line; the
+  board row already has Blocked by from the build's Needs. Then:
+  - keep the `Type:`, `Plan:` and `Design:` lines as given;
+  - use the phase Goal and Exit to set Scope;
+  - make every covered `Done when` line its own check in `eval.md`, each with a **Run** line (a
+    real command or steps) and a **Pass** line (the observable result), plus an end-to-end check;
+  - fill `## Docs` naming README.md and keep the "Docs and README updated" check. The pane checks
+    both when you finish and reports a ticket missing either in its board row and a toast;
+  - never edit PLAN.md or DESIGN.md: the pane writes the ticket number into the plan's Ticket
+    cell itself (and the guard refuses any write outside the ticket folder).
 
 Finish with two or three lines: what you wrote, and the open questions left for the person.

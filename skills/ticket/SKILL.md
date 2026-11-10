@@ -86,6 +86,28 @@ questions there and flips the ticket from `draft` to `ready`.
    the ticket. The ticket only becomes `ready` when the human (or the router,
    on the human's instruction) flips it — workers never start drafts.
 
+## Tickets from the plan
+
+The pane's Plan view creates tickets from plan builds (**+ Create ticket** on a build,
+**+ Create tickets for P2** on a phase, or **all not started**). For each build with no ticket
+the pane itself makes the skeleton, so the writer starts from:
+
+- `rd.md` with `Type: feature`, `Plan: <build id>` and `Design: D1@2, D3@1` (each covered
+  section at its current `Rev`) under the title, and a `## Docs` section naming README.md;
+- `eval.md` with one check per `Done when` line of the covered sections (`Run:` and `Pass:`
+  lines to fill in) and the **Docs and README updated** check;
+- a `draft` row (mode `solo`) whose Blocked by maps the build's `Needs` to ticket numbers. A
+  needed build with no ticket that is not in the same batch is left out of Blocked by and named
+  in the row's Notes instead;
+- the new number already in the build's `Ticket` cell in PLAN.md (only the pane writes it).
+
+The **plan-build brief** the writer gets holds the build row, the phase's Goal and Exit, and each
+covered section with its `Rev`, What and `Done when` lines. Write the ticket from it as in the
+steps above, keeping the `Type:` / `Plan:` / `Design:` lines, turning each `Done when` line into
+a check with a run command and a pass criterion, and keeping `## Docs` (README.md named) and
+the docs check: the pane reports a finished ticket that lacks either. At most 3 writers run at
+once; the rest wait as *queued*. Nothing sets the ticket `ready`.
+
 ## Answered questions
 
 When a person answers an open question (in chat or in the `/board` pane), keep

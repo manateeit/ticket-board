@@ -1,7 +1,8 @@
 // ticket-board: tickets/BOARD.md and its tickets in a side pane.
 import type { EngineInterface, Register } from 'claude-code'
 
-import { isInsideFolder } from './ai'
+import { isInsideFolder, jobNote, pumpPlanQueue } from './ai'
+import { docsGaps } from './core/ticket'
 import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadPlanMode, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
 import { drawPane, go, type UI } from './views'
@@ -208,15 +209,21 @@ export const register: Register = (on, options) => {
       const f = S.snap?.files.get(job.number)
       const open = f?.questions.filter(q => !q.isResolved).length ?? 0
       const failed = e.isAborted || e.reason !== 'answer'
-      const note = failed
+      // A ticket from the plan must end with its docs step (0008): report what the writer left out.
+      const gaps = !failed && job.kind === 'plan' ? docsGaps(f?.rd, f?.ev) : []
+      const base = failed
         ? `AI ${job.kind} stopped (${e.reason}) — see the agent transcript`
         : job.kind === 'fold'
           ? `Answers folded in · ${open} open question${open === 1 ? '' : 's'}`
           : `AI draft done · ${open} open question${open === 1 ? '' : 's'}`
+      const note = jobNote(gaps.length === 0 ? base : `${base} · missing ${gaps.join(' and ')}`, job.extra)
       const row = rowOf(job.number)
       if (row !== undefined && (row.notes === '' || row.notes.startsWith('AI '))) await editRow($, job.number, { notes: note }).catch(() => undefined)
+      if (failed && job.kind === 'plan' && job.build !== undefined) S.planFailed.set(job.build, { number: job.number, reason: String(e.reason) })
       $.ui.toast(`Ticket ${job.number}: ${note}`)
-      say($, note, failed ? 'error' : 'success')
+      say($, `Ticket ${job.number}: ${note}`, failed ? 'error' : gaps.length > 0 ? 'warning' : 'success')
+      // A slot is free: the next queued ticket from the plan starts.
+      await pumpPlanQueue($).catch(() => undefined)
       if (!failed && open > 0 && job.kind !== 'fold' && S.view.kind === 'ticket' && S.view.number === job.number)
         go($, { kind: 'questions', number: job.number })
       redraw($)

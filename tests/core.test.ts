@@ -19,7 +19,8 @@ import {
   type StartFacts,
 } from '../hooks/core/project'
 import { DEFAULT_FILTERS, OFF_PLAN, comparePhase, kindOf, nextNumber, resultOf, query, runLine, slugify, sortItems, titleFromIdea, type Filters, type Item, type Sort } from '../hooks/core/query'
-import { answerQuestion, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
+import { blockedByFor, coveredDoneWhen, designLine, missingNote, planBatch, planBrief, roadmap, setPlanTicket, ticketRef } from '../hooks/core/roadmap'
+import { answerQuestion, docsGaps, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
 
 const BOARD = `# Ticket board
@@ -359,4 +360,136 @@ test('start: commit presence, code detection and the idea file from names alone'
   expect(ideaFile([{ name: 'Brief.md', kind: 'file' }], [])).toBe('design/Brief.md')
   expect(ideaFile([], [{ name: '2026-11-01-a.md', kind: 'file' }, { name: '2026-11-09-b.md', kind: 'file' }])).toBe('design/brainstorms/2026-11-09-b.md')
   expect(ideaFile([{ name: 'DESIGN.md', kind: 'file' }], [])).toBe('')
+})
+
+// ---------- Tickets from the plan (0008) ----------
+
+const T8_DESIGN = `---
+design: Salon
+version: 2
+status: approved
+updated: 2026-11-10
+---
+# Salon: design
+
+## D1 · Accounts
+Rev: 1
+What: Email sign-in.
+Done when:
+- a person can sign in
+
+## D2 · Booking
+Rev: 2
+What: Book a slot.
+Done when:
+- a free slot can be booked
+- a taken slot cannot be booked twice
+
+## D3 · Reminders
+Rev: 1
+Done when:
+- a reminder mail goes out a day before
+`
+
+const T8_PLAN = `---
+plan: Salon
+design-version: 2
+updated: 2026-11-10
+---
+# Salon: plan
+
+## P1 · Foundations
+Goal: people can book a slot.
+Appetite: 2 weeks
+Exit: a booked slot shows on the calendar
+
+| # | Build | Size | Needs | Covers | Done when | Ticket | Status |
+|---|---|---|---|---|---|---|---|
+| P1.1 | Accounts | S | — | D1 | sign in works | 0001 | |
+| P1.2 | Booking core | M | P1.1, P1.4 | D2 | a slot is booked | — | |
+| P1.3 | Calendar | S | P1.2 | D2, D3 | calendar shows bookings | — | |
+| P1.4 | Slots | S | — | D2 | slots listed | | |
+| P1.5 | Reminders | S | P1.4 | D3 | reminder sent | — | |
+| P1.6 | Loyalty | S | — | D3 | points | — | deferred |
+`
+
+const t8 = () => roadmap(T8_DESIGN, T8_PLAN, [ticketRef({ number: '0001', status: 'done' }, '# 0001 — Accounts\n\nPlan: P1.1\n')])
+
+test('plan batch: skips builds with a ticket, leaves out deferred, needed builds in the batch first, ids deduped', () => {
+  const rm = t8()
+  const b = planBatch(rm.plan, rm.links, ['P1.1', 'P1.2', 'P1.3', 'P1.4', 'P1.5', 'P1.6', 'P1.2', 'p1.3', 'P9.9'])
+  expect(b.skipped.map(x => x.id)).toEqual(['P1.1'])
+  expect(b.left.map(x => x.id)).toEqual(['P1.6'])
+  // P1.2 needs P1.4, so P1.4 is created first; P1.3 needs P1.2.
+  expect(b.create.map(x => x.id)).toEqual(['P1.4', 'P1.2', 'P1.3', 'P1.5'])
+})
+
+test('plan batch: Blocked by maps Needs to ticket numbers; a needed build with no ticket is noted, not blocked on', () => {
+  const rm = t8()
+  const b = planBatch(rm.plan, rm.links, ['P1.2', 'P1.3', 'P1.4', 'P1.5'])
+  const created = new Map<string, string>()
+  const out: Record<string, { blockedBy: string[]; missing: string[] }> = {}
+  let n = 2
+  for (const x of b.create) {
+    out[x.id] = blockedByFor(x, rm.links, created)
+    created.set(x.id, String(n++).padStart(4, '0'))
+  }
+  expect(created.get('P1.4')).toBe('0002')
+  expect(out['P1.2']).toEqual({ blockedBy: ['0001', '0002'], missing: [] })
+  expect(out['P1.3']).toEqual({ blockedBy: ['0003'], missing: [] })
+  expect(out['P1.5']).toEqual({ blockedBy: ['0002'], missing: [] })
+  // Only P1.2 selected: P1.4 has no ticket and is not in the batch.
+  const alone = blockedByFor(planBatch(rm.plan, rm.links, ['P1.2']).create[0]!, rm.links, new Map())
+  expect(alone).toEqual({ blockedBy: ['0001'], missing: ['P1.4'] })
+  expect(missingNote(alone.missing)).toContain('P1.4')
+  expect(missingNote([])).toBe('')
+})
+
+test('plan brief: build row, phase Goal and Exit, covered sections with Rev and Done when lines', () => {
+  const rm = t8()
+  const p13 = rm.plan.phases[0]!.builds.find(x => x.id === 'P1.3')!
+  const brief = planBrief(rm.design, rm.plan, p13)
+  for (const part of [
+    'Build P1.3 · Calendar',
+    'Needs: P1.2',
+    'Phase P1 · Foundations',
+    'Phase goal: people can book a slot.',
+    'Phase exit: a booked slot shows on the calendar',
+    'Plan: P1.3',
+    'Design: D2@2, D3@1',
+    'D2 · Booking (Rev 2)',
+    '- a free slot can be booked',
+    '- a taken slot cannot be booked twice',
+    '- a reminder mail goes out a day before',
+  ])
+    expect(brief).toContain(part)
+  expect(designLine(rm.design, ['D2', 'D3', 'D9'])).toBe('D2@2, D3@1, D9')
+  expect(coveredDoneWhen(rm.design, p13)).toEqual(['a free slot can be booked', 'a taken slot cannot be booked twice', 'a reminder mail goes out a day before'])
+})
+
+test('plan Ticket cell: — becomes the number, an existing number gets the new one appended, other lines unchanged', () => {
+  const once = setPlanTicket(T8_PLAN, 'P1.2', '0002')
+  expect(once).toContain('| P1.2 | Booking core | M | P1.1, P1.4 | D2 | a slot is booked | 0002 | |')
+  const twice = setPlanTicket(setPlanTicket(T8_PLAN, 'P1.1', '0016'), 'P1.4', '0003')
+  expect(twice).toContain('| 0001, 0016 |')
+  expect(twice).toContain('| P1.4 | Slots | S | — | D2 | slots listed | 0003 | |')
+  // The same number again, or an unknown build: unchanged.
+  expect(setPlanTicket(T8_PLAN, 'P1.1', '0001')).toBe(T8_PLAN)
+  expect(setPlanTicket(T8_PLAN, 'P7.1', '0002')).toBe(T8_PLAN)
+  const before = T8_PLAN.split('\n')
+  const after = once.split('\n')
+  expect(after.length).toBe(before.length)
+  expect(after.filter((l, i) => l !== before[i]).length).toBe(1)
+  // The roadmap reads the number back.
+  expect(roadmap(T8_DESIGN, once, []).plan.phases[0]!.builds.find(x => x.id === 'P1.2')!.tickets).toEqual(['0002'])
+})
+
+test('docs gaps: a ticket from the plan needs ## Docs naming README.md and the Docs and README updated check', () => {
+  const rdOk = '# 0002 — X\n\n## What\nx\n\n## Docs\n- README.md — no change: internal\n'
+  const evOk = '# Eval\n\n## Checks\n1. Tests\n2. Docs and README updated\n   - Pass: current\n'
+  expect(docsGaps(rdOk, evOk)).toEqual([])
+  expect(docsGaps('# 0002 — X\n\n## What\nx\n', evOk)).toEqual(['## Docs naming README.md'])
+  expect(docsGaps('# 0002 — X\n\n## Docs\n- docs/api.md — new route\n', evOk)).toEqual(['## Docs naming README.md'])
+  expect(docsGaps(rdOk, '# Eval\n\n## Checks\n1. Tests\n')).toEqual(['the "Docs and README updated" check'])
+  expect(docsGaps(undefined, undefined).length).toBe(2)
 })
