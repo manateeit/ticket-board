@@ -31,6 +31,15 @@ questions there and flips the ticket from `draft` to `ready`.
 3. **Write `rd.md`** — the requirements doc. Exactly these sections:
    - `# <number> — <Title>`
    - `Type: feature` (or `bug` / `chore`) on its own line under the title, so the board can show and filter by kind.
+   - `Plan: P2.3` and `Design: D1@2, D3@1`, each on its own line under `Type:`, **only when
+     the ticket comes from a plan build** (the request names a build id, or comes from the
+     pane's Plan view). `Plan:` is the one build id; `Design:` lists each design section the
+     build covers with the `Rev` it has now (`D<n>@<rev>`), read from the build's `Covers`
+     cell in the plan and the sections in the design (paths from the `Design: … · Plan: …`
+     line in `tickets/BOARD.md`, else `design/DESIGN.md` and `design/PLAN.md`). When the
+     section's `Rev` later goes up, the board shows the ticket as stale. Omit both lines for
+     a ticket that does not come from a build (an off-plan bug or chore is fine). Format:
+     `docs/STANDARD.md` section 4 in the ticket-board plugin.
    - `## What` — 2–5 sentences: what this feature/change is and why.
    - `## Behaviour` — bullet list of observable behaviour. Be specific:
      inputs, outputs, UI states, edge cases, error cases. No implementation
