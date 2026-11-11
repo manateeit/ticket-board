@@ -2,7 +2,7 @@
 import type { AgentInfo, EngineInterface } from 'claude-code'
 
 import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
-import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
+import { DEFAULT_FILTERS, KIND_OPTIONS, MODE_OPTIONS, SHOW_OPTIONS, SORT_OPTIONS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import { isLightTheme, type Scheme } from './glass'
 import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
 import { allBuilds, bindFromBoard, parseProposal, roadmap, setPlanTicket, ticketRef, type Binding, type Proposal, type Roadmap, type TicketRef } from './core/roadmap'
@@ -138,6 +138,8 @@ export const S = {
   adoptNames: undefined as { design?: string; plan?: string } | undefined,
   /** Adopt review: which file the preview shows, '' for none. */
   adoptPreview: '' as '' | 'design' | 'plan',
+  /** README view on the desktop: which part of a long README is shown (see `readmeParts`). */
+  readmePart: 0,
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -174,6 +176,7 @@ export function resetSession(cwd: string) {
     adoptFile: undefined,
     adoptNames: undefined,
     adoptPreview: '',
+    readmePart: 0,
   })
   S.adoptOff.clear()
   S.replanTicks.clear()
@@ -774,10 +777,26 @@ export async function addPlanTicket($: $, buildId: string, number: string): Prom
   if (next !== text) await $.fs.write(abs(path), next)
 }
 
+/** Saved filters, each field kept only when it is one the pane knows; anything else (an old or bad value) is the default. */
+export function filtersFrom(saved: Record<string, unknown>): Filters {
+  const pick = <T extends string>(v: unknown, options: readonly T[], fallback: T): T => (typeof v === 'string' && (options as readonly string[]).includes(v) ? (v as T) : fallback)
+  const d = DEFAULT_FILTERS
+  return {
+    show: pick(saved.show, SHOW_OPTIONS, d.show),
+    sort: pick(saved.sort, SORT_OPTIONS, d.sort),
+    mode: pick(saved.mode, MODE_OPTIONS, d.mode),
+    kind: pick(saved.kind, KIND_OPTIONS, d.kind),
+    desc: saved.desc === true,
+    hideDone: saved.hideDone === true,
+    phase: typeof saved.phase === 'string' && saved.phase !== '' ? saved.phase : d.phase,
+    search: '',
+  }
+}
+
 export async function loadFilters($: $) {
   try {
-    const saved = (await $.store.get(`filters:${S.cwd}`)) as Partial<Filters> | undefined
-    if (saved !== undefined && saved !== null && typeof saved === 'object') S.filters = { ...DEFAULT_FILTERS, ...saved, search: '' }
+    const saved = await $.store.get(`filters:${S.cwd}`)
+    if (saved !== undefined && saved !== null && typeof saved === 'object') S.filters = filtersFrom(saved as Record<string, unknown>)
   } catch {
     // defaults
   }
@@ -869,7 +888,12 @@ export async function saveFilters($: $) {
 export async function loadJobs($: $) {
   try {
     const saved = (await $.store.get(`jobs:${S.cwd}`)) as Job[] | undefined
-    if (Array.isArray(saved)) for (const j of saved) if (Date.now() - j.startedAt < 6 * 3600_000) S.jobs.set(j.agentId, j)
+    if (Array.isArray(saved))
+      for (const j of saved as unknown[]) {
+        const job = j as Partial<Job> | null
+        const ok = typeof job === 'object' && job !== null && typeof job.agentId === 'string' && typeof job.number === 'string' && typeof job.startedAt === 'number' && typeof job.kind === 'string'
+        if (ok && Date.now() - job.startedAt! < 6 * 3600_000) S.jobs.set(job.agentId!, job as Job)
+      }
   } catch {
     // none
   }

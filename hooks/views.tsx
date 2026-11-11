@@ -1323,3 +1323,31 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
   }
   return null
 }
+
+/** What the pane may hand the host: it refuses a drawing over 100,000 characters serialized, and the pane goes blank ("nothing to show"). */
+export const DRAWING_BUDGET = 95_000
+
+/**
+ * The drawing as it is when it fits the host's bound; else a short notice in its place with a way
+ * back, so an oversized view (a long document, a very long board) never leaves the pane blank.
+ */
+export function fitDrawing($: $, ui: UI, drawing: RenderChildren): RenderChildren {
+  let size = 0
+  try {
+    size = JSON.stringify(drawing)?.length ?? 0
+  } catch {
+    return drawing
+  }
+  if (size <= DRAWING_BUDGET) return drawing
+  const { Box, Text, Button } = ui
+  const v = S.view
+  return (
+    <Box key="too-large" flexDirection="column" gap={1}>
+      <Text color="warning">{`This view is too large for the pane to draw (${size.toLocaleString('en-US')} characters; the pane draws at most 100,000).`}</Text>
+      {v.kind !== 'board' && <Button key="too-large-board" label="‹ Board" onPress={() => go($, { kind: 'board' })} />}
+      {v.kind === 'board' && S.filters.hideDone !== true && (
+        <Button key="too-large-hide-done" label="Hide done tickets" onPress={() => setFilters($, { hideDone: true })} />
+      )}
+    </Box>
+  )
+}

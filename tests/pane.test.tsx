@@ -2,7 +2,7 @@ import { expect, test, type TestBody } from 'claude-code/testing'
 
 import { parseBoard } from '../hooks/core/board'
 import { parseProposal, planHash, roadmap, ticketRef } from '../hooks/core/roadmap'
-import { boardCols } from '../hooks/desk'
+import { boardCols, readmeParts } from '../hooks/desk'
 import { railSvg } from '../hooks/glass'
 import { runLine, today } from '../hooks/core/query'
 import { PLAN_COLS } from '../hooks/plan'
@@ -3256,3 +3256,74 @@ for (const scheme of ['auto', 'dark', 'light'] as const) {
     })
   }
 }
+
+// ---------- The host's drawing bound: a tree over 100,000 characters serialized is refused and the pane goes blank ----------
+
+/** A README of about 60 KB, as this repo's own is: every markdown part the glass draws, in 100 numbered sections. */
+const LONG_README = Array.from({ length: 100 }, (_, n) => CONTRAST_README.replace('# Salon', `## Section ${n + 1}`)).join('\n')
+const drawnChars = async (ui: any) => JSON.stringify(await ui.drawn()).length
+
+for (const [scheme, mode] of [['light', 'dark'], ['auto', 'light'], ['dark', 'dark']] as const) {
+  test(`a long README draws on the desktop in parts, each within the host's 100,000-character bound (${scheme} glass, app ${mode})`, async ($, on) => {
+    const { ui } = await boot($, on, 'desktop', { '/repo/README.md': LONG_README }, { store: new Map<string, unknown>([['colors', scheme]]), theme: mode })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'readme' })
+    await ui.find({ type: 'Text', text: /Section 1$/ })
+    const seen = new Set<string>()
+    for (let part = 1; part < 100; part++) {
+      expect(await drawnChars(ui)).toBeLessThan(100_000)
+      const drawn = JSON.stringify(await ui.drawn())
+      expect(drawn).not.toContain('too large')
+      for (const m of drawn.matchAll(/Section (\d+)/g)) seen.add(m[1]!)
+      if (!drawn.includes('"key":"readme-next"')) break
+      expect(drawn).toContain(`Part ${part} of`)
+      await ui.press({ key: 'readme-next' })
+    }
+    // Every section is reachable, the last one included.
+    expect(seen.size).toBe(100)
+    await ui.press({ key: 'readme-prev' })
+    expect(await drawnChars(ui)).toBeLessThan(100_000)
+    await ui.unmount()
+  })
+}
+
+test('README parts break before a heading or at a blank line, never inside a code block, and lose no line', () => {
+  const code = ['```', ...Array.from({ length: 50 }, (_, n) => `line ${n} ${'x'.repeat(40)}`), '', 'still code', '```'].join('\n')
+  const text = [CONTRAST_README, code, LONG_README].join('\n')
+  const parts = readmeParts(text, 2000)
+  expect(parts.length).toBeGreaterThan(5)
+  expect(parts.join('\n')).toBe(text)
+  for (const p of parts) expect((p.match(/^```/gm) ?? []).length % 2).toBe(0)
+  expect(readmeParts('# Short\n\nOne line.')).toEqual(['# Short\n\nOne line.'])
+})
+
+for (const surface of ['desktop', 'terminal'] as const) {
+  test(`a view too large for the pane draws a notice with a way back, never an oversized tree (${surface})`, async ($, on) => {
+    const huge = rd('0003', 'Dark mode for settings page', '- Which accent colour in dark mode?').replace('- It works.', Array.from({ length: 3000 }, (_, n) => `- Behaviour line ${n} with **bold** and \`ready\` in it.`).join('\n'))
+    const { ui } = await boot($, on, surface, { 'tickets/0003-dark-mode-for-settings-page/rd.md': huge })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.find({ type: 'Text', text: /too large for the pane/ })
+    expect(await drawnChars(ui)).toBeLessThan(100_000)
+    await ui.press({ key: 'too-large-board' })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    expect(await drawnChars(ui)).toBeLessThan(100_000)
+    await ui.unmount()
+  })
+}
+
+test('saved filters with old or bad values fall back to the defaults, and the board draws', async ($, on) => {
+  const store = new Map<string, unknown>([['filters:/repo', { show: 'bogus', sort: 5, mode: null, kind: 'x', desc: 'yes', hideDone: 1, phase: 7 }], ['jobs:/repo', [null, 'x', { agentId: 3 }]]])
+  const { ui } = await boot($, on, 'desktop', {}, { store })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('Health endpoint')
+  expect(drawn).not.toContain('went wrong')
+  await ui.unmount()
+})
+
+test('plated rows give the action column room for Open and Run', () => {
+  const action = (plated: boolean) => Number(boardCols(true, plated).find(c => c.id === 'action')!.width.replace('%', ''))
+  expect(action(true)).toBeGreaterThanOrEqual(17)
+  for (const plated of [false, true]) for (const hasPlan of [false, true]) expect(boardCols(hasPlan, plated).reduce((s, c) => s + Number(c.width.replace('%', '')), 0)).toBe(100)
+})
