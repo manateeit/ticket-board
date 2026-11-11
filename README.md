@@ -400,15 +400,17 @@ Change these in `/plugin` → ticket-board → configure:
 
 ### Colors
 
-The **Colors** button in the desktop pane's PROJECT card cycles three schemes; the pane remembers your choice.
+The **Colors** button in the desktop pane's PROJECT card cycles three schemes; the pane remembers your choice. The pane reads the Claude app's light or dark mode (its **Theme** setting) when the session starts and follows it when you change it, no reload needed. If the setting can't be read, the pane takes the app to be dark.
 
 | Button says | What it does |
 |---|---|
-| **◐ Colors: app** (default) | Follows the Claude app: no painted background, text and status colors in the app's own theme colors, buttons in the app's own style. Readable in the app's light and dark mode. |
-| **☾ Colors: dark** | Paints a dark glass background with light text and pastel status colors. |
-| **☀ Colors: light** | Paints a light background with dark text and deep status colors. |
+| **◐ Colors: app** (default) | Matches the Claude app: the light glass while the app is light, the dark glass while it is dark. |
+| **☾ Colors: dark** | The dark glass always: a dark background with light text and pastel status colors. |
+| **☀ Colors: light** | The light glass always: a slate-100 background, white cards with soft slate borders and rounded corners, dark slate text, an indigo accent, KPI tiles with soft amber / emerald / indigo / red borders and status pills as soft tinted chips. |
 
-In every scheme, text keeps at least 4.5:1 contrast against what it sits on (3:1 for headings, bold body text and dimmed controls); captions and footnotes are held to 4.5:1. The desktop draws its buttons, tabs, filter chips and links in the app's own colors, whatever the pane asks for, so in the dark and light schemes each one sits on a small plate in the app's background color: on a light app the plates are white with dark labels, on a dark app they are black with light labels. Primary buttons (the active tab, the selected filter, **+ New ticket**) are the app's filled buttons and read the same in every scheme.
+The desktop draws its own buttons, tabs, filter chips, pickers, the search field and links in the app's colors, whatever the pane asks for. When the glass matches the app (the default, or a scheme that happens to match), they are the app's native controls with nothing under them. When the glass and the app disagree (☀ light in a dark app, ☾ dark in a light app), each group of them (the PROJECT buttons, the view tabs, the title-bar buttons, the status tabs, the type chips, the filter row, the sort headers, a row's actions) sits on one rounded plate in the app's own ground: slate-700 under a dark app, white with a slate-300 border under a light one. There is one plate per group, never one per button. In that case a board row's ID and title are drawn as text on the card and the row opens with the **Open** button beside its action. Primary buttons (the active tab, the selected filter, **+ New ticket**, **▶ Run**) are the app's filled buttons and read the same everywhere.
+
+In every scheme and app mode, text keeps at least 4.5:1 contrast against what it sits on (3:1 for headings, bold body text and dimmed controls); captions and footnotes are held to 4.5:1.
 
 ## How it edits your files
 
@@ -435,7 +437,8 @@ In every scheme, text keeps at least 4.5:1 contrast against what it sits on (3:1
 | The AI writer stopped | The note says why. **Watch** opens its transcript; **✎ Enhance with AI** starts it again. For a ticket from the plan, **↻ Create again** on the build does the same. |
 | A build stays *queued* | Three writer jobs are already running; it starts when one finishes. After a restart the queue is gone: use **✎ Enhance with AI** on the draft ticket. |
 | *The prompt box is busy* | Something else is in the prompt box. Copy the line shown and paste it yourself. |
-| Buttons or tabs look blank | Version 0.4.19 or older in **☀ Colors: light** or **☾ Colors: dark**: the app drew the button labels in its own colors on the pane's painted background. Update the plugin. Still blank (the dark and light schemes' button plates follow the app's light or dark mode)? Press **Colors** until it says **◐ Colors: app**. |
+| Buttons, tabs, the Mode / Phase pickers or the search field look blank | An older version drew them on a background the app's colors were not made for (0.4.19 and older in the dark and light schemes; 0.4.20 left the pickers and the search field without a plate). Update the plugin. Still blank? The pane may have the app's mode wrong: change the app's **Theme** setting once (the pane follows it), or press **Colors** until it says **◐ Colors: app**, which always matches the app. |
+| Black boxes behind buttons and headers in the light colors | Version 0.4.20: every button sat on its own plate. Update the plugin: with the app in light mode the light pane has no plates at all. |
 
 ## Development
 

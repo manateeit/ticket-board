@@ -10,7 +10,7 @@ import { historyOf } from './core/designfile'
 import { runLine } from './core/query'
 import { REPLAN_GROUPS, allBuilds, type Build, type BuildState, type Hill, type Phase, type ReplanItem, type Roadmap } from './core/roadmap'
 import { Card, Pill, Toast, hexOf, statusName } from './desk'
-import { G, HUE, STATUS_HEX, hillSvg, phaseBarSvg, timelineSvg, tint, wash } from './glass'
+import { G, HUE, STATUS_HEX, hillSvg, needsPlate, phaseBarSvg, timelineSvg, tint, wash } from './glass'
 import { S, approveDesign, fullRoadmap, latestProposal, redraw, roadmapView, rowOf, saveDesignAnswer, say, setPlanMode, statusOf, type LatestProposal, type View } from './store'
 import { blockersOpen, fail, fill, go, runnable, type UI } from './views'
 
@@ -328,9 +328,10 @@ function deskBuildRow($: $, ui: UI, rm: Roadmap, b: Build, n: number, focus: str
   const hasReady = ts.some(t => t.status === 'ready')
   const ready = readyOf(rm, [b.id])
   const job = planJobOf(b.id)
+  // Where glass and app disagree, a cell's controls go on their own plate (glass.tsx), not the cell.
   const cell = (id: string, children: RenderChildren) => (
     <Box key={`bc-${id}-${b.id}`} width={PLAN_COLS.find(c => c.id === id)!.width} paddingRight={1} flexShrink={0} overflow="hidden">
-      {children}
+      {needsPlate() ? <Box>{children}</Box> : children}
     </Box>
   )
   const needs = [...b.needs, ...b.needsOther]

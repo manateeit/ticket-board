@@ -8,7 +8,7 @@ import { startJob, suggestAnswer } from './ai'
 import { STATUSES } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
-import { G, HUE, SCHEMES, STATUS_HEX, barSvg, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
+import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
 import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
 import {
   ASK_NOTE,
@@ -87,7 +87,7 @@ function ago(ms: number): string {
 
 export function Pill(ui: UI, text: string, hex: string, key?: string) {
   return (
-    <ui.Text key={key} color={hex} backgroundColor={tint(hex, 0.16)} weight="semibold" size="footnote">
+    <ui.Text key={key} color={hex} backgroundColor={tint(hex, G.chip)} weight="semibold" size="footnote">
       {` ${text} `}
     </ui.Text>
   )
@@ -378,19 +378,24 @@ type Row = ReturnType<typeof items>[number]
 
 type Col = { id: string; label: string; width: string; sort?: Sort }
 
-/** The table's columns; the Phase column only while a plan is bound (it takes its width from Title). Widths total 100%. */
-export function boardCols(hasPlan: boolean): Col[] {
+/**
+ * The table's columns; the Phase column only while a plan is bound (it takes its width from Title).
+ * With plated rows (glass and app disagree) the actions column also holds the row's Open button and
+ * takes that room from Title too. Widths total 100%.
+ */
+export function boardCols(hasPlan: boolean, isPlated = false): Col[] {
+  const extra = isPlated ? 6 : 0
   return [
     { id: 'num', label: 'ID', width: '6%', sort: 'number' },
     { id: 'kind', label: 'Type', width: '9%', sort: 'kind' },
-    { id: 'title', label: 'Title', width: hasPlan ? '27%' : '33%', sort: 'title' },
+    { id: 'title', label: 'Title', width: `${(hasPlan ? 27 : 33) - extra}%`, sort: 'title' },
     ...(hasPlan ? [{ id: 'phase', label: 'Phase', width: '6%', sort: 'phase' as Sort }] : []),
     { id: 'status', label: 'Status', width: '11%', sort: 'status' },
     { id: 'result', label: 'Result', width: '10%' },
     { id: 'deps', label: 'Depends on', width: '10%' },
     { id: 'q', label: 'Qs', width: '5%', sort: 'questions' },
     { id: 'updated', label: 'Updated', width: '8%', sort: 'updated' },
-    { id: 'action', label: '', width: '8%' },
+    { id: 'action', label: '', width: `${8 + extra}%` },
   ]
 }
 
@@ -401,7 +406,7 @@ function sortHeader($: $, ui: UI, c: Col) {
   const arrow = active ? (desc ? ' ↓' : ' ↑') : ''
   if (c.sort === undefined) {
     return (
-      <ui.Text color={G.faint} size="caption" weight="bold">
+      <ui.Text color={groupInk(true)} size="caption" weight="bold">
         {c.label.toUpperCase()}
       </ui.Text>
     )
@@ -439,6 +444,11 @@ function tableRow($: $, ui: UI, i: Row, n: number, cols: Col[]): RenderChildren 
   const { Box, Text, Button } = ui
   const waiting = blockersOpen(i.blockedBy)
   const hex = hexOf(i.status)
+  // Glass and app disagree: a native button would draw the app's colors on the card, so ID and
+  // title are drawn as text and the press moves to an Open button among the row's actions.
+  const isPlated = needsPlate()
+  const isLight = G.look === 'light'
+  const open = () => go($, { kind: 'ticket', number: i.number, tab: 'rd' })
   const cell = (id: string, children: RenderChildren) => (
     <Box key={`c-${id}-${i.number}`} width={cols.find(c => c.id === id)!.width} paddingRight={1} flexShrink={0} overflow="hidden">
       {children}
@@ -456,21 +466,33 @@ function tableRow($: $, ui: UI, i: Row, n: number, cols: Col[]): RenderChildren 
     >
       {cell(
         'num',
-        <Button key={`open-${i.number}`} plain onPress={() => go($, { kind: 'ticket', number: i.number, tab: 'rd' })}>
-          <Text color={G.soft} mono>
+        isPlated ? (
+          <Text color={G.ink} weight="bold" mono>
             {i.number}
           </Text>
-        </Button>,
+        ) : (
+          <Button key={`open-${i.number}`} plain onPress={open}>
+            <Text color={G.soft} mono {...(isLight ? { weight: 'bold' as const } : {})}>
+              {i.number}
+            </Text>
+          </Button>
+        ),
       )}
       {cell('kind', KindTag(ui, i.kind))}
       {cell(
         'title',
         <Box flexDirection="column" flexShrink={1}>
-          <Button key={`title-${i.number}`} plain onPress={() => go($, { kind: 'ticket', number: i.number, tab: 'rd' })}>
-            <Text color={i.status === 'done' ? G.soft : G.ink} weight="medium" wrap="truncate">
+          {isPlated ? (
+            <Text color={i.status === 'done' ? G.soft : G.ink} wrap="truncate">
               {i.title}
             </Text>
-          </Button>
+          ) : (
+            <Button key={`title-${i.number}`} plain onPress={open}>
+              <Text color={i.status === 'done' ? G.soft : G.ink} weight={isLight ? 'regular' : 'medium'} wrap="truncate">
+                {i.title}
+              </Text>
+            </Button>
+          )}
           {staleChips(i.number).map(c => (
             <Button key={`stale-${i.number}-${c.section}`} plain onPress={() => reviewStale($, i.number)}>
               <Text color={STATUS_HEX.draft!} backgroundColor={tint(STATUS_HEX.draft!, 0.14)} size="footnote" wrap="truncate">
@@ -512,7 +534,19 @@ function tableRow($: $, ui: UI, i: Row, n: number, cols: Col[]): RenderChildren 
           {ago(i.updatedMs)}
         </Text>,
       )}
-      {cell('action', rowAction($, ui, i))}
+      {cell(
+        'action',
+        isPlated ? (
+          // The row's ID and title are text on the card; its Open button joins the row's action
+          // on one plate.
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Button key={`open-${i.number}`} label="Open" onPress={open} />
+            {rowAction($, ui, i)}
+          </Box>
+        ) : (
+          rowAction($, ui, i)
+        ),
+      )}
     </Box>
   )
 }
@@ -598,7 +632,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
   ]
   const plan = planSummary()
   const planWarning = roadmapView()?.warning
-  const cols = boardCols(plan !== undefined)
+  const cols = boardCols(plan !== undefined, needsPlate())
   const phaseFilter = f.phase ?? 'any'
   const isFiltered = f.show !== 'all' || f.kind !== 'any' || f.mode !== 'any' || f.search.trim() !== '' || (plan !== undefined && phaseFilter !== 'any')
   const grouped = f.sort === 'status'
@@ -702,14 +736,18 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
       </Box>
 
       {/* Table */}
-      <Box flexDirection="column" backgroundColor={wash(0.03)} borderStyle="round" borderColor={G.edge}>
-        <Box flexDirection="row" alignItems="center" paddingX={1} paddingY={1} backgroundColor={wash(0.05)}>
-          {cols.map(c => (
+      {/* On the light glass the table is a white card; the sort headers are small labels on it. */}
+      <Box flexDirection="column" backgroundColor={G.look === 'light' ? G.card : wash(0.03)} borderStyle="round" borderColor={G.edge}>
+        {Plate(
+          ui,
+          'sort',
+          cols.map(c => (
             <Box key={`h-${c.id}`} width={c.width} flexShrink={0} paddingRight={1}>
               {sortHeader($, ui, c)}
             </Box>
-          ))}
-        </Box>
+          )),
+          { flexDirection: 'row', alignItems: 'center', paddingX: 1, paddingY: 1, backgroundColor: wash(0.05) },
+        )}
         {rows.length === 0 && (
           <Box flexDirection="column" alignItems="center" paddingY={2} gap={1}>
             <Text color={G.soft}>{total === 0 ? 'No tickets yet.' : 'No tickets match these filters.'}</Text>
@@ -1424,7 +1462,7 @@ export function deskStart($: $, ui: UI): RenderChildren {
         {marks.map((m, n) => {
           const hex = m.state === 'now' ? G.accent : m.state === 'done' ? STATUS_HEX.ready! : G.faint
           return [
-            <Text key={`step-${m.step}`} color={hex} backgroundColor={m.state === 'now' ? tint(hex, 0.18) : undefined} weight={m.state === 'now' ? 'bold' : 'regular'} size="footnote">
+            <Text key={`step-${m.step}`} color={hex} {...(m.state === 'now' ? { backgroundColor: tint(hex, G.look === 'dark' ? 0.18 : 0.1) } : {})} weight={m.state === 'now' ? 'bold' : 'regular'} size="footnote">
               {` ${m.state === 'done' ? '✓' : m.state === 'now' ? '●' : '○'} ${m.name} `}
             </Text>,
             n < marks.length - 1 ? (
@@ -1555,7 +1593,7 @@ export function ProjectBar($: $, ui: UI): RenderChildren {
   // Buttons get their own row, never squeezed beside shrinking text: in the desktop a truncated
   // text column can overlap a Button beside it and swallow its clicks.
   return (
-    <Box key="project" flexDirection="column" gap={1} paddingX={2} paddingY={1} backgroundColor={tint(G.accent, 0.07)} borderStyle="round" borderColor={tint(G.accent, 0.3)}>
+    <Box key="project" flexDirection="column" gap={1} paddingX={2} paddingY={1} backgroundColor={G.look === 'light' ? G.card : tint(G.accent, 0.07)} borderStyle="round" borderColor={G.look === 'light' ? G.edge : tint(G.accent, 0.3)}>
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
         <Text color={G.faint} size="caption" weight="bold">
           PROJECT
