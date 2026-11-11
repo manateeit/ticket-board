@@ -10,7 +10,7 @@ const HUES = {
   /** Mid tones that read on the app's own light and dark backgrounds alike. */
   auto: { amber: '#D97706', green: '#059669', blue: '#3B82F6', purple: '#A855F7', slate: '#64748B', red: '#EF4444', violet: '#8B5CF6', rose: '#F43F5E', orange: '#EA580C', teal: '#0D9488', sky: '#0EA5E9' },
   dark: { amber: '#FBBF24', green: '#34D399', blue: '#60A5FA', purple: '#C084FC', slate: '#94A3B8', red: '#F87171', violet: '#A78BFA', rose: '#FB7185', orange: '#FDBA74', teal: '#5EEAD4', sky: '#7DD3FC' },
-  light: { amber: '#B45309', green: '#047857', blue: '#1D4ED8', purple: '#7E22CE', slate: '#475569', red: '#B91C1C', violet: '#6D28D9', rose: '#BE123C', orange: '#C2410C', teal: '#0F766E', sky: '#0369A1' },
+  light: { amber: '#7C3A0A', green: '#065F46', blue: '#1E40AF', purple: '#6B21A8', slate: '#475569', red: '#991B1B', violet: '#5B21B6', rose: '#9F1239', orange: '#9A3412', teal: '#115E59', sky: '#075985' },
 }
 
 const SURFACES = {
@@ -36,7 +36,7 @@ const SURFACES = {
     base: '#0A0F1E',
     ink: '#EEF2FF',
     soft: '#A5B4CF',
-    faint: '#6B7A99',
+    faint: '#8A99B8',
     accent: '#7DD3FC',
     card: 'rgba(255,255,255,0.055)',
     cardHover: 'rgba(255,255,255,0.11)',
@@ -49,8 +49,8 @@ const SURFACES = {
     base: '#F8FAFC',
     ink: '#0F172A',
     soft: '#334155',
-    faint: '#64748B',
-    accent: '#0369A1',
+    faint: '#475569',
+    accent: '#075985',
     card: '#FFFFFF',
     cardHover: '#EFF6FF',
     edge: 'rgba(15,23,42,0.16)',
@@ -93,6 +93,25 @@ const keyHex = (): Record<string, string> => ({
 })
 let KEY_HEX = keyHex()
 
+/**
+ * Following the app, colored text is drawn in the app's own theme key of the same meaning: no one
+ * mid tone reaches 4.5:1 on both the app's light and dark backgrounds, the app's keys do (0018).
+ * Tints, borders and drawings keep the hex.
+ */
+const AUTO_KEY: Record<string, string> = {
+  [HUES.auto.amber]: 'warning',
+  [HUES.auto.green]: 'success',
+  [HUES.auto.blue]: 'suggestion',
+  [HUES.auto.purple]: 'merged',
+  [HUES.auto.slate]: 'inactive',
+  [HUES.auto.red]: 'error',
+  [HUES.auto.violet]: 'permission',
+  [HUES.auto.rose]: 'error',
+  [HUES.auto.orange]: 'claude',
+  [HUES.auto.teal]: 'planMode',
+  [HUES.auto.sky]: 'suggestion',
+}
+
 /** Switches every palette in place; views read G / HUE / STATUS_HEX at draw time. */
 export function setScheme(scheme: Scheme) {
   Object.assign(G, SURFACES[scheme], { scheme })
@@ -117,7 +136,7 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * drawn as glass-colored text.
  */
 export function glassUI(ui: UI): UI {
-  const color = (c: unknown) => (typeof c === 'string' ? (KEY_HEX[c] ?? c) : G.ink)
+  const color = (c: unknown) => (typeof c !== 'string' ? G.ink : G.scheme === 'auto' ? (AUTO_KEY[c.toUpperCase()] ?? c) : (KEY_HEX[c] ?? c))
   const Text = ((p: Record<string, unknown>) => {
     const dim = p.dimColor === true
     const { dimColor: _d, ...rest } = p
@@ -133,8 +152,17 @@ export function glassUI(ui: UI): UI {
       ...(hover?.backgroundColor !== undefined ? { hover: { ...hover, backgroundColor: fix(hover.backgroundColor) } } : {}),
     } as never)
   }) as unknown as UI['Box']
-  const Markdown = ((p: { key?: string; text: string }) => ui.Box({ flexDirection: 'column', gap: 1, children: markdown(ui, p.text) } as never)) as unknown as UI['Markdown']
-  return { ...ui, Text, Box, Markdown }
+  const Markdown = ((p: { key?: string; text: string }) => ui.Box({ flexDirection: 'column', gap: 1, children: markdown({ ...ui, Text, Box }, p.text) } as never)) as unknown as UI['Markdown']
+  // The desktop draws a native Button or Link in the app's own colors, whatever color its Text
+  // children ask for (0018: on the light glass, with the app's near-white labels, they vanished).
+  // On a painted glass backdrop each sits on a plate of the app's opposite ground (`inverseText`),
+  // so its label reads in either app mode. A primary Button is the host's filled button: its own
+  // fill and label, readable anywhere. Following the app, nothing is painted under them.
+  const plate = (el: unknown) => (G.scheme === 'auto' ? el : ui.Box({ backgroundColor: 'inverseText', children: el } as never))
+  const Button = ((p: Record<string, unknown>) =>
+    p.variant === 'primary' && p.plain !== true ? ui.Button(p as never) : plate(ui.Button(p as never))) as unknown as UI['Button']
+  const Link = ui.Link === undefined ? undefined : (((p: Record<string, unknown>) => plate(ui.Link!(p as never))) as unknown as UI['Link'])
+  return { ...ui, Text, Box, Markdown, Button, ...(Link === undefined ? {} : { Link }) }
 }
 
 /** A small markdown reader for the glass look: headings, paragraphs (hard-wrapped lines joined), "Label: text" leads, decision callouts, lists, quotes, tables, code, inline `code` (status names as pills), **bold**, *italic* and [links](url). */
@@ -274,7 +302,7 @@ export function markdown(ui: UI, text: string): RenderChildren {
         code = []
       } else {
         out.push(
-          <Box flexDirection="column" backgroundColor="rgba(0,0,0,0.3)" borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
+          <Box flexDirection="column" backgroundColor={G.scheme === 'dark' ? 'rgba(0,0,0,0.3)' : wash(0.06)} borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
             {code.map(c => (
               <Text color={G.accent} mono size="footnote">
                 {c === '' ? ' ' : c}
