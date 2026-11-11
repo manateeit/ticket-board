@@ -31,7 +31,7 @@ the checker fails the ticket if they are stale.
 | 0015 | Redesign notes and stale tickets | done | solo | 0008 | — | merged 4c8d431, all 5 checks PASS, 203/203 tests |
 | 0016 | Replan review and apply | in-progress | solo | 0008, 0015 | worker | split from 0008 (part c) · question answered · second of 0015 → 0016 → 0009 |
 | 0017 | If a run is in failed state | ready | solo | — | — | AI draft done · all 4 questions answered (no retry button; blocked-ticket explain is a separate ticket) |
-| 0018 | Light colors hide buttons, tabs and text | in-progress | solo | — | reproducer | EMERGENCY 2026-11-10: light scheme makes tabs, chips, buttons, row text near-invisible (screenshot) · 0016 held until this lands |
+| 0018 | Light colors hide buttons, tabs and text | done | solo | — | — | merged 9ff6f75, all 5 checks PASS, 213/213 · cause: desktop native buttons draw labels in app colors on painted glass; fix: inverseText plates + darker palette · needs a person to look in each Colors setting (plate width in column cells unverified) |
 
 How to read this board:
 
