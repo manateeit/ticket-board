@@ -32,7 +32,7 @@ the checker fails the ticket if they are stale.
 | 0016 | Replan review and apply | done | solo | 0008, 0015 | — | merged a8878d3, all 6 checks PASS, 238/238 · added Dismiss selected; planner spawned directly with a write guard |
 | 0017 | If a run is in failed state | ready | solo | — | — | AI draft done · all 4 questions answered (no retry button; blocked-ticket explain is a separate ticket) |
 | 0018 | Light colors hide buttons, tabs and text | done | solo | — | — | merged 9ff6f75, all 5 checks PASS, 213/213 · cause: desktop native buttons draw labels in app colors on painted glass; fix: inverseText plates + darker palette · needs a person to look in each Colors setting (plate width in column cells unverified) |
-| 0019 | Light mode that follows the app | in-progress | solo | 0018 | worker | 2026-11-10: light after 0.4.20 "terrible" (black plates); design picked: "Light that follows the app" · read app theme via config like kanban-board |
+| 0019 | Light mode that follows the app | done | solo | 0018 | — | merged 611eb71, all 6 checks PASS, 263/263 · dark+dark unchanged except 0018 plates removed · needs a person to look: app light/dark × Colors app/dark/light; narrow-pane overflow of plated groups unverified |
 
 How to read this board:
 
