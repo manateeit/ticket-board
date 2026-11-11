@@ -35,7 +35,7 @@ the checker fails the ticket if they are stale.
 | 0019 | Light mode that follows the app | done | solo | 0018 | — | merged 611eb71, all 6 checks PASS, 263/263 · dark+dark unchanged except 0018 plates removed · needs a person to look: app light/dark × Colors app/dark/light; narrow-pane overflow of plated groups unverified |
 | 0020 | Pane goes blank: README view too large | done | solo | — | — | merged 09f0086, all 6 checks PASS, 299/299 · real README = 8 parts, max 57.6K chars · guard checks characters only (nodes/depth not checked, low risk) · follow-ups: board paging at ~26 visible tickets, per-project Colors, remaining explicit-undefined props |
 | 0021 | Activity strip says "waiting for you" while agents work | done | solo | — | — | merged 587be8b, all 3 checks PASS, 309/309 |
-| 0022 | Large plans and boards shown in pages | in-progress | solo | 0020 | worker | ticket-board-gui plan (8 phases, 49 builds) = 149.8K chars > 100K; board limit ~26 rows |
+| 0022 | Large plans and boards shown in pages | done | solo | 0020 | — | merged dd26d38, all 5 checks PASS, 329/329 · heavy 56-build plan max page 51.6K; worst board page 83.7K · follow-up: one phase with ~30+ (or ~17+ heavy) builds still hits the notice on desktop |
 
 How to read this board:
 
