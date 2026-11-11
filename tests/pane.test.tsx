@@ -1,10 +1,10 @@
 import { expect, test, type TestBody } from 'claude-code/testing'
 
 import { parseBoard } from '../hooks/core/board'
-import { roadmap, ticketRef } from '../hooks/core/roadmap'
+import { parseProposal, planHash, roadmap, ticketRef } from '../hooks/core/roadmap'
 import { boardCols } from '../hooks/desk'
 import { railSvg } from '../hooks/glass'
-import { runLine } from '../hooks/core/query'
+import { runLine, today } from '../hooks/core/query'
 import { PLAN_COLS } from '../hooks/plan'
 
 const BOARD = `# Ticket board
@@ -1058,9 +1058,9 @@ test('Roadmap card: rail, Now line, next up and warnings above Board notes (desk
   expect(drawn).toContain('Open design questions in D4')
   expect(drawn).toContain('3 builds have no ticket: P2.3, P3.1, P4.1')
   expect(drawn).toContain('1 stale ticket: 0004')
-  // Not drawn until the Plan view and the flows land (0007, 0008).
+  // Not drawn: the Plan tab opens the plan. The replan banner (0016) offers Replan while the plan is behind.
   expect(drawn).not.toContain('Open plan')
-  expect(drawn).not.toContain('Replan')
+  expect(drawn).toContain('replan-start')
   // A rail link sets the phase filter; pressing it again clears it.
   await ui.press({ key: 'rail-P1' })
   expect(rowOrder(await drawnText(ui))).toEqual(['0001', '0002'])
@@ -2419,6 +2419,418 @@ for (const scheme of ['auto', 'dark', 'light'] as const) {
     const { ui } = await boot($, on, 'desktop', { '/repo/src/app.ts': 'export {}\n' }, { blank: true, store: store() })
     await ui.find({ type: 'Text', text: /Start a project/ })
     await check(ui, 'start')
+    await ui.unmount()
+    expect(failures).toEqual([])
+  })
+}
+
+// ---------- Replan review and apply (0016) ----------
+
+const T16_DESIGN = `---
+design: Salon
+version: 3
+status: approved
+updated: 2026-11-12
+---
+# Salon: design
+
+## D1 · Accounts
+Rev: 2
+What: sign in with a magic link.
+
+## D2 · Booking
+Rev: 1
+What: book a slot.
+
+## D3 · Reminders
+Rev: 2
+What: mail and SMS reminders.
+
+## D4 · Waitlist
+Rev: 1
+What: a full slot offers the waitlist.
+
+## D5 · ~~Remote workers~~
+Status: dropped in v3
+`
+
+const T16_PLAN = `---
+plan: Salon
+design-version: 2
+updated: 2026-11-10
+---
+# Salon: plan
+
+## P1 · Foundations
+Goal: people can book.
+Appetite: 2 weeks
+Exit: a booking shows.
+
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P1.1 | Accounts | S | — | D1 | sign in works | 0001 |
+| P1.2 | Booking | M | P1.1 | D2 | a slot is booked | 0002 |
+| P1.3 | Reminders | S | P1.2 | D3 | reminder sent | — |
+
+## P2 · Extras
+Goal: more.
+Appetite: 1 week
+Exit: extras ship.
+
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P2.1 | Remote workers | M | — | D5 | workers run remotely | — |
+`
+
+const T16_BOARD = `# Salon board
+
+Design: design/DESIGN.md · Plan: design/PLAN.md
+
+| #    | Ticket   | Status      | Mode | Blocked by | Owner | Notes  |
+|------|----------|-------------|------|------------|-------|--------|
+| 0001 | Accounts | done        | solo | —          | —     | merged |
+| 0002 | Booking  | in-progress | solo | 0001       | —     | |
+
+Status flow: draft → ready → in-progress → in-check → done
+`
+
+const T16_NOTE = `---
+change: design-v3
+date: 2026-11-12
+design-version: 3
+---
+# Design v3
+
+## Why
+Magic links, SMS reminders and a waitlist; no remote workers.
+
+## Changes
+- Changed D1 (Rev 1 → 2): magic links
+- Changed D3 (Rev 1 → 2): SMS too
+- Added D4 · Waitlist
+- Dropped D5 · Remote workers
+
+## Follow-ups
+- Replan: P1.3, P2.1
+`
+
+const T16_DOCS = '- [ ] Update README/docs for design v3: Reminders\n  README describes reminders.\n'
+
+const t16Proposal = (hash: string | undefined, docs = T16_DOCS) => `---
+change: replan
+date: 2026-11-12
+design-version: 3
+${hash === undefined ? '' : `plan-hash: ${hash}\n`}---
+# Replan for design v3
+
+## Why
+Design v3 adds D4, changes D1 and D3 and drops D5.
+
+## Add
+- [ ] | P2.2 | Waitlist | S | P1.2 | D4 | a full slot offers the waitlist |
+  D4 is new in v3 and no build covers it.
+
+## Change
+- [ ] | P1.3 | Reminders | M | P1.2 | D3 | a reminder mail and an SMS go out |
+  D3 rev 2 adds SMS, so the build grows.
+
+## Drop
+- [ ] P2.1 · Remote workers
+  It only covers D5, dropped in v3.
+
+## Follow-up
+- [ ] P1.1 · Sign in with a magic link
+  P1.1 is done (0001); D1 rev 2 adds magic links, so a new ticket does it.
+${docs}`
+
+const T16_PLAN_PATH = '/repo/design/PLAN.md'
+const T16_PROPOSAL_PATH = '/repo/design/changes/2026-11-12-replan.md'
+const T16_NOTE_PATH = '/repo/design/changes/2026-11-12-design-v3.md'
+
+/** The listed proposal file that cannot be read. */
+const UNREADABLE = '<unreadable>'
+
+function t16Files(proposal: string | null = t16Proposal(planHash(T16_PLAN))): Record<string, string> {
+  const out: Record<string, string> = {
+    ...GIT_READY,
+    'tickets/BOARD.md': T16_BOARD,
+    '/repo/design/DESIGN.md': T16_DESIGN,
+    [T16_PLAN_PATH]: T16_PLAN,
+    [T16_NOTE_PATH]: T16_NOTE,
+    '/repo/README.md': '# Salon\n\nBook a chair. Reminders go out by mail a day before.\n',
+    'tickets/0001-accounts/rd.md': rmRd('0001', 'Accounts', 'Plan: P1.1\nDesign: D1@1'),
+    'tickets/0001-accounts/eval.md': EVAL,
+    'tickets/0002-booking/rd.md': rmRd('0002', 'Booking', 'Plan: P1.2\nDesign: D2@1'),
+    'tickets/0002-booking/eval.md': EVAL,
+  }
+  // null: no proposal; UNREADABLE: a proposal that is listed but cannot be read.
+  if (proposal !== null) out[T16_PROPOSAL_PATH] = (proposal === UNREADABLE ? undefined : proposal) as string
+  return out
+}
+
+const planLine = (fs: { files: Map<string, string> }, id: string) => fs.files.get(T16_PLAN_PATH)!.split('\n').find(l => l.startsWith(`| ${id} |`)) ?? ''
+const boardLine = (text: string, n: string) => text.split('\n').find(l => l.startsWith(`| ${n} `)) ?? ''
+
+async function openReview(ui: any) {
+  await ui.find({ key: 'tab-plan' })
+  await ui.press({ key: 'tab-plan' })
+  await ui.find({ key: 'replan-review' })
+  await ui.press({ key: 'replan-review' })
+  await ui.find({ key: 'rp-group-add' })
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`replan apply: Add row, Change edit, Drop as dropped, design-version, draft tickets; done tickets untouched (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t16Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'replan-review' })
+    expect(await drawnText(ui)).toContain('Plan is behind design v3 · 5 replan items to review')
+    const before = new Map(fs.files)
+    await ui.press({ key: 'replan-review' })
+    await ui.find({ key: 'rp-group-add' })
+    // Tick Add, Change, Drop and the follow-up on the done build; leave the docs follow-up unticked.
+    for (const i of [0, 1, 2, 3]) await ui.press({ key: `rp-tick-${i}` })
+    expect(await drawnText(ui)).toContain('Apply selected (4)')
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('Applied 4 items'), 'the apply summary')
+    expect(await drawnText(ui)).toContain('2 draft tickets (0003, 0004)')
+
+    // PLAN.md: the Add row (with its new ticket), the Change edit, the Drop as Status dropped (row kept), design-version 3.
+    const plan = fs.files.get(T16_PLAN_PATH)!
+    expect(plan).toContain('design-version: 3\n')
+    expect(planLine(fs, 'P2.2')).toBe('| P2.2 | Waitlist | S | P1.2 | D4 | a full slot offers the waitlist | 0003 | |')
+    expect(planLine(fs, 'P1.3')).toBe('| P1.3 | Reminders | M | P1.2 | D3 | a reminder mail and an SMS go out | — |')
+    expect(planLine(fs, 'P2.1')).toBe('| P2.1 | Remote workers | M | — | D5 | workers run remotely | — | dropped |')
+    // The follow-up on the done build is a new ticket on that build; P1.2's row is as it was.
+    expect(planLine(fs, 'P1.1')).toBe('| P1.1 | Accounts | S | — | D1 | sign in works | 0001, 0004 |')
+    expect(planLine(fs, 'P1.2')).toBe('| P1.2 | Booking | M | P1.1 | D2 | a slot is booked | 0002 |')
+    // New draft tickets for the Add and the Follow-up, each with its writer.
+    expect(t8Row(fs, '0003').title).toBe('Waitlist')
+    expect(t8Row(fs, '0003').status).toBe('draft')
+    expect(t8Row(fs, '0003').blockedBy).toEqual(['0002'])
+    expect(t8Row(fs, '0004').title).toBe('Sign in with a magic link')
+    expect(t8Row(fs, '0004').status).toBe('draft')
+    expect(fs.files.get(`${t8Folder(fs, '0004')}/rd.md`)).toContain('Plan: P1.1\nDesign: D1@2\n')
+    expect(w.spawned.map(s => s.description)).toEqual(['Write ticket 0003 (P2.2)', 'Write ticket 0004 (P1.1)'])
+    expect(w.spawned[1]!.prompt).toContain('A follow-up never edits a done ticket')
+    // Done (and in-progress) tickets: files and board rows byte-identical. No ticket became ready.
+    for (const f of ['tickets/0001-accounts/rd.md', 'tickets/0001-accounts/eval.md', 'tickets/0002-booking/rd.md', 'tickets/0002-booking/eval.md']) expect(fs.files.get(f)).toBe(before.get(f))
+    expect(boardLine(fs.files.get('tickets/BOARD.md')!, '0001')).toBe(boardLine(T16_BOARD, '0001'))
+    expect(boardLine(fs.files.get('tickets/BOARD.md')!, '0002')).toBe(boardLine(T16_BOARD, '0002'))
+    expect(rowsOf(fs).filter(r => r.status === 'ready')).toEqual([])
+    // The proposal: applied items ticked, the unticked one unchanged, the new plan's hash recorded.
+    const prop = fs.files.get(T16_PROPOSAL_PATH)!
+    expect(parseProposal(prop).items.map(i => i.state)).toEqual(['applied', 'applied', 'applied', 'applied', 'open'])
+    expect(prop).toContain(T16_DOCS)
+    expect(parseProposal(prop).planHash).toBe(planHash(fs.files.get(T16_PLAN_PATH)!))
+    // The review shows what is left; the banner stays until it is applied or dismissed.
+    let drawn = await drawnText(ui)
+    expect(drawn).toContain('rp-tick-4')
+    expect(drawn).not.toContain('rp-tick-0')
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'pill-P2.2-0003' })
+    drawn = await drawnText(ui)
+    expect(drawn).toContain('Replan for design v3 · 1 replan item to review')
+    expect(drawn).not.toContain('Plan is behind')
+    // Dismissing the last item ends the banner; PLAN.md is not touched.
+    const planNow = fs.files.get(T16_PLAN_PATH)
+    await ui.press({ key: 'replan-review' })
+    await ui.find({ key: 'rp-tick-4' })
+    await ui.press({ key: 'rp-tick-4' })
+    await ui.press({ key: 'replan-dismiss' })
+    await until(async () => (await drawnText(ui)).includes('Dismissed 1 item'), 'the dismiss')
+    expect(parseProposal(fs.files.get(T16_PROPOSAL_PATH)!).items[4]!.state).toBe('dismissed')
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(planNow)
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'pill-P2.2-0003' })
+    expect(await drawnText(ui)).not.toContain('replan-banner')
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan end to end: review groups with reasons, nothing ticked; tick two, Apply; board and Plan show it (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    let drawn = await drawnText(ui)
+    for (const g of ['add', 'change', 'drop', 'follow-up']) expect(drawn).toContain(`rp-group-${g}`)
+    expect(drawn.indexOf('rp-group-add')).toBeLessThan(drawn.indexOf('rp-group-change'))
+    expect(drawn.indexOf('rp-group-change')).toBeLessThan(drawn.indexOf('rp-group-drop'))
+    expect(drawn.indexOf('rp-group-drop')).toBeLessThan(drawn.indexOf('rp-group-follow-up'))
+    for (const reason of ['D4 is new in v3 and no build covers it.', 'D3 rev 2 adds SMS, so the build grows.', 'It only covers D5, dropped in v3.', 'README describes reminders.']) expect(drawn).toContain(reason)
+    // Nothing is ticked by default.
+    const on1 = surface === 'desktop' ? '☑' : '[x]'
+    const off = surface === 'desktop' ? '☐' : '[ ]'
+    expect(drawn).not.toContain(on1)
+    expect(drawn).toContain(`${off} P2.2 · Waitlist`)
+    expect(drawn).toContain('Apply selected (0)')
+    // Keys stay unique.
+    const keys = [...drawn.matchAll(/"key":"([^"]+)"/g)].map(m => m[1]!)
+    expect(keys.filter((k, i) => keys.indexOf(k) !== i)).toEqual([])
+    // Tick two: the Add and the Drop.
+    await ui.press({ key: 'rp-tick-0' })
+    await ui.press({ key: 'rp-tick-2' })
+    drawn = await drawnText(ui)
+    expect(drawn).toContain(`${on1} P2.2 · Waitlist`)
+    expect(drawn).toContain('Apply selected (2)')
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('Applied 2 items'), 'the apply summary')
+    expect(planLine(fs, 'P1.3')).toBe('| P1.3 | Reminders | S | P1.2 | D3 | reminder sent | — |')
+    // The draft row is on the board.
+    await ui.press({ key: 'tab-board' })
+    await ui.find({ type: 'Text', text: /Waitlist/ })
+    expect(t8Row(fs, '0003').status).toBe('draft')
+    // The Plan view shows the new build with its ticket and the dropped one.
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'pill-P2.2-0003' })
+    drawn = await drawnText(ui)
+    expect(drawn).toContain('Remote workers (dropped)')
+    expect(drawn).toContain('made from design v3')
+    expect(drawn).toContain('3 replan items to review')
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan safety: nothing ticked is a no-op; a changed PLAN.md stops Apply and writes nothing (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs, writes } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    const n0 = writes.length
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('Nothing ticked: nothing applied'), 'the no-op message')
+    expect(writes.length).toBe(n0)
+    // PLAN.md changes on disk after the proposal was made.
+    const edited = T16_PLAN.replace('reminder sent', 'reminder sent by mail')
+    fs.files.set(T16_PLAN_PATH, edited)
+    fs.mtimes.set(T16_PLAN_PATH, 999)
+    const before = new Map(fs.files)
+    await ui.press({ key: 'rp-tick-0' })
+    await ui.press({ key: 'rp-tick-2' })
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('plan changed; regenerate the proposal'), 'the plan-changed stop')
+    expect(writes.length).toBe(n0)
+    expect([...fs.files]).toEqual([...before])
+    expect(w.spawned).toEqual([])
+    expect(rowsOf(fs).length).toBe(2)
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan safety: an unreadable proposal shows its file path (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, t16Files(UNREADABLE), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'replan-review' })
+    expect(/⚠ Plan is behind[^"]*/.exec(await drawnText(ui))?.[0]).toBe('⚠ Plan is behind design v3 · could not read the replan proposal design/changes/2026-11-12-replan.md')
+    await ui.press({ key: 'replan-review' })
+    await ui.find({ type: 'Text', text: /Could not read the replan proposal: design\/changes\/2026-11-12-replan\.md/ })
+    expect(await drawnText(ui)).not.toContain('replan-apply')
+    await ui.unmount()
+  })
+
+  test(`replan safety: a proposal with no Add / Change / Drop / Follow-up heading shows its file path (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, t16Files('}{ not a proposal at all'), { blank: true })
+    await openReviewProblem(ui)
+    expect(await drawnText(ui)).toContain('design/changes/2026-11-12-replan.md has no Add, Change, Drop or Follow-up heading')
+    expect(await drawnText(ui)).not.toContain('replan-apply')
+    await ui.unmount()
+  })
+
+  test(`a proposal written without the pane gets PLAN.md's plan-hash when Review replan opens it (${surface})`, async ($, on) => {
+    const { ui, fs } = await boot($, on, surface, t16Files(t16Proposal(undefined)), { blank: true })
+    await openReview(ui)
+    await until(() => parseProposal(fs.files.get(T16_PROPOSAL_PATH)!).planHash !== '', 'the hash to be written')
+    expect(parseProposal(fs.files.get(T16_PROPOSAL_PATH)!).planHash).toBe(planHash(T16_PLAN))
+    expect(fs.files.get(T16_PROPOSAL_PATH)!.replace(/plan-hash: \w+\n/, '')).toBe(t16Proposal(undefined))
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    await ui.unmount()
+  })
+
+  test(`replan banner starts the planner; the proposal and the change note get one docs follow-up (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t16Files(null), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'replan-start' })
+    expect(await drawnText(ui)).toContain('Plan is behind design v3 · no replan proposal yet')
+    await ui.press({ key: 'replan-start' })
+    await until(() => w.spawned.length === 1, 'the planner to start')
+    const date = today(Date.now())
+    const path = `design/changes/${date}-replan.md`
+    expect(w.spawned[0]!.description).toBe('Replan proposal for design v3')
+    for (const part of [`Write only ${path}`, `plan-hash: ${planHash(T16_PLAN)}`, 'Update README/docs for <change>', '## Add', '## Follow-up']) expect(w.spawned[0]!.prompt).toContain(part)
+    await until(async () => (await drawnText(ui)).includes('the planner is writing a replan proposal'), 'the banner to say so')
+    expect(await drawnText(ui)).not.toContain('replan-start')
+    // Nothing is edited while the planner runs.
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    // The planner may write its proposal and nothing else: every other write is refused.
+    const agentId = w.spawned[0]!.agentId
+    const call = (file_path: string): Promise<any> => ($ as any).tool.call({ tool: 'Write', file_path, content: 'x', agentId })
+    for (const p of [T16_PLAN_PATH, '/repo/design/DESIGN.md', T16_NOTE_PATH, '/repo/tickets/0001-accounts/rd.md'])
+      expect((await call(p))?.deny).toBe(`ticket-board: the replan planner may only write ${path}.`)
+    // The planner writes a proposal with no plan-hash and no docs item.
+    fs.files.set(`/repo/${path}`, t16Proposal(undefined, ''))
+    await w.finish($, w.spawned[0]!.agentId)
+    await until(async () => (await drawnText(ui)).includes('Replan proposal ready: 5 items to review'), 'the proposal to be ready')
+    const prop = fs.files.get(`/repo/${path}`)!
+    const docs = parseProposal(prop).items.filter(i => /Update README\/docs/.test(i.text))
+    expect(docs.length).toBe(1)
+    expect(docs[0]!.text).toBe('Update README/docs for design v3: Reminders')
+    expect(docs[0]!.group).toBe('follow-up')
+    expect(parseProposal(prop).planHash).toBe(planHash(T16_PLAN))
+    const note = fs.files.get(T16_NOTE_PATH)!
+    expect(note.match(/Update README\/docs/g)?.length).toBe(1)
+    expect(note).toContain('## Follow-ups\n- Replan: P1.3, P2.1\n- Update README/docs for design v3: Reminders\n')
+    // PLAN.md and tickets are untouched until Apply.
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    expect(rowsOf(fs).length).toBe(2)
+    await ui.find({ key: 'replan-review' })
+    w.done()
+    await ui.unmount()
+  })
+}
+
+async function openReviewProblem(ui: any) {
+  await ui.find({ key: 'tab-plan' })
+  await ui.press({ key: 'tab-plan' })
+  await ui.find({ key: 'replan-review' })
+  await ui.press({ key: 'replan-review' })
+  await ui.find({ type: 'Text', text: /Could not read the replan proposal/ })
+}
+
+for (const scheme of ['auto', 'dark', 'light'] as const) {
+  const checker = () => {
+    const failures: string[] = []
+    const check = async (ui: any, view: string) => {
+      for (const f of contrastFailures(await ui.drawn(), scheme)) failures.push(`[${view}] ${f}`)
+    }
+    return { failures, check }
+  }
+
+  test(`every Button and Text is readable in the ${scheme} scheme: replan banner and review (desktop)`, async ($, on) => {
+    const { failures, check } = checker()
+    const { ui } = await boot($, on, 'desktop', t16Files(), { blank: true, store: new Map<string, unknown>([['colors', scheme]]) })
+    await ui.find({ key: 'replan-review' })
+    await check(ui, 'board banner')
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'replan-review' })
+    await check(ui, 'plan banner')
+    await ui.press({ key: 'replan-review' })
+    await ui.find({ key: 'rp-group-add' })
+    await check(ui, 'review')
+    await ui.press({ key: 'rp-tick-1' })
+    await check(ui, 'review ticked')
+    await ui.unmount()
+    expect(failures).toEqual([])
+  })
+
+  test(`every Button and Text is readable in the ${scheme} scheme: unreadable replan proposal (desktop)`, async ($, on) => {
+    const { failures, check } = checker()
+    const { ui } = await boot($, on, 'desktop', t16Files(UNREADABLE), { blank: true, store: new Map<string, unknown>([['colors', scheme]]) })
+    await openReviewProblem(ui)
+    await check(ui, 'review unreadable')
     await ui.unmount()
     expect(failures).toEqual([])
   })

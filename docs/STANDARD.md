@@ -246,7 +246,8 @@ Single source of truth for the super-agent workflow. …
   agents do not.
 - A redesign bumps `version` and the `Rev` of each changed section and writes a change note. It
   never edits the plan or tickets; a replan does that, and only after a person accepts the
-  proposal.
+  proposal: the planner writes only the proposal (section 8), and the pane applies the items a
+  person ticks.
 - Finished tickets are never rewritten by a redesign or replan; follow-up tickets are added.
 
 ## 7. Progress vocabulary
@@ -313,8 +314,8 @@ Remote workers are out of scope.
 - Replan: P2.2 covers a dropped section
 ```
 
-What the pane reads from a redesign note (`<date>-design-vN.md`; replan notes are listed by name
-only):
+What the pane reads from a redesign note (`<date>-design-vN.md`; replan notes are proposals,
+below):
 
 - `design-version` and `date` from the front matter; when missing, the `vN` and the date of the
   file name.
@@ -329,6 +330,79 @@ only):
 
 Staleness itself is always computed from the `Rev:` lines in DESIGN.md (section 4), not from the
 note, so a missing or hand-edited note never changes which tickets are stale.
+
+**Replan proposals.** A replan note (`<date>-replan.md`) is a proposal: a list of items a person
+ticks and applies in the pane's Replan review. The planner writes it; nothing in PLAN.md or the
+tickets changes until a person presses Apply.
+
+```markdown
+---
+change: replan
+date: 2026-11-12
+design-version: 3
+plan-hash: 9f2c41ab
+---
+# Replan for design v3
+
+## Why
+Design v3 adds D9, changes D3 and drops D7.
+
+## Add
+- [ ] | P2.3 | Offline cache | M | P2.1 | D9 | the cache survives a restart |
+  D9 is new in v3 and no build covers it.
+
+## Change
+- [ ] | P1.3 | Run API for an external router | L | P1.1 | D1, D3 | spec tests drive a fake router |
+  D3 rev 2 adds the retry rule, so the build grows.
+
+## Drop
+- [ ] P2.2 · Remote workers
+  It only covers D7, dropped in v3.
+
+## Follow-up
+- [ ] P1.1 · Router retries
+  P1.1 is done (ticket 0001); D3 rev 2 adds retries, so a new ticket does them.
+- [ ] Update README/docs for design v3: Offline cache
+  README describes the online-only behaviour.
+```
+
+| Front matter key | Value |
+|---|---|
+| `change` | `replan` |
+| `date` | `YYYY-MM-DD` |
+| `design-version` | the design `version` the proposal brings the plan to |
+| `plan-hash` | the fingerprint of PLAN.md the proposal was made from: FNV-1a 32-bit over the file text with `\r\n` read as `\n`, 8 lower-case hex digits. The pane computes it and hands it to the planner, and fills it in when a proposal has none |
+
+- The four headings are `## Add`, `## Change`, `## Drop` and `## Follow-up`, in that order
+  (`### Add build`, `### Change build`, `### Drop build`, `### Follow-up ticket` and
+  `## Follow-ups` are read too). `- none` under an empty heading.
+- One item per line: `- [ ] ` then the item; its reason on the following line(s), indented
+  (a leading `Reason:` is allowed). `[x]` is an applied item and `[-]` a dismissed one: the pane
+  writes these, and only open `[ ]` items are offered.
+- **Add** and **Change** items are the build row without the Ticket and Status cells:
+  `| # | Build | Size | Needs | Covers | Done when |`. Add uses a new id in the phase it goes into
+  (`P2.3` goes into `## P2`).
+- **Drop** items start with the build id: `P2.2 · Title`.
+- **Follow-up** items are new draft tickets: `P1.1 · What it does` (a ticket for that build) or
+  just the title (an off-plan ticket). A change to a build whose ticket is done is always a
+  Follow-up: done tickets are never rewritten.
+- **Docs follow-up:** when a redesign or replan changes behaviour README or docs describe, the
+  proposal has exactly one Follow-up item `Update README/docs for <change>`, and the redesign's
+  change note lists the same line under `## Follow-ups`.
+
+**Applying** the ticked items:
+
+1. PLAN.md is read again and its `plan-hash` computed. When it is not the proposal's (or the
+   proposal has none), Apply stops with *plan changed; regenerate the proposal* and writes nothing.
+2. **Add** inserts the row at the end of its phase's build table, Ticket `—`; **Change** rewrites
+   the row's cells from Build to Done when and keeps Ticket and Status; **Drop** sets Status to
+   `dropped` (adding the Status column to that table when it has none) and keeps the row. When
+   anything was applied, `design-version` becomes the proposal's design version and `updated`
+   today. Every other line of PLAN.md is kept.
+3. Add and Follow-up items get draft tickets the way Create tickets makes them (number in the
+   build's Ticket cell). No ticket's files or board row are edited, no ticket becomes `ready`.
+4. The applied items become `[x]` and `plan-hash` is updated to the new PLAN.md, so the items
+   left can still be applied. The pane shows the proposal until every item is `[x]` or `[-]`.
 
 `design/decisions/NNNN-<slug>.md` holds an architecture decision record (context, decision,
 consequences) in free prose.

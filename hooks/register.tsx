@@ -1,7 +1,7 @@
 // ticket-board: tickets/BOARD.md and its tickets in a side pane.
 import type { EngineInterface, Register } from 'claude-code'
 
-import { isInsideFolder, jobNote, pumpPlanQueue } from './ai'
+import { finishReplan, isInsideFolder, isReplanFile, jobNote, pumpPlanQueue } from './ai'
 import { docsGaps } from './core/ticket'
 import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadPlanMode, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
@@ -172,6 +172,11 @@ export const register: Register = (on, options) => {
       if (typeof path !== 'string' || !isInsideFolder(path, job.number))
         return { deny: `ticket-board: the ticket writer may only write inside ${dir()}/${job.number}-…/ (rd.md, eval.md).` }
     }
+    // The replan planner (0016) writes its proposal and nothing else.
+    const planner = S.replanJob
+    if (planner !== undefined && e.agentId === planner.agentId && WRITE_TOOLS.has(input.tool)) {
+      if (typeof path !== 'string' || !isReplanFile(path)) return { deny: `ticket-board: the replan planner may only write ${planner.path}.` }
+    }
     const ran = await next(e)
     if (S.isOpen && (WRITE_TOOLS.has(input.tool) ? touchesTickets(path) : input.tool === 'Bash')) bg(refresh($))
     return ran
@@ -201,6 +206,11 @@ export const register: Register = (on, options) => {
       syncTitle($)
     }
     if (e.agentId !== undefined && S.isOpen) bg(loadAgents($))
+    if (e.agentId !== undefined && e.agentId === S.replanJob?.agentId) {
+      await finishReplan($, e.isAborted || e.reason !== 'answer', String(e.reason)).catch(() => undefined)
+      redraw($)
+      return next(e)
+    }
     const job = e.agentId === undefined ? undefined : S.jobs.get(e.agentId)
     if (job !== undefined) {
       S.jobs.delete(job.agentId)

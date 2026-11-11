@@ -19,7 +19,30 @@ import {
   type StartFacts,
 } from '../hooks/core/project'
 import { DEFAULT_FILTERS, OFF_PLAN, comparePhase, kindOf, nextNumber, resultOf, query, runLine, slugify, sortItems, titleFromIdea, type Filters, type Item, type Sort } from '../hooks/core/query'
-import { blockedByFor, changeSummary, coveredDoneWhen, designLine, missingNote, parseChangeNote, planBatch, planBrief, roadmap, setPlanTicket, staleOf, staleText, ticketRef } from '../hooks/core/roadmap'
+import {
+  applyProposal,
+  blockedByFor,
+  changeSummary,
+  coveredDoneWhen,
+  designLine,
+  docsFollowUp,
+  markProposal,
+  missingNote,
+  parseChangeNote,
+  parseDesign,
+  parsePlan,
+  parseProposal,
+  planBatch,
+  planBrief,
+  planHash,
+  roadmap,
+  setPlanTicket,
+  staleOf,
+  staleText,
+  ticketRef,
+  withDocsItem,
+  withNoteFollowUp,
+} from '../hooks/core/roadmap'
 import { historyOf } from '../hooks/core/designfile'
 import { answerQuestion, docsGaps, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
@@ -583,4 +606,210 @@ test('change note: changed sections with their new Revs, added and dropped ones'
     ['Replan', ''],
     ['Design v3', 'D3 now rev 2'],
   ])
+})
+
+// ---------- Replan review and apply (0016) ----------
+
+const T16_DESIGN = `---
+design: Salon
+version: 3
+status: approved
+updated: 2026-11-12
+---
+# Salon: design
+
+## D1 · Accounts
+Rev: 2
+What: sign in with a magic link.
+
+## D2 · Booking
+Rev: 1
+What: book a slot.
+
+## D3 · Reminders
+Rev: 2
+What: mail and SMS reminders.
+
+## D4 · Waitlist
+Rev: 1
+What: a full slot offers the waitlist.
+
+## D5 · ~~Remote workers~~
+Status: dropped in v3
+`
+
+const T16_PLAN = `---
+plan: Salon
+design-version: 2
+updated: 2026-11-10
+---
+# Salon: plan
+
+## P1 · Foundations
+Goal: people can book.
+Appetite: 2 weeks
+Exit: a booking shows.
+
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P1.1 | Accounts | S | — | D1 | sign in works | 0001 |
+| P1.2 | Booking | M | P1.1 | D2 | a slot is booked | 0002 |
+| P1.3 | Reminders | S | P1.2 | D3 | reminder sent | — |
+
+## P2 · Extras
+Goal: more.
+Appetite: 1 week
+Exit: extras ship.
+
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+| P2.1 | Remote workers | M | — | D5 | workers run remotely | — |
+`
+
+const t16Proposal = (hash: string) => `---
+change: replan
+date: 2026-11-12
+design-version: 3
+plan-hash: ${hash}
+---
+# Replan for design v3
+
+## Why
+Design v3 adds D4, changes D1 and D3 and drops D5.
+
+## Add
+- [ ] | P2.2 | Waitlist | S | P1.2 | D4 | a full slot offers the waitlist |
+  D4 is new in v3 and no build covers it.
+
+## Change
+- [ ] | P1.3 | Reminders | M | P1.2 | D3 | a reminder mail and an SMS go out |
+  D3 rev 2 adds SMS, so the build grows.
+
+## Drop
+- [ ] P2.1 · Remote workers
+  Reason: it only covers D5, dropped in v3.
+
+## Follow-up
+- [ ] P1.1 · Sign in with a magic link
+  P1.1 is done (0001); D1 rev 2 adds magic links, so a new ticket does it.
+- [ ] Update README/docs for design v3: Reminders
+  README describes reminders.
+`
+
+test('replan proposal: groups, reasons, rows, builds and states; old headings and bad items', () => {
+  const p = parseProposal(t16Proposal('0badc0de'), '2026-11-12-replan.md')
+  expect(p.designVersion).toBe(3)
+  expect(p.date).toBe('2026-11-12')
+  expect(p.planHash).toBe('0badc0de')
+  expect(p.hasGroups).toBe(true)
+  expect(p.items.map(i => [i.index, i.group, i.state, i.build ?? '', i.title])).toEqual([
+    [0, 'add', 'open', 'P2.2', 'P2.2 · Waitlist'],
+    [1, 'change', 'open', 'P1.3', 'P1.3 · Reminders'],
+    [2, 'drop', 'open', 'P2.1', 'P2.1 · Remote workers'],
+    [3, 'follow-up', 'open', 'P1.1', 'Sign in with a magic link'],
+    [4, 'follow-up', 'open', '', 'Update README/docs for design v3: Reminders'],
+  ])
+  expect(p.items[0]!.row).toEqual({ id: 'P2.2', name: 'Waitlist', size: 'S', needs: 'P1.2', covers: 'D4', doneWhen: 'a full slot offers the waitlist' })
+  expect(p.items[0]!.reason).toBe('D4 is new in v3 and no build covers it.')
+  expect(p.items[2]!.reason).toBe('it only covers D5, dropped in v3.')
+  expect(p.items.every(i => i.problem === '')).toBe(true)
+  // The planner's older layout (### headings under ## Changes), applied and dismissed boxes, `- none`, broken items.
+  const old = parseProposal(
+    '# Replan\n\n## Changes\n### Add build\n- [x] | P3.1 | X | S | — | D9 | x |\n### Change build\n- none\n### Drop build\n- [-] P2.2 · Gone\n- [ ] no id here\n### Follow-up ticket\n- [ ] | not | a row\n\n## Notes\n- [ ] not an item\n',
+  )
+  expect(old.items.map(i => [i.group, i.state])).toEqual([
+    ['add', 'applied'],
+    ['drop', 'dismissed'],
+    ['drop', 'open'],
+    ['follow-up', 'open'],
+  ])
+  expect(old.items[2]!.problem).toContain('name the build')
+  expect(parseProposal('| not | a row |').hasGroups).toBe(false)
+  expect(parseProposal('## Add\n- [ ] P2.3 · no row\n').items[0]!.problem).toContain('table row')
+  // Garbage and missing text never throw.
+  expect(parseProposal('}{').items).toEqual([])
+  expect(parseProposal(undefined).hasGroups).toBe(false)
+})
+
+test('plan hash: stable, line-ending blind, changes with any edit', () => {
+  expect(planHash(T16_PLAN)).toMatch(/^[0-9a-f]{8}$/)
+  expect(planHash(T16_PLAN)).toBe(planHash(T16_PLAN.replace(/\n/g, '\r\n')))
+  expect(planHash(T16_PLAN)).not.toBe(planHash(T16_PLAN.replace('reminder sent', 'reminder sent!')))
+})
+
+test('replan apply (milestone): Add row, Change edit, Drop as Status dropped, design-version; unticked items unchanged', () => {
+  const p = parseProposal(t16Proposal(planHash(T16_PLAN)))
+  // Tick Add, Change, Drop and the follow-up on the done build; leave the docs follow-up.
+  const r = applyProposal(T16_PLAN, p, [0, 1, 2, 3], 3, '2026-11-12')
+  expect(r.applied).toEqual([0, 1, 2, 3])
+  expect(r.skipped).toEqual([])
+  expect(r.added).toEqual(['P2.2'])
+  expect(r.followUps).toEqual([{ index: 3, build: 'P1.1', title: 'Sign in with a magic link', reason: 'P1.1 is done (0001); D1 rev 2 adds magic links, so a new ticket does it.' }])
+  const md = r.md
+  expect(md).toContain('design-version: 3\n')
+  expect(md).toContain('updated: 2026-11-12\n')
+  // Change: the row's cells, Ticket kept.
+  expect(md).toContain('| P1.3 | Reminders | M | P1.2 | D3 | a reminder mail and an SMS go out | — |')
+  // Drop: a Status column is added to that table; the row stays.
+  expect(md).toContain('| # | Build | Size | Needs | Covers | Done when | Ticket | Status |\n|---|---|---|---|---|---|---|---|\n')
+  expect(md).toContain('| P2.1 | Remote workers | M | — | D5 | workers run remotely | — | dropped |')
+  // Add: at the end of P2's table.
+  expect(md).toContain('| P2.2 | Waitlist | S | P1.2 | D4 | a full slot offers the waitlist | — | |')
+  // The P1 rows with tickets are as they were (done 0001, in-progress 0002).
+  expect(md).toContain('| P1.1 | Accounts | S | — | D1 | sign in works | 0001 |\n| P1.2 | Booking | M | P1.1 | D2 | a slot is booked | 0002 |')
+  const plan = parsePlan(md)
+  expect(plan.designVersion).toBe(3)
+  expect(plan.warnings).toEqual([])
+  const b = (id: string) => plan.phases.flatMap(x => x.builds).find(x => x.id === id)!
+  expect(b('P2.1').status).toBe('dropped')
+  expect(b('P2.2').phase).toBe('P2')
+  expect(b('P1.3').size).toBe('M')
+  // The proposal marks what was applied; the unticked item stays open.
+  const marked = parseProposal(markProposal(t16Proposal(planHash(T16_PLAN)), p, new Map(r.applied.map(i => [i, 'applied' as const])), planHash(md)))
+  expect(marked.items.map(i => i.state)).toEqual(['applied', 'applied', 'applied', 'applied', 'open'])
+  expect(marked.planHash).toBe(planHash(md))
+})
+
+test('replan apply: nothing ticked is a no-op; Drop keeps an existing Status column; unknown builds are skipped', () => {
+  const p = parseProposal(t16Proposal(planHash(T16_PLAN)))
+  const none = applyProposal(T16_PLAN, p, [], 3, '2026-11-12')
+  expect(none.md).toBe(T16_PLAN)
+  expect(none.applied).toEqual([])
+  // Already applied items are never applied again.
+  const done = parseProposal(t16Proposal('x').replace('- [ ] | P2.2', '- [x] | P2.2'))
+  expect(applyProposal(T16_PLAN, done, [0], 3, '2026-11-12').md).toBe(T16_PLAN)
+  const withStatus = T16_PLAN.replace(/(\| P2\.1 .*\| — \|)\n/, '$1 |\n').replace('## P2 · Extras\nGoal: more.\nAppetite: 1 week\nExit: extras ship.\n\n| # | Build | Size | Needs | Covers | Done when | Ticket |\n|---|---|---|---|---|---|---|', '## P2 · Extras\n\n| # | Build | Size | Needs | Covers | Done when | Ticket | Status |\n|---|---|---|---|---|---|---|---|')
+  const r = applyProposal(withStatus, p, [2], 3, '')
+  expect(r.md).toContain('| P2.1 | Remote workers | M | — | D5 | workers run remotely | — | dropped |')
+  const odd = parseProposal('## Change\n- [ ] | P9.9 | Ghost | S | — | D1 | x |\n## Add\n- [ ] | P7.1 | No phase | S | — | D1 | x |\n- [ ] | P1.1 | Twice | S | — | D1 | x |\n')
+  const s = applyProposal(T16_PLAN, odd, [0, 1, 2], 3, '2026-11-12')
+  expect(s.md).toBe(T16_PLAN)
+  expect(s.skipped.map(x => x.why)).toEqual(['P9.9: not in PLAN.md', 'P7.1: PLAN.md has no build table for phase P7', 'P1.1: already in PLAN.md'])
+})
+
+test('docs follow-up: one "Update README/docs" item in the proposal and one line in the change note', () => {
+  const design = parseDesign(T16_DESIGN)
+  const note = parseChangeNote('## Changes\n- Changed D3 (Rev 1 → 2): SMS too\n- Added D4 · Waitlist\n- Dropped D5 · Remote workers\n', '2026-11-12-design-v3.md')
+  const readme = '# Salon\n\nBook a chair. Reminders go out by mail a day before.\n'
+  const text = docsFollowUp(readme, design, [note])
+  expect(text).toBe('Update README/docs for design v3: Reminders')
+  // README mentions none of the changed sections: no follow-up.
+  expect(docsFollowUp('# Salon\n\nBook a chair.\n', design, [note])).toBeUndefined()
+  expect(docsFollowUp(undefined, design, [note])).toBeUndefined()
+  const bare = t16Proposal('x').replace(/- \[ \] Update README[^\n]*\n[^\n]*\n/, '')
+  const once = withDocsItem(bare, text!, 'README describes behaviour this redesign changes.')
+  const items = parseProposal(once).items.filter(i => /Update README\/docs/.test(i.text))
+  expect(items.length).toBe(1)
+  expect(items[0]!.group).toBe('follow-up')
+  expect(items[0]!.reason).toBe('README describes behaviour this redesign changes.')
+  expect(withDocsItem(once, text!, 'again')).toBe(once)
+  // `- none` under Follow-up is replaced; no Follow-up heading gets one.
+  expect(withDocsItem('## Add\n- none\n\n## Follow-up\n- none\n', text!, 'r')).toBe(`## Add\n- none\n\n## Follow-up\n- [ ] ${text}\n  r\n`)
+  expect(parseProposal(withDocsItem('## Add\n- none\n', text!, 'r')).items.map(i => i.group)).toEqual(['follow-up'])
+  // The change note lists it once under Follow-ups.
+  const noteMd = '---\nchange: design-v3\n---\n# Design v3\n\n## Changes\n- Changed D3 (Rev 1 → 2): SMS\n\n## Follow-ups\n- Replan: P1.3\n'
+  const listed = withNoteFollowUp(noteMd, text!)
+  expect(listed).toBe(`---\nchange: design-v3\n---\n# Design v3\n\n## Changes\n- Changed D3 (Rev 1 → 2): SMS\n\n## Follow-ups\n- Replan: P1.3\n- ${text}\n`)
+  expect(withNoteFollowUp(listed, text!)).toBe(listed)
+  expect(withNoteFollowUp('# Design v3\n', text!)).toBe(`# Design v3\n\n## Follow-ups\n- ${text}\n`)
 })

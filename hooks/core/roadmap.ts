@@ -931,3 +931,374 @@ export function setPlanTicket(md: string, buildId: string, number: string): stri
   }
   return md
 }
+
+// ── Replan proposals (0016) ───────────────────────────────────────────────
+
+/** The four groups of a replan proposal, in the order the file and the review screen use. */
+export type ReplanGroup = 'add' | 'change' | 'drop' | 'follow-up'
+
+export const REPLAN_GROUPS: readonly { id: ReplanGroup; title: string }[] = [
+  { id: 'add', title: 'Add' },
+  { id: 'change', title: 'Change' },
+  { id: 'drop', title: 'Drop' },
+  { id: 'follow-up', title: 'Follow-up' },
+]
+
+/** The cells of a build row as an Add or Change item writes them. */
+export type ReplanRow = { id: string; name: string; size: string; needs: string; covers: string; doneWhen: string }
+
+export type ReplanItem = {
+  /** 0-based position among all the file's items: what the review screen ticks. */
+  index: number
+  group: ReplanGroup
+  /** 0-based line of the `- [ ]` in the file. */
+  line: number
+  /** `[ ]` open, `[x]` applied, `[-]` dismissed. */
+  state: 'open' | 'applied' | 'dismissed'
+  /** The item's text after the box. */
+  text: string
+  /** The indented lines under the item (a leading `Reason:` dropped). */
+  reason: string
+  /** The build the item is about (always for Add, Change and Drop; optional for Follow-up). */
+  build?: string
+  /** Add and Change: the build row. */
+  row?: ReplanRow
+  /** What the review screen shows: `P2.3 · Offline cache`, or the Follow-up ticket's title. */
+  title: string
+  /** Why the item cannot be applied as written; '' when it can. */
+  problem: string
+}
+
+export type Proposal = {
+  designVersion: number | undefined
+  date: string
+  /** `plan-hash` from the front matter: `planHash()` of PLAN.md when the proposal was made; '' when missing. */
+  planHash: string
+  items: ReplanItem[]
+  /** At least one Add / Change / Drop / Follow-up heading was found. */
+  hasGroups: boolean
+}
+
+/**
+ * A short fingerprint of PLAN.md (FNV-1a, 32 bits, 8 hex digits) over the text with `\r\n` read as
+ * `\n`. The proposal records it as `plan-hash`; Apply refuses when PLAN.md no longer has it.
+ */
+export function planHash(md: string): string {
+  let hash = 0x811c9dc5
+  const t = md.replace(/\r\n/g, '\n')
+  for (let i = 0; i < t.length; i++) {
+    hash ^= t.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
+const GROUP_HEADING = /^#{2,3}\s+(add|change|drop|follow[- ]?ups?)(?:\s+(?:builds?|tickets?))?\s*$/i
+const ITEM = /^ ?[-*]\s+\[([ xX-])\]\s+(.*?)\s*$/
+
+const groupOf = (word: string): ReplanGroup => {
+  const w = word.toLowerCase()
+  return w === 'add' ? 'add' : w === 'change' ? 'change' : w === 'drop' ? 'drop' : 'follow-up'
+}
+
+function parseItem(group: ReplanGroup, text: string): Pick<ReplanItem, 'build' | 'row' | 'title' | 'problem'> {
+  if (group === 'add' || group === 'change') {
+    if (!text.startsWith('|')) return { title: text, problem: 'write the build as a table row: | # | Build | Size | Needs | Covers | Done when |' }
+    const c = cells(text)
+    const id = stripMd(c[0] ?? '').toUpperCase()
+    if (!BUILD_ID.test(id)) return { title: text, problem: `"${c[0] ?? ''}" is not a build id` }
+    if (c.length < 6) return { build: id, title: `${id} · ${stripMd(c[1] ?? '')}`, problem: 'the row needs 6 cells: # | Build | Size | Needs | Covers | Done when' }
+    const row: ReplanRow = { id, name: c[1]!, size: c[2]!, needs: c[3]!, covers: c[4]!, doneWhen: c[5]! }
+    return { build: id, row, title: `${id} · ${stripMd(row.name)}`, problem: '' }
+  }
+  const m = /^(?:\*\*)?([A-Za-z]+\d+(?:\.\d+)+)(?:\*\*)?(?:\s*[·—–:-]\s*|\s+|$)(.*)$/.exec(text)
+  if (group === 'drop') {
+    if (m === null) return { title: text, problem: 'name the build to drop first: P2.2 · Title' }
+    return { build: m[1]!.toUpperCase(), title: text, problem: '' }
+  }
+  if (m === null) return { title: text, problem: '' }
+  const title = m[2]!.trim()
+  return { build: m[1]!.toUpperCase(), title: title === '' ? text : title, problem: '' }
+}
+
+/**
+ * Reads a replan proposal (`design/changes/<date>-replan.md`, format in docs/STANDARD.md section 8):
+ * one `- [ ]` line per item under `## Add`, `## Change`, `## Drop` and `## Follow-up` (`### Add
+ * build`, `## Follow-ups`… work too), each followed by its indented reason. Never throws.
+ */
+export function parseProposal(md: string | undefined, name = ''): Proposal {
+  const fromName = /^(\d{4}-\d{2}-\d{2})/.exec(name)
+  const out: Proposal = { designVersion: undefined, date: fromName?.[1] ?? '', planHash: '', items: [], hasGroups: false }
+  if (md === undefined) return out
+  const all = md.split(/\r?\n/)
+  const { values, body } = frontMatter(all)
+  const offset = all.length - body.length
+  out.designVersion = intOf(values['design-version'])
+  if (values.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(values.date)) out.date = values.date
+  out.planHash = (values['plan-hash'] ?? '').toLowerCase()
+  let group: ReplanGroup | undefined
+  let item: ReplanItem | undefined
+  body.forEach((line, i) => {
+    if (/^#{1,6}\s/.test(line)) {
+      item = undefined
+      const g = GROUP_HEADING.exec(line)
+      if (g !== null) {
+        group = groupOf(g[1]!)
+        out.hasGroups = true
+      } else if (/^#{1,2}\s/.test(line)) group = undefined
+      return
+    }
+    if (group === undefined) return
+    const m = ITEM.exec(line)
+    if (m !== null) {
+      const box = m[1]!.toLowerCase()
+      item = {
+        index: out.items.length,
+        group,
+        line: i + offset,
+        state: box === 'x' ? 'applied' : box === '-' ? 'dismissed' : 'open',
+        text: m[2]!,
+        reason: '',
+        ...parseItem(group, m[2]!),
+      }
+      out.items.push(item)
+      return
+    }
+    if (line.trim() === '') return
+    if (item !== undefined && /^\s+\S/.test(line)) {
+      const r = line.trim().replace(/^(?:\*\*)?reason(?:\*\*)?\s*:\s*/i, '')
+      item.reason = `${item.reason} ${r}`.trim()
+      return
+    }
+    item = undefined
+  })
+  return out
+}
+
+/** Sets one front matter key (added before the closing `---` when missing; a front matter is added when there is none). */
+export function setFrontMatterKey(md: string, key: string, value: string): string {
+  const eol = md.includes('\r\n') ? '\r\n' : '\n'
+  const lines = md.split(/\r?\n/)
+  let open = 0
+  while (open < lines.length && (lines[open] ?? '').trim() === '') open++
+  const close = (lines[open] ?? '').trim() === '---' ? lines.findIndex((l, i) => i > open && l.trim() === '---') : -1
+  if (close === -1) return ['---', `${key}: ${value}`, '---', ...lines].join(eol)
+  const re = new RegExp(`^\\s*${key.replace(/-/g, '\\-')}\\s*:`, 'i')
+  const at = lines.findIndex((l, i) => i > open && i < close && re.test(l))
+  if (at === -1) lines.splice(close, 0, `${key}: ${value}`)
+  else lines[at] = `${key}: ${value}`
+  return lines.join(eol)
+}
+
+type PlanTable = { phase: string; head: number; end: number; cols: Partial<Record<BuildColumn, number>>; width: number }
+
+/** The build tables of PLAN.md as line ranges: the phase each sits in, its header line and its end (exclusive). */
+function planTables(lines: readonly string[]): PlanTable[] {
+  const out: PlanTable[] = []
+  let phase = ''
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    const ph = P_HEADING.exec(line)
+    if (ph !== null) {
+      phase = `P${Number(ph[1])}`
+      continue
+    }
+    if (!isTableLine(line)) continue
+    const head = cells(line).map(c => stripMd(c).toLowerCase())
+    const cols: Partial<Record<BuildColumn, number>> = {}
+    head.forEach((name, idx) => {
+      const c = PLAN_HEADERS[name]
+      if (c !== undefined && cols[c] === undefined) cols[c] = idx
+    })
+    let j = i + 1
+    while (j < lines.length && isTableLine(lines[j] ?? '')) j++
+    if (cols.id !== undefined && cols.name !== undefined) out.push({ phase, head: i, end: j, cols, width: head.length })
+    i = j - 1
+  }
+  return out
+}
+
+const isSeparatorLine = (line: string) => /^\s*\|[\s:|-]+\|\s*$/.test(line) && line.includes('-')
+
+function findBuildRow(lines: readonly string[], id: string): { table: PlanTable; line: number } | undefined {
+  for (const t of planTables(lines))
+    for (let j = t.head + 1; j < t.end; j++) {
+      if (isSeparatorLine(lines[j]!)) continue
+      if (stripMd(cells(lines[j]!)[t.cols.id!] ?? '').toUpperCase() === id) return { table: t, line: j }
+    }
+  return undefined
+}
+
+const ROW_COLS: (keyof ReplanRow & BuildColumn)[] = ['id', 'name', 'size', 'needs', 'covers', 'doneWhen']
+
+export type ReplanApply = {
+  /** PLAN.md after the ticked Add / Change / Drop items and the new `design-version`. */
+  md: string
+  /** Items applied (their indexes), Follow-ups included: the pane makes their tickets. */
+  applied: number[]
+  /** Ticked items left as they are, with the reason. */
+  skipped: { index: number; why: string }[]
+  /** Build ids added: each gets a draft ticket. */
+  added: string[]
+  /** Follow-ups to create as draft tickets. */
+  followUps: { index: number; build?: string; title: string; reason: string }[]
+}
+
+/**
+ * Applies the ticked open items of a proposal to PLAN.md text. Add inserts the row at the end of
+ * its phase's build table (`P2.3` goes into `## P2`); Change rewrites the row's cells from `Build`
+ * to `Done when` and keeps its Ticket and Status; Drop sets `Status: dropped` (adding the Status
+ * column when the table has none) and never deletes the row. Follow-ups change nothing here.
+ * When anything was applied, `design-version` becomes `designVersion` and `updated` `date`.
+ * Pure; never touches tickets.
+ */
+export function applyProposal(planMd: string, proposal: Proposal, ticked: readonly number[], designVersion: number | undefined, date: string): ReplanApply {
+  const eol = planMd.includes('\r\n') ? '\r\n' : '\n'
+  let lines = planMd.split(/\r?\n/)
+  const out: ReplanApply = { md: planMd, applied: [], skipped: [], added: [], followUps: [] }
+  const want = new Set(ticked)
+  for (const it of proposal.items) {
+    if (!want.has(it.index) || it.state !== 'open') continue
+    const skip = (why: string) => out.skipped.push({ index: it.index, why: `${it.build ?? it.title}: ${why}` })
+    if (it.problem !== '') {
+      skip(it.problem)
+      continue
+    }
+    const found = it.build === undefined ? undefined : findBuildRow(lines, it.build)
+    if (it.group === 'add') {
+      if (found !== undefined) {
+        skip('already in PLAN.md')
+        continue
+      }
+      const phase = /^([A-Za-z]+\d+)\./.exec(it.build!)?.[1]?.toUpperCase() ?? ''
+      const tables = planTables(lines)
+      const isImplicit = tables.length > 0 && tables.every(x => x.phase === '')
+      const t = [...tables].reverse().find(x => x.phase === phase) ?? (isImplicit ? tables[tables.length - 1] : undefined)
+      if (t === undefined) {
+        skip(`PLAN.md has no build table for phase ${phase}`)
+        continue
+      }
+      const row = Array.from({ length: t.width }, () => '')
+      for (const c of ROW_COLS) if (t.cols[c] !== undefined) row[t.cols[c]!] = c === 'id' ? it.row!.id : it.row![c].replace(/\|/g, '/')
+      if (t.cols.tickets !== undefined) row[t.cols.tickets] = '—'
+      lines.splice(t.end, 0, `| ${row.join(' | ')} |`.replace(/ {2}\|/g, ' |'))
+      out.added.push(it.build!)
+    } else if (it.group === 'change') {
+      if (found === undefined) {
+        skip('not in PLAN.md')
+        continue
+      }
+      let line = lines[found.line]!
+      for (const c of ROW_COLS) if (c !== 'id' && found.table.cols[c] !== undefined) line = replaceCell(line, found.table.cols[c]!, it.row![c].replace(/\|/g, '/'))
+      lines[found.line] = line
+    } else if (it.group === 'drop') {
+      if (found === undefined) {
+        skip('not in PLAN.md')
+        continue
+      }
+      const t = found.table
+      if (t.cols.status !== undefined) lines[found.line] = replaceCell(lines[found.line]!, t.cols.status, 'dropped')
+      else
+        lines = lines.map((l, j) => {
+          if (j < t.head || j >= t.end) return l
+          const base = l.replace(/\s+$/, '')
+          if (j === t.head) return `${base} Status |`
+          if (isSeparatorLine(l)) return `${base}---|`
+          return j === found.line ? `${base} dropped |` : `${base} |`
+        })
+    } else {
+      if (it.build !== undefined && found === undefined) {
+        skip('not in PLAN.md')
+        continue
+      }
+      out.followUps.push({ index: it.index, ...(it.build === undefined ? {} : { build: it.build }), title: it.title, reason: it.reason })
+    }
+    out.applied.push(it.index)
+  }
+  let md = lines.join(eol)
+  if (out.applied.length > 0 && designVersion !== undefined) {
+    md = setFrontMatterKey(md, 'design-version', String(designVersion))
+    if (date !== '') md = setFrontMatterKey(md, 'updated', date)
+  }
+  out.md = md
+  return out
+}
+
+/** Ticks applied items `[x]` and dismissed ones `[-]`, and records the plan's new `plan-hash`. Other lines are kept. */
+export function markProposal(md: string, proposal: Proposal, marks: ReadonlyMap<number, 'applied' | 'dismissed'>, hash?: string): string {
+  const eol = md.includes('\r\n') ? '\r\n' : '\n'
+  const lines = md.split(/\r?\n/)
+  for (const it of proposal.items) {
+    const m = marks.get(it.index)
+    if (m === undefined) continue
+    lines[it.line] = (lines[it.line] ?? '').replace(/\[[ xX-]\]/, m === 'applied' ? '[x]' : '[-]')
+  }
+  const next = lines.join(eol)
+  return hash === undefined ? next : setFrontMatterKey(next, 'plan-hash', hash)
+}
+
+// ── Docs follow-up (0016) ─────────────────────────────────────────────────
+
+/** A Follow-up item or change note line that already asks for the docs update. */
+export const DOCS_FOLLOW_UP = /update\s+readme\s*\/\s*docs/i
+
+/**
+ * The docs follow-up a redesign needs: `Update README/docs for design v3: Reminders, Payments`, one
+ * line naming every section the notes change, add or drop whose title README mentions (any case).
+ * Undefined when README mentions none of them.
+ */
+export function docsFollowUp(readme: string | undefined, design: Design, notes: readonly ChangeNote[]): string | undefined {
+  if (readme === undefined || readme.trim() === '') return undefined
+  const text = readme.toLowerCase()
+  const ids = [...new Set(notes.flatMap(n => [...n.changed.map(c => c.id), ...n.added, ...n.dropped]))]
+  const titles = ids.map(id => design.sections.find(s => s.id === id)?.title ?? '').filter(t => t.length >= 3 && text.includes(t.toLowerCase()))
+  if (titles.length === 0) return undefined
+  const v = Math.max(0, ...notes.map(n => n.version ?? 0))
+  return `Update README/docs for ${v > 0 ? `design v${v}` : 'the redesign'}: ${[...new Set(titles)].join(', ')}`
+}
+
+/** Lines of the section under heading line `head`, up to the next heading: where a new list line goes (after the last non-blank one). */
+function appendInSection(lines: string[], head: number, add: string[]): void {
+  let end = lines.findIndex((l, i) => i > head && /^#{1,6}\s/.test(l))
+  if (end === -1) end = lines.length
+  const none = lines.findIndex((l, i) => i > head && i < end && /^\s*[-*]\s+none\b/i.test(l))
+  if (none !== -1) {
+    lines.splice(none, 1, ...add)
+    return
+  }
+  let at = end
+  while (at > head + 1 && lines[at - 1]!.trim() === '') at--
+  lines.splice(at, 0, ...add)
+}
+
+/** Adds the docs item under `## Follow-up` of a proposal, unless one is there already. Other lines are kept. */
+export function withDocsItem(md: string, text: string, reason: string): string {
+  if (parseProposal(md).items.some(i => DOCS_FOLLOW_UP.test(i.text))) return md
+  const eol = md.includes('\r\n') ? '\r\n' : '\n'
+  const lines = md.split(/\r?\n/)
+  const add = [`- [ ] ${text}`, `  ${reason}`]
+  const head = lines.findIndex(l => {
+    const g = GROUP_HEADING.exec(l)
+    return g !== null && groupOf(g[1]!) === 'follow-up'
+  })
+  if (head !== -1) {
+    appendInSection(lines, head, add)
+    return lines.join(eol)
+  }
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop()
+  return [...lines, '', '## Follow-up', ...add, ''].join(eol)
+}
+
+/** Lists the docs follow-up under `## Follow-ups` of a redesign note, unless it is there already. */
+export function withNoteFollowUp(md: string, text: string): string {
+  if (md.split(/\r?\n/).some(l => DOCS_FOLLOW_UP.test(l))) return md
+  const eol = md.includes('\r\n') ? '\r\n' : '\n'
+  const lines = md.split(/\r?\n/)
+  const head = lines.findIndex(l => /^##\s+follow[- ]?ups?\s*$/i.test(l))
+  if (head !== -1) {
+    appendInSection(lines, head, [`- ${text}`])
+    return lines.join(eol)
+  }
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop()
+  return [...lines, '', '## Follow-ups', `- ${text}`, ''].join(eol)
+}
