@@ -324,14 +324,15 @@ const TOOL_WORDS: [RegExp, string][] = [
 const toolWords = (t: string) => TOOL_WORDS.find(([re]) => re.test(t))?.[1] ?? (t === '' ? 'Thinking' : `Using ${t}`)
 const clockOf = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
-/** The strip at the top of every desktop view: animated while the session or its agents work, a quiet "Idle" otherwise. */
+/** The strip at the top of every desktop view: animated while the session or its agents work ("Claude is working", or "Waiting on N agents" once the main turn ended), a quiet "Idle" otherwise. */
 export function ActivityBar($: $, ui: UI): RenderChildren {
   const { Box, Text, Button } = ui
   const live = S.agents.filter(isLive)
   const writing = S.jobs.size
+  const adopting = S.adoptJob !== undefined
   const isBusy = S.busySince !== 0
   const hex = isBusy ? G.accent : HUE.violet
-  if (!isBusy && live.length === 0 && writing === 0) {
+  if (!isBusy && live.length === 0 && writing === 0 && !adopting) {
     return (
       <Box key="activity" flexDirection="row" gap={1} alignItems="center">
         <Text color={G.faint} size="footnote">
@@ -340,11 +341,15 @@ export function ActivityBar($: $, ui: UI): RenderChildren {
       </Box>
     )
   }
+  // The main turn has ended but work goes on in the background: the session waits on its agents, not on the person.
+  const agents = `${live.length} agent${live.length === 1 ? '' : 's'}`
   const parts: string[] = []
   if (isBusy) parts.push(`Claude is working · ${toolWords(S.busyTool)} · since ${clockOf(S.busySince)}`)
-  else parts.push('Claude is waiting for you')
-  if (live.length > 0) parts.push(`${live.length} agent${live.length === 1 ? '' : 's'} running`)
+  else parts.push(live.length > 0 ? `Waiting on ${agents}` : 'Waiting on the AI')
+  if (isBusy && live.length > 0) parts.push(`${agents} running`)
   if (writing > 0) parts.push(`AI writing ${writing} ticket${writing === 1 ? '' : 's'}`)
+  if (adopting) parts.push('AI converting your docs')
+  if (!isBusy) parts.push(live.length > 0 ? `Claude continues when ${live.length === 1 ? 'it reports' : 'they report'}` : 'the board updates when it is done')
   return (
     <Box key="activity" flexDirection="column" gap={0} backgroundColor={tint(hex, 0.08)} borderStyle="round" borderColor={tint(hex, 0.4)} paddingX={1}>
       <Box flexDirection="row" gap={1} alignItems="center" justifyContent="space-between">
