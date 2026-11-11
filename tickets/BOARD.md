@@ -34,6 +34,8 @@ the checker fails the ticket if they are stale.
 | 0018 | Light colors hide buttons, tabs and text | done | solo | — | — | merged 9ff6f75, all 5 checks PASS, 213/213 · cause: desktop native buttons draw labels in app colors on painted glass; fix: inverseText plates + darker palette · needs a person to look in each Colors setting (plate width in column cells unverified) |
 | 0019 | Light mode that follows the app | done | solo | 0018 | — | merged 611eb71, all 6 checks PASS, 263/263 · dark+dark unchanged except 0018 plates removed · needs a person to look: app light/dark × Colors app/dark/light; narrow-pane overflow of plated groups unverified |
 | 0020 | Pane goes blank: README view too large | done | solo | — | — | merged 09f0086, all 6 checks PASS, 299/299 · real README = 8 parts, max 57.6K chars · guard checks characters only (nodes/depth not checked, low risk) · follow-ups: board paging at ~26 visible tickets, per-project Colors, remaining explicit-undefined props |
+| 0021 | Activity strip says "waiting for you" while agents work | in-progress | solo | — | worker | reported 2026-11-11 (screenshot) |
+| 0022 | Large plans and boards shown in pages | in-progress | solo | 0020 | worker | ticket-board-gui plan (8 phases, 49 builds) = 149.8K chars > 100K; board limit ~26 rows |
 
 How to read this board:
 
