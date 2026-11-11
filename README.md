@@ -15,6 +15,8 @@ tickets/
 
 Status flow: `draft` → `ready` → `in-progress` → `in-check` → `done`, and any status → `blocked`.
 
+Above the tickets, a project can keep a **design** (`design/DESIGN.md`, numbered sections D1…) and a **plan** (`design/PLAN.md`, phases P1… of sized builds), both plain Markdown in the format of [docs/STANDARD.md](docs/STANDARD.md). The pane shows how far the plan is (a **Plan %** tile and a **Roadmap** card on the board), has **Plan** and **Design** views, turns builds into tickets, and walks a new project from git to a first ticket on the **Start** screen. Already have notes, a spec or an old roadmap? **I already have docs…** has AI convert them to the standard, and you review the result before anything is written.
+
 The files stay the single source of truth. The pane reads them and changes them in small, exact edits, so the router, the workers, git and you editing by hand all keep working as before.
 
 ---
@@ -23,19 +25,20 @@ The files stay the single source of truth. The pane reads them and changes them 
 
 1. [Install](#install)
 2. [Quick start](#quick-start)
-3. [The pane, view by view](#the-pane-view-by-view) (including the [project header and README](#project-header-and-readme) and the [Start screen](#start-screen) for new projects)
+3. [The pane, view by view](#the-pane-view-by-view) (including the [project header and README](#project-header-and-readme), the [Start screen](#start-screen) for new projects, the [Roadmap](#roadmap) and the [Plan and Design views](#plan-and-design-views))
 4. [Answering open questions](#answering-open-questions)
 5. [Draft → ready (and the ready check)](#draft--ready-and-the-ready-check)
 6. [Creating a ticket with the AI writer](#creating-a-ticket-with-the-ai-writer)
 7. [Creating tickets from the plan](#creating-tickets-from-the-plan)
 8. [Replanning](#replanning)
-9. [Run this ticket](#run-this-ticket)
-10. [Using it with the super-agent router](#using-it-with-the-super-agent-router)
-11. [The `/board` command and keys](#the-board-command-and-keys)
-12. [Settings](#settings)
-13. [How it edits your files](#how-it-edits-your-files)
-14. [Troubleshooting](#troubleshooting)
-15. [Development](#development)
+9. [Adopting existing docs](#adopting-existing-docs)
+10. [Run this ticket](#run-this-ticket)
+11. [Using it with the super-agent router](#using-it-with-the-super-agent-router)
+12. [The `/board` command and keys](#the-board-command-and-keys)
+13. [Settings](#settings)
+14. [How it edits your files](#how-it-edits-your-files)
+15. [Troubleshooting](#troubleshooting)
+16. [Development](#development)
 
 ---
 
@@ -71,7 +74,7 @@ The plugin includes:
 | `elephant` agent | Runs the built-in brainstorm: holds the whole context for up to 3 rounds, starts 4 goldfish per round and decides what to keep, cut or re-ask, then writes the brief. |
 | `goldfish` agent | One brainstorm lens (user, simplest thing, risk, what's missing) with no shared context. Read-only. |
 | `fresh-reader` agent | Reads only DESIGN.md and returns the questions a stranger would have, per section. Read-only. |
-| `planner` agent | Drafts PLAN.md and runs the coverage review for `/ticket-board:planning`, or writes the replan proposal. |
+| `planner` agent | Drafts PLAN.md and runs the coverage review for `/ticket-board:planning`, writes the replan proposal, or converts your existing docs into an adopt proposal ([Adopting existing docs](#adopting-existing-docs)). |
 
 ## Quick start
 
@@ -81,13 +84,14 @@ The plugin includes:
 3. Press **+ New ticket**, describe what you want, and press **Create draft + enhance with AI**.
 4. When the AI finishes, answer its open questions in the pane, press **✓ Mark ready**, then **▶ Run this ticket**.
 
-To try it without touching a real project, copy the demo board:
+To try it without touching a real project, copy one of the demos:
 
 ```bash
 cp -R ~/.claude/plugins/marketplaces/ticket-board/examples/demo-board /tmp/demo && cd /tmp/demo && claude
+cp -R ~/.claude/plugins/marketplaces/ticket-board/examples/demo-roadmap /tmp/demo-roadmap && cd /tmp/demo-roadmap && claude
 ```
 
-Then run `/board`. The demo has one ticket of each kind: done, ready (waiting on a blocker), draft with open questions, and blocked.
+Then run `/board`. **demo-board** has one ticket of each kind: done, ready (waiting on a blocker), draft with open questions, and blocked. **demo-roadmap** is a small salon booking project with a design (six sections at version 2: one changed by a redesign, one dropped), a plan of three phases (S, M and L builds with Covers and Ticket cells), one change note in `design/changes/` and six tickets in mixed statuses with `Plan:` and `Design:` lines. It opens with a **Plan %** tile, a populated **Roadmap** card in phase P2, and its alerts: a stale ticket (0003, written against D3 rev 1), a build with no ticket (P3.2) and one off-plan bug (0006). Press **Plan** and **Design** to see the other views.
 
 ## The pane, view by view
 
@@ -105,12 +109,8 @@ It re-reads the board every few seconds while it is open, and right after any to
 
 Tickets are a **table** — ID, Type, Title, Phase (when there is a plan), Status, Result (a one-word tag from the board's notes: Merged, Decided, From GitHub, Failing…), Depends on, Questions, Updated and one next-step button per row (*Answer 2*, *✓ Ready*, *▶ Run*, *Unblock*). Click any column header to sort, again to reverse; sorting by Status groups the rows. The text around the table on BOARD.md is shown below it as *Board notes*.
 
-**Roadmap.** When the board is bound to a plan (the `Design: … · Plan: …` line under the BOARD.md title, else `design/DESIGN.md` and `design/PLAN.md`; format in [docs/STANDARD.md](docs/STANDARD.md)), a **Roadmap** card sits above *Board notes*. It has a phase rail (one segment per phase, filled to the phase's %, a check mark at 100%; a static picture that never captures scrolling) with a link per phase underneath that sets the phase filter (press it again to clear it); a *Now* line with the current phase, *N of M builds built* and *next up P2.4 (no ticket)* (the first unbuilt build whose needs are built; left out once the plan is complete); and one short warning line per roadmap check, for example *Plan is behind design v3*, *D7 has no build*, *Open design questions in D4*, *3 builds have no ticket: …*, *1 stale ticket: 0005* (tickets written against an older Rev of a design section; see [Stale tickets](#board)) and *2 off-plan* (tickets linked to no build). With no plan the card is not drawn. A plan file that cannot be read (no phase or build table in it, or the file BOARD.md names is missing) never breaks the board: it shows as with no plan, plus one warning line. While the plan is behind the design, or a replan proposal still has items to review, the card ends with the **replan banner** (*Plan is behind design v3 · 4 replan items to review*, with **Replan** and **Review replan**; see [Replanning](#replanning)).
+The other views:
 
-**Board / Plan / Design tabs.** When the board has a plan or a design (either one), a row of tabs sits under the project header on every view: **Board**, **Plan** (key `p`) and **Design** (key `d`). A tab whose file does not exist yet is drawn dim and opens an empty state that points to Start, `/design` or `/planning`. On a board with neither file there are no tabs; `/board plan` and `/board design` still open the views. Every Back button and breadcrumb returns to the view you came from (Plan → ticket → Design section → Back → ticket → Back → Plan → Back → Board).
-- **Plan.** The plan's name, its Plan %, the design version it was made from and a **List | Timeline** switch (remembered per project). *List*: one block per phase with its name, a progress bar and %, the appetite, the exit line and where it is on the hill (*uphill*, *at the top*, *over the hill*); press a phase name to fold it (finished phases start folded). Each phase has **✨ Brainstorm** (fills `/ticket-board:brainstorm P2`) and **▶ Run ready (N)**. Under it, a builds table: #, Build, Size, Needs, Covers (one `D` chip per design section; press it to open that section), Ticket (a pill with the ticket's status; press it to open the ticket) and State (not started, shaping, queued, building, built, stuck, deferred, dropped), with **▶ Run** on a build whose ticket is ready. Every number comes from the same roadmap code as the board's Roadmap card. *Timeline*: one lane per phase with a box per build and an arrow for each `Needs` pair, then a hill chart with one dot per phase; both are static pictures (they never capture scrolling), with one link button per build underneath (its ticket, or the build in the list when it has none). **+ Create ticket** on a build with no ticket, **+ Create tickets for P2 (N)** on a phase and **+ Create tickets for all not started (N)** at the top turn builds into draft tickets ([Creating tickets from the plan](#creating-tickets-from-the-plan)); while that runs, a build shows *queued*, *✎ writing* or *failed: <reason>* with **↻ Create again**. A plan the pane cannot read shows a warning and a pointer to `/ticket-board:planning` instead.
-- **Design.** The design's name, version, status and **Design %** (built sections of the numbered, non-dropped ones). A **Sections** list marks each section's coverage: ○ unplanned, ◔ planned, ◐ building, ● built, ⚠ stale (a ticket was written against an older Rev), – dropped. The selected section shows *Why*, *What*, *Done when*, **Implemented by** (each build that covers it and its tickets, all clickable), **✨ Brainstorm this** (`/brainstorm D3`) and **Redesign this section** (`/design D3`). Its **open questions** are answered inline: the box is ticked and `**Resolved <date> (human): …**` goes under the question in DESIGN.md, the same format as tickets. While the design is `status: draft`, **✓ Approve design** is shown; it stays dim and says which sections still have open questions until none are left, then sets `status: approved` (and `updated:`) in DESIGN.md, writes no other file, and puts `/planning` in your prompt box. **History** lists the notes in `design/changes/` newest first (left out when there is no such folder); for a redesign note (`<date>-design-vN.md`) it reads the note's `## Changes` bullets and adds the sections it changed and their new Revs, e.g. *Design v3 · 2026-11-10 · D3 now rev 2, D9 added, D7 dropped*. A DESIGN.md without numbered sections or front matter shows a warning instead of breaking the pane.
-- **Replan review.** Opened from **Review replan** on the replan banner: the newest `design/changes/<date>-replan.md` proposal's open items grouped Add / Change / Drop / Follow-up, one checkbox each with its reason under it (nothing ticked by default), with **Apply selected (N)** and **Dismiss selected**. See [Replanning](#replanning).
 - **Ticket.** A breadcrumb back to the board and *Prev / Next* through the current filtered list; the type, status and mode; a progress stepper (Draft → Ready → In progress → In check → Done); one primary action (*Answer questions*, *Mark ready* or *Run*) plus *Enhance with AI*, **✨ Brainstorm** (key `b`, fills `/ticket-board:brainstorm 0007`) and *Discuss in chat*. The breadcrumb reads where Back goes (*‹ Board*, *‹ Plan*, …). The left column holds the full progress notes from BOARD.md, the open questions (answer inline, *Suggest an answer*), the ready check and the ticket itself with *Requirements* (rd.md) and *Acceptance checks* (eval.md) tabs. The right column is a **Properties** panel where you change the type, mode and dependencies, see the plan item and design chips (when there is a plan), the owner and folder, and block or hand-fix the status.
 - **New ticket.** Pick Feature, Bug or Chore, give an optional title and a description (the placeholder tells you what a good bug report or feature request contains), set mode and dependencies, then *Create + AI enhance*.
 
@@ -134,10 +134,11 @@ A project with no design, no plan and no tickets (no ticket folders and no board
   - **Git repository**: `✓ main · 0 commits` (or `has commits`), `! not a git repo`, or `? git status unknown` when `.git` is there but cannot be read. With no repo the button reads *Initialise git and make the first commit*; with a repo and no commit, *Make the first commit* (*… and push* when origin is set).
   - **GitHub repository**: `✓ owner/repo`, or `! No GitHub repository` with *Create private repo on GitHub* and **Skip**. Tickets work locally; the router needs origin to open PRs. An origin on another host (GitLab, your own server) counts as set up. Skip is remembered per project and the line then reads *skipped*.
 - **Idea:** a *What are you building?* box with **✨ Brainstorm it first** (puts `/brainstorm <your idea>` in the prompt box) and **Go straight to design** (`/design <your idea>`). Both stay dimmed and do nothing until the box has text. In a folder that already has code but no docs, **Draft a design from the code** puts `/design Draft a design from the existing code in this repository.` in the prompt box (no text needed).
-- **Design, Plan, Tickets:** once a brainstorm result is saved (`design/brief.md` or a file under `design/brainstorms/`), **Write the design from …** fills `/ticket-board:design <that file>`. Once `DESIGN.md` exists, **Plan the builds from the design** fills `/ticket-board:planning`. With both, the last step offers **+ New ticket** (or **Set up board** when there is no board yet). The `/brainstorm`, `/design` and `/planning` skills come in a later release; until then the filled line is a request you can edit.
+- **Design, Plan, Tickets:** once a brainstorm result is saved (`design/brief.md` or a file under `design/brainstorms/`), **Write the design from …** fills `/ticket-board:design <that file>`. Once `DESIGN.md` exists, **Plan the builds from the design** fills `/ticket-board:planning`. With both, the last step offers **+ New ticket** (or **Set up board** when there is no board yet).
+- **I already have docs…** (key `h`; on the Idea step, and while only one of the design and the plan exists): asks for the files or folders that hold your existing docs and has AI convert them to a design and a plan you review before anything is written. See [Adopting existing docs](#adopting-existing-docs).
 - **Set up board only** (no board yet): does what *Set up board* always did, then shows the board.
 
-**The buttons never run anything.** Each one only fills your prompt box with a request, such as *Initialise git here and make the first commit.* or *Create a private GitHub repository for this project with `gh repo create --private`, add it as origin and push.* You read it, change it if you like (for example to make the repo public), and press Enter. Claude then runs the commands with its own tools and asks you before each one. If the prompt box already has text in it, the pane shows the line to copy instead.
+**The buttons never run anything** (except **Set up board only** and **I already have docs…**, which starts the converting agent). Each one only fills your prompt box with a request, such as *Initialise git here and make the first commit.* or *Create a private GitHub repository for this project with `gh repo create --private`, add it as origin and push.* You read it, change it if you like (for example to make the repo public), and press Enter. Claude then runs the commands with its own tools and asks you before each one. If the prompt box already has text in it, the pane shows the line to copy instead.
 
 Design and plan are found from the `Design: … · Plan: …` line under the title of `BOARD.md`, else `design/DESIGN.md` and `design/PLAN.md` in any case (see [docs/STANDARD.md](docs/STANDARD.md)). The git lines come from plain files (`.git/HEAD`, `.git/config`, the branch's ref or `packed-refs`, and a linked worktree's `.git` pointer file), so Start works the same in the terminal and the desktop app and never starts a process.
 
@@ -145,12 +146,23 @@ Design and plan are found from the `Design: … · Plan: …` line under the tit
 
 In the terminal the Start screen has the same content as plain text, with the steps as a numbered list and the same buttons and keys.
 
+### Roadmap
+
+When the board is bound to a plan (the `Design: … · Plan: …` line under the BOARD.md title, else `design/DESIGN.md` and `design/PLAN.md`; format in [docs/STANDARD.md](docs/STANDARD.md)), a **Roadmap** card sits above *Board notes*. It has a phase rail (one segment per phase, filled to the phase's %, a check mark at 100%; a static picture that never captures scrolling) with a link per phase underneath that sets the phase filter (press it again to clear it); a *Now* line with the current phase, *N of M builds built* and *next up P2.4 (no ticket)* (the first unbuilt build whose needs are built; left out once the plan is complete); and one short warning line per roadmap check, for example *Plan is behind design v3*, *D7 has no build*, *Open design questions in D4*, *3 builds have no ticket: …*, *1 stale ticket: 0005* (tickets written against an older Rev of a design section; see [Stale tickets](#board)) and *2 off-plan* (tickets linked to no build). With no plan the card is not drawn. A plan file that cannot be read (no phase or build table in it, or the file BOARD.md names is missing) never breaks the board: it shows as with no plan, plus one warning line. While the plan is behind the design, or a replan proposal still has items to review, the card ends with the **replan banner** (*Plan is behind design v3 · 4 replan items to review*, with **Replan** and **Review replan**; see [Replanning](#replanning)).
+
+### Plan and Design views
+
+**Board / Plan / Design tabs.** When the board has a plan or a design (either one), a row of tabs sits under the project header on every view: **Board**, **Plan** (key `p`) and **Design** (key `d`). A tab whose file does not exist yet is drawn dim and opens an empty state that points to Start, `/design` or `/planning`. On a board with neither file there are no tabs; `/board plan` and `/board design` still open the views. Every Back button and breadcrumb returns to the view you came from (Plan → ticket → Design section → Back → ticket → Back → Plan → Back → Board).
+- **Plan.** The plan's name, its Plan %, the design version it was made from and a **List | Timeline** switch (remembered per project). *List*: one block per phase with its name, a progress bar and %, the appetite, the exit line and where it is on the hill (*uphill*, *at the top*, *over the hill*); press a phase name to fold it (finished phases start folded). Each phase has **✨ Brainstorm** (fills `/ticket-board:brainstorm P2`) and **▶ Run ready (N)**. Under it, a builds table: #, Build, Size, Needs, Covers (one `D` chip per design section; press it to open that section), Ticket (a pill with the ticket's status; press it to open the ticket) and State (not started, shaping, queued, building, built, stuck, deferred, dropped), with **▶ Run** on a build whose ticket is ready. Every number comes from the same roadmap code as the board's Roadmap card. *Timeline*: one lane per phase with a box per build and an arrow for each `Needs` pair, then a hill chart with one dot per phase; both are static pictures (they never capture scrolling), with one link button per build underneath (its ticket, or the build in the list when it has none). **+ Create ticket** on a build with no ticket, **+ Create tickets for P2 (N)** on a phase and **+ Create tickets for all not started (N)** at the top turn builds into draft tickets ([Creating tickets from the plan](#creating-tickets-from-the-plan)); while that runs, a build shows *queued*, *✎ writing* or *failed: <reason>* with **↻ Create again**. A plan the pane cannot read shows a warning and a pointer to `/ticket-board:planning` instead.
+- **Design.** The design's name, version, status and **Design %** (built sections of the numbered, non-dropped ones). A **Sections** list marks each section's coverage: ○ unplanned, ◔ planned, ◐ building, ● built, ⚠ stale (a ticket was written against an older Rev), – dropped. The selected section shows *Why*, *What*, *Done when*, **Implemented by** (each build that covers it and its tickets, all clickable), **✨ Brainstorm this** (`/brainstorm D3`) and **Redesign this section** (`/design D3`). Its **open questions** are answered inline: the box is ticked and `**Resolved <date> (human): …**` goes under the question in DESIGN.md, the same format as tickets. While the design is `status: draft`, **✓ Approve design** is shown; it stays dim and says which sections still have open questions until none are left, then sets `status: approved` (and `updated:`) in DESIGN.md, writes no other file, and puts `/planning` in your prompt box. **History** lists the notes in `design/changes/` newest first (left out when there is no such folder); for a redesign note (`<date>-design-vN.md`) it reads the note's `## Changes` bullets and adds the sections it changed and their new Revs, e.g. *Design v3 · 2026-11-10 · D3 now rev 2, D9 added, D7 dropped*. A DESIGN.md without numbered sections or front matter shows a warning instead of breaking the pane.
+- **Replan review.** Opened from **Review replan** on the replan banner: the newest `design/changes/<date>-replan.md` proposal's open items grouped Add / Change / Drop / Follow-up, one checkbox each with its reason under it (nothing ticked by default), with **Apply selected (N)** and **Dismiss selected**. See [Replanning](#replanning).
+
 ### Board
 
 The board view **is** your `BOARD.md`, live and clickable. It shows the file as written: the heading and intro above the table, the table itself as interactive rows, and the status flow and legend below it. When the router, a worker or your editor changes the file, the view updates on its own.
 
 - **Counts** for each status, e.g. `draft 3  ready 2  in-progress 1  done 9`.
-- **Version label:** a small, muted `ticket-board 0.4.15` (the version that is actually running, read from the plugin's own `plugin.json`): at the end of the counts line in the terminal, after `tickets/BOARD.md · N tickets` under the title on the desktop. Turn it off with the *Show version* setting; when the version cannot be read it is simply not shown.
+- **Version label:** a small, muted `ticket-board 0.5.0` (the version that is actually running, read from the plugin's own `plugin.json`): at the end of the counts line in the terminal, after `tickets/BOARD.md · N tickets` under the title on the desktop. Turn it off with the *Show version* setting; when the version cannot be read it is simply not shown.
 - **Plan line** (when there is a plan): `Plan 46% · P2 60% · design v3 (plan behind) · tickets 40%` (plan %, the current phase and its %, the design version, and the share of tickets done), and the first roadmap warning under it.
 - **Buttons:** **+ New ticket**, **▶ Run ready (N)** (when any ticket can run), **Refresh**, **Agents ● N** (opens the [Agents](#the-pane-view-by-view) panel).
 - **Show:** *All* (the default, so it reads like the file), *Needs me* (draft + blocked), *Not done*, or one status.
@@ -298,6 +310,24 @@ After a redesign (DESIGN.md `version` bumped, a change note in `design/changes/`
 
 **Safety.** The proposal's front matter records `plan-hash`, a fingerprint of PLAN.md when the proposal was made. If PLAN.md changed on disk since, **Apply selected** stops with *plan changed; regenerate the proposal* and writes nothing: press **↻ New proposal** on the banner. Applying with nothing ticked is a no-op. A proposal that cannot be read (or has none of the four headings) shows its file path on the banner and the review screen.
 
+## Adopting existing docs
+
+A project that already has notes, a spec or an old roadmap does not have to start the design over. On the [Start screen](#start-screen), **I already have docs…** (key `h`) opens **Adopt existing docs**:
+
+1. **Name your docs.** Type one or more file or folder paths inside the project, separated by commas or new lines (`notes/roadmap.md, docs/spec/`), and press **Convert with AI** (or Enter). There is no file dialog. Empty input, a path outside the project (an absolute path elsewhere, `~/…`, or `../` climbing out) and a path that does not exist each show an error and start nothing.
+2. **Converting.** The pane starts one background agent, `ticket-board:planner` in adopt mode, with the model from the *Ticket writer model* setting. It takes one of the 3 writer slots ([Creating tickets from the plan](#creating-tickets-from-the-plan)). It reads only the files you named and the code it needs for context, and writes **only** `design/changes/<date>-adopt.md`: a DESIGN.md draft, a PLAN.md draft, one line per source file saying what it became (`D1, P1.2`) or why it was left out, and one reason per section, phase and build. A tool guard refuses every other write, so your files, DESIGN.md, PLAN.md and BOARD.md are not touched. The format is in [docs/STANDARD.md, section 9](docs/STANDARD.md#9-adopting-existing-documents).
+3. **Review.** When the agent is done the same view shows the proposal: the sources, the proposed DESIGN.md with one checkbox per section, and the proposed PLAN.md with one checkbox per phase and build, each with its reason under it. Everything starts ticked; untick what you do not want (unticking a phase leaves out its builds too). **Show DESIGN.md / PLAN.md** previews each file as it will be written. **Nothing is written to DESIGN.md, PLAN.md or BOARD.md until you press Apply selected.** **Convert other files** goes back to step 1; the proposal stays in `design/changes/` and is offered again the next time you open the view.
+4. **Apply selected (N)** writes `design/DESIGN.md` (`status: draft`, `version: 1`) and `design/PLAN.md` (`design-version: 1`) from the ticked items, and the `Design: design/DESIGN.md · Plan: design/PLAN.md` binding line under the BOARD.md title (creating `tickets/BOARD.md` from the template when there is none). A left-out section is also struck from the builds' `Covers`, and a left-out build from `Needs`. It then runs the roadmap's coverage checks and shows their result in the message (*checks: 3 builds with no ticket: …*), opens the Plan view (the Design view when there is no plan), and the Start stepper moves on to Tickets (**‹ Start** shows it).
+
+Rules Apply keeps:
+
+- **It never overwrites an existing DESIGN.md or PLAN.md.** When one is already there it writes nothing and asks you to pick another name (it offers `design/DESIGN-adopted.md`, which you can edit) or **Cancel**. **Apply with these names** writes the files under the new names and binds the board to them.
+- **It never modifies or deletes your source files.** The proposal is the only file the agent writes; after Apply the pane marks it `applied:` in its front matter, so it is not offered again.
+- **Ids are kept.** A source that already uses the standard's ids (D3, P2, P2.1) keeps them, new ones take the next unused number, and nothing is renumbered when you untick an item, so an id is never reused.
+- **No guesses.** Anything the agent cannot map to a section, phase or build becomes an open question in the design, which you answer in the Design view before you approve it.
+
+In the terminal the same flow is plain text: the three steps as a numbered list, then the review with each item numbered (`2. [x] D2 · Salon page`), its reason under it, and the same buttons.
+
 ## Run this ticket
 
 On a **ready** ticket, **▶ Run this ticket** (key `x`) puts a run line in your prompt box. It **never sends it**. You press Enter, so the instruction comes from you, and the session it lands in does the work and moves the status. The pane never sets in-progress itself.
@@ -383,6 +413,7 @@ Keys while the pane has focus:
 | `i`, `u`, `g`, `k` | Start | initialise git, first commit (and push), create GitHub repo, skip GitHub |
 | `b`, `d`, `c` | Start | brainstorm it first, go straight to design, draft a design from the code |
 | `w`, `p`, `n` | Start | write the design from the idea, plan the builds, new ticket |
+| `h` | Start | I already have docs… (adopt existing docs) |
 
 You can also click every button with the mouse.
 
@@ -396,7 +427,7 @@ Change these in `/plugin` → ticket-board → configure:
 | Refresh every (seconds) | `3` | How often the open pane re-reads the board |
 | Open at start | on | Open the pane automatically when a session starts in a project that has a `tickets/` folder: on the board, or on the Start screen when there is no `BOARD.md` yet or no design, plan or tickets. Projects without `tickets/` never open it on their own; run `/board` there to see Start |
 | Ticket writer model | *(session's)* | Model for the AI writer, e.g. `opus` or `sonnet` |
-| Show version | on | Show the running ticket-board version (`ticket-board 0.4.15`) as a small label on the board, so after an update and reload you can tell the new version loaded |
+| Show version | on | Show the running ticket-board version (`ticket-board 0.5.0`) as a small label on the board, so after an update and reload you can tell the new version loaded |
 
 ### Colors
 
@@ -417,7 +448,8 @@ In every scheme and app mode, text keeps at least 4.5:1 contrast against what it
 - **BOARD.md:** finds the ticket's row by number and rewrites only the cells it is changing. Column widths are padded to match. Every other line in the file stays exactly as it was, so `git diff` shows one line. A `|` in your text is escaped. New rows go right after the last row of the table.
 - **rd.md:** an answer is inserted as one `**Resolved <date> (human): …**` line under its question. Nothing else changes.
 - **Conflicts:** each edit reads the file again first. If the row's status is not what you were looking at, the edit is refused and the pane refreshes.
-- **AI writes** go only into the one ticket folder, enforced by a tool guard in the mod. The replan planner may write only its proposal file.
+- **AI writes** go only into the one ticket folder, enforced by a tool guard in the mod. The replan planner may write only its proposal file, and the adopt agent only `design/changes/<date>-adopt.md`.
+- **DESIGN.md, PLAN.md and the binding line (adopting docs):** **Apply selected** in [Adopting existing docs](#adopting-existing-docs) writes new `DESIGN.md` and `PLAN.md` files (never over existing ones), sets the `Design: … · Plan: …` line under the BOARD.md title (replacing the one there, or adding it under the title), creates `tickets/BOARD.md` from the template when there is none, and adds `applied: <date>` to the proposal's front matter. Your source files are never written.
 - **PLAN.md:** Create tickets adds a number to one build's Ticket cell; Apply selected on a replan proposal edits only the rows of the ticked items, the Status column of a dropped build's table and the `design-version` / `updated` front matter keys. Every other line stays as it was.
 - **What it remembers:** your Show/Sort/Mode/Phase choices, the list of AI jobs that are still running, and per project whether you skipped GitHub on the Start screen or dismissed the *No design or plan yet* banner. These live in the pane's own store, never in your project's files. Nothing leaves your machine except the model calls for the AI writer and *Suggest*.
 
@@ -431,11 +463,14 @@ In every scheme and app mode, text keeps at least 4.5:1 contrast against what it
 | `⚠` on a row | A folder `tickets/0012-…/` with no row on the board, or the reverse. Add the row, or fix the folder name. |
 | **Mark ready** missing | The ready check is failing. Open the ticket to see which rule. |
 | *…is now in-progress, not draft — refreshed* | Someone (usually the router) changed that ticket first. Nothing was written. |
-| Buttons (README, + New ticket, Agents) do nothing | Version 0.4.12 or older: when an agent was listed twice, the pane stopped redrawing, so every button looked dead. Update the plugin. Keys such as `o` and `n` only work while the pane has focus; click the pane first. |
-| Not sure which version is running | Look at the version on the board: `ticket-board 0.4.15` on the counts line (terminal) or under the board title (desktop). No label? *Show version* is off in Settings. If an update does not show the new number, reload the session. |
+| Buttons (README, + New ticket, Agents) do nothing | A version before 0.4.13: when an agent was listed twice, the pane stopped redrawing, so every button looked dead. Update the plugin. Keys such as `o` and `n` only work while the pane has focus; click the pane first. |
+| Not sure which version is running | Look at the version on the board: `ticket-board 0.5.0` on the counts line (terminal) or under the board title (desktop). No label? *Show version* is off in Settings. If an update does not show the new number, reload the session. |
 | The pane doesn't open at start | It only opens on its own where it can sit beside the chat. Run `/board`. |
 | The AI writer stopped | The note says why. **Watch** opens its transcript; **✎ Enhance with AI** starts it again. For a ticket from the plan, **↻ Create again** on the build does the same. |
 | A build stays *queued* | Three writer jobs are already running; it starts when one finishes. After a restart the queue is gone: use **✎ Enhance with AI** on the draft ticket. |
+| *design/DESIGN.md already exists: pick another name or cancel* | Adopting never overwrites a design or plan. Edit the name offered (`design/DESIGN-adopted.md`) and press **Apply with these names**, or **Cancel**. |
+| *… is outside the project* / *… was not found in this project* | The adopt box takes paths inside the project only. Use a path relative to the project folder (`notes/roadmap.md`) and check it exists. |
+| *The adopt agent stopped* or *finished without writing …* | Nothing was written. Open **I already have docs…** again and press **Convert with AI**; **Watch** in the Agents panel shows the agent's transcript. |
 | *The prompt box is busy* | Something else is in the prompt box. Copy the line shown and paste it yourself. |
 | Buttons, tabs, the Mode / Phase pickers or the search field look blank | An older version drew them on a background the app's colors were not made for (0.4.19 and older in the dark and light schemes; 0.4.20 left the pickers and the search field without a plate). Update the plugin. Still blank? The pane may have the app's mode wrong: change the app's **Theme** setting once (the pane follows it), or press **Colors** until it says **◐ Colors: app**, which always matches the app. |
 | Black boxes behind buttons and headers in the light colors | Version 0.4.20: every button sat on its own plate. Update the plugin: with the app in light mode the light pane has no plates at all. |
@@ -458,15 +493,16 @@ hooks/register.tsx              the hooks: /board, the pane, the AI writer guard
 hooks/views.tsx                 the pane's views (terminal), the Start screen's logic
 hooks/desk.tsx                  the pane's views on the desktop
 hooks/glass.tsx                 desktop colors and the SVG pictures (rail, bars, timeline, hill)
-hooks/plan.tsx                  the Plan and Design views and their tabs, Create tickets on builds
+hooks/plan.tsx                  the Plan and Design views and their tabs, Create tickets on builds, the replan review
+hooks/adopt.tsx                 adopt existing docs: the path box and the review (both surfaces)
 hooks/store.ts                  reading and writing the board, tickets and the PLAN.md Ticket cell
-hooks/ai.ts                     ticket-writer jobs, the 3-job queue for tickets from the plan, answer suggestions
+hooks/ai.ts                     ticket-writer jobs, the 3-job queue for tickets from the plan, the replan and adopt agents and their Apply, answer suggestions
 hooks/core/                     pure parsing/editing (board table, questions, ready check, filters, roadmap parser and progress, batches and briefs for tickets from the plan)
 agents/ticket-writer.md         the background writer agent
 agents/elephant.md              built-in brainstorm: holds context, runs goldfish rounds, writes the brief
 agents/goldfish.md              one read-only brainstorm lens, no shared context
 agents/fresh-reader.md          reads only DESIGN.md and returns open questions
-agents/planner.md               drafts PLAN.md + coverage review, or the replan proposal
+agents/planner.md               drafts PLAN.md + coverage review, the replan proposal, or the adopt proposal
 skills/ticket/                  the /ticket rules and templates
 skills/brainstorm/              /ticket-board:brainstorm (EGM bridge + built-in elephant/goldfish)
 skills/design/                  /ticket-board:design (design and redesign)
@@ -477,11 +513,12 @@ templates/plan.md                 (format in docs/STANDARD.md)
 templates/brief.md
 templates/change.md
 docs/STANDARD.md                the file standard for the design and plan above tickets
-examples/demo-board/            a demo project
-tests/                          claude plugin test suites
+examples/demo-board/            a demo project (tickets only)
+examples/demo-roadmap/          a demo project with a design, a plan, a change note and tickets
+tests/                          claude plugin test suites (tests/demo-roadmap.ts is a copy of the demo, as tests cannot read files)
 ```
 
-The parsing and editing code in `hooks/core/` has no side effects and is covered by `tests/core.test.ts`. `tests/roadmap.test.ts` covers the roadmap parser (`hooks/core/roadmap.ts`) and the rd.md `Plan:` / `Design:` readers on three fixtures: a blank project, a full design and plan with every build state, coverage state, hill position and roadmap check, and a copy of the factory's phase-less `F1…` plan shape. `tests/pane.test.tsx` drives the real pane over an in-memory board on both surfaces: answer a question, mark ready, run a ticket, and the Start screen (a blank folder, the banner on a board with tickets, the stepper resuming from files, Skip remembered, and every Start button only filling the prompt), and plan progress on a roadmap fixture (a plan with 4 phases and a design at v3: the Plan % tile and terminal plan line against `progress()`, the Roadmap card and its warnings, the phase filter, sort and *Clear filters*, the ticket's plan item, design chips and stale notice, a plan that cannot be read, and the unchanged no-plan board). The Start screen's git and step detection, and the phase filter and sort, are covered in `tests/core.test.ts`, as are tickets from the plan (batch order, Blocked by from `Needs`, the writer brief, the PLAN.md Ticket cell edit and the docs check). The pane tests drive Create tickets on both surfaces with a fake agent spawner: a phase of 5 builds (one already ticketed), the 3-job queue, the brief and the files, a missing docs step, an unselected needed build, a failed writer and **↻ Create again**. Redesign notes and stale tickets are covered in both: core tests for `D3@1` against `Rev: 2` (stale, in the alerts) and `D3@2` (not), done and in-progress tickets flagged, malformed `Design:` lines and unknown sections ignored, and the change-note reader; pane tests on both surfaces for the stale chip on the row and the ticket page, Review opening the ticket page with no job and no write (the done ticket's files and board row byte-identical), and the History line from a redesign note.
+The parsing and editing code in `hooks/core/` has no side effects and is covered by `tests/core.test.ts`. `tests/roadmap.test.ts` covers the roadmap parser (`hooks/core/roadmap.ts`) and the rd.md `Plan:` / `Design:` readers on three fixtures: a blank project, a full design and plan with every build state, coverage state, hill position and roadmap check, and a copy of the factory's phase-less `F1…` plan shape. `tests/pane.test.tsx` drives the real pane over an in-memory board on both surfaces: answer a question, mark ready, run a ticket, and the Start screen (a blank folder, the banner on a board with tickets, the stepper resuming from files, Skip remembered, and every Start button only filling the prompt), and plan progress on a roadmap fixture (a plan with 4 phases and a design at v3: the Plan % tile and terminal plan line against `progress()`, the Roadmap card and its warnings, the phase filter, sort and *Clear filters*, the ticket's plan item, design chips and stale notice, a plan that cannot be read, and the unchanged no-plan board). The Start screen's git and step detection, and the phase filter and sort, are covered in `tests/core.test.ts`, as are tickets from the plan (batch order, Blocked by from `Needs`, the writer brief, the PLAN.md Ticket cell edit and the docs check). The pane tests drive Create tickets on both surfaces with a fake agent spawner: a phase of 5 builds (one already ticketed), the 3-job queue, the brief and the files, a missing docs step, an unselected needed build, a failed writer and **↻ Create again**. Redesign notes and stale tickets are covered in both: core tests for `D3@1` against `Rev: 2` (stale, in the alerts) and `D3@2` (not), done and in-progress tickets flagged, malformed `Design:` lines and unknown sections ignored, and the change-note reader; pane tests on both surfaces for the stale chip on the row and the ticket page, Review opening the ticket page with no job and no write (the done ticket's files and board row byte-identical), and the History line from a redesign note. Adopting existing docs (0009) is covered in both: core tests parse `examples/demo-roadmap` (through its copy in `tests/demo-roadmap.ts`: no warnings, Plan % between 0 and 100, current phase P2, exactly the stale, no-ticket and off-plan alerts) and the adopt proposal, Apply's left-out items and kept ids, the binding line and the path rules; pane tests on both surfaces open the demo, run the adopt flow end to end with a fake agent (paths, the write guard, the review, untick one, Apply), the error cases (empty, outside, missing, an existing DESIGN.md with *pick another name or cancel*), and check the adopt screens' contrast in every Colors setting and app mode.
 
 ## License
 

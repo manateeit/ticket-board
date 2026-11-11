@@ -6,6 +6,9 @@ import { boardCols } from '../hooks/desk'
 import { railSvg } from '../hooks/glass'
 import { runLine, today } from '../hooks/core/query'
 import { PLAN_COLS } from '../hooks/plan'
+import { bindFromBoard } from '../hooks/core/roadmap'
+import { DEMO_ROADMAP } from './demo-roadmap'
+import { ADOPT_NOTES, adoptProposal } from './adopt-fixture'
 
 const BOARD = `# Ticket board
 
@@ -2989,6 +2992,266 @@ for (const scheme of ['auto', 'dark', 'light'] as const) {
       await openReviewProblem(ui)
       await check(ui, 'review unreadable')
       await ui.unmount()
+      expect(failures).toEqual([])
+    })
+  }
+}
+
+// ---------- Adopt existing docs and the demo roadmap (0009) ----------
+
+/** The demo project as the fake file system holds it: tickets/ as is, the rest under /repo/. */
+function demoFiles(): Record<string, string> {
+  const out: Record<string, string> = { ...GIT_READY }
+  for (const [k, v] of Object.entries(DEMO_ROADMAP)) out[k.startsWith('tickets/') ? k : `/repo/${k}`] = v
+  return out
+}
+
+function demoRm() {
+  const board = parseBoard(DEMO_ROADMAP['tickets/BOARD.md']!)!
+  const rdOf = (n: string) => Object.entries(DEMO_ROADMAP).find(([k]) => k.startsWith(`tickets/${n}-`) && k.endsWith('/rd.md'))?.[1]
+  const b = bindFromBoard(DEMO_ROADMAP['tickets/BOARD.md'], p => DEMO_ROADMAP[p])
+  return roadmap(b.design, b.plan, board.rows.map(r => ticketRef(r, rdOf(r.number))))
+}
+
+const ADOPT_DATE = () => today(Date.now())
+const ADOPT_PATH = () => `/repo/design/changes/${ADOPT_DATE()}-adopt.md`
+const NOTES_PATH = '/repo/notes/salon.md'
+
+/** A project with notes and no design, plan or board. */
+const adoptFiles = (extra: Record<string, string> = {}): Record<string, string> => ({ ...GIT_READY, [NOTES_PATH]: ADOPT_NOTES, '/repo/src/app.ts': 'export {}\n', ...extra })
+
+async function openAdoptView(ui: any) {
+  await ui.find({ key: 'start-adopt' })
+  await ui.press({ key: 'start-adopt' })
+  await ui.find({ type: 'Text', text: /Adopt existing docs/ })
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`demo roadmap opens with a Plan % tile, the Roadmap card, a current phase and its alerts (${surface})`, async ($, on) => {
+    const rm = demoRm()
+    const pct = rm.progress.planPct
+    expect(pct).toBeGreaterThan(0)
+    expect(pct).toBeLessThan(100)
+    const { ui } = await boot($, on, surface, demoFiles(), { blank: true })
+    await ui.find({ type: 'Text', text: /Book a free slot/ })
+    let drawn = await drawnText(ui)
+    const p2 = rm.progress.phases.find(x => x.id === 'P2')!
+    if (surface === 'desktop') {
+      expect(drawn).toContain(`"${pct}%"`)
+      expect(drawn).toContain('"Plan"')
+      expect(drawn).toContain('ROADMAP')
+      expect(drawn).toContain('viewBox=\\"0 0 640 14\\"') // the phase rail
+      expect(drawn).toContain(`Now: P2 · Booking · ${p2.built} of ${p2.counted} builds built`)
+      expect(drawn).toContain('1 stale ticket: 0003')
+      expect(drawn).toContain('P3.2 has no ticket')
+      expect(drawn).toContain('1 off-plan')
+      expect(drawn).toContain('Written against D3 rev 1, now rev 2')
+    } else {
+      expect(drawn).toContain(`Plan ${pct}% · P2 ${p2.pct}% · design v2 · tickets 33%`)
+    }
+    for (const bad of ['showing tickets only', 'Could not read', 'not found', 'has no ticket table', 'No design or plan yet', 'Plan is behind']) expect(drawn).not.toContain(bad)
+    // Plan and Design views open from the board.
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-toggle-P3' })
+    drawn = await drawnText(ui)
+    expect(drawn).toContain('Waitlist for full days')
+    expect(drawn).not.toContain('cannot read')
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D6' })
+    drawn = await drawnText(ui)
+    expect(drawn).toContain('sec-D5')
+    expect(drawn).toContain('Online booking')
+    await ui.unmount()
+  })
+
+  test(`adopt end to end: paths, one agent, review with nothing written, untick one, Apply writes the draft, plan and binding line (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs, writes } = await boot($, on, surface, adoptFiles(), { blank: true })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    expect(await drawnText(ui)).toMatch(/● Idea/)
+    await openAdoptView(ui)
+    await ui.input({ key: 'adopt-paths', text: 'notes/salon.md', kind: 'submit' } as any)
+    await until(() => w.spawned.length === 1, 'the adopt agent to start')
+    // One background agent, the planner, told to write only the proposal.
+    expect(w.spawned[0]!.description).toBe('Adopt existing docs')
+    const rel = `design/changes/${ADOPT_DATE()}-adopt.md`
+    for (const part of [`Write only ${rel}`, 'notes/salon.md', 'Mode: adopt', 'never reuse or renumber an id', 'becomes an open question']) expect(w.spawned[0]!.prompt).toContain(part)
+    await until(async () => (await drawnText(ui)).includes('Converting notes/salon.md'), 'the converting state')
+    // The agent may write its proposal and nothing else.
+    const agentId = w.spawned[0]!.agentId
+    const call = (file_path: string): Promise<any> => ($ as any).tool.call({ tool: 'Write', file_path, content: 'x', agentId })
+    for (const p of ['/repo/design/DESIGN.md', '/repo/design/PLAN.md', '/repo/tickets/BOARD.md', NOTES_PATH, '/repo/src/app.ts'])
+      expect((await call(p))?.deny).toBe(`ticket-board: the adopt agent may only write ${rel}.`)
+    fs.files.set(ADOPT_PATH(), adoptProposal(ADOPT_DATE()))
+    await w.finish($, agentId)
+    await until(async () => (await drawnText(ui)).includes('Conversion ready: 8 items to review'), 'the review')
+    await ui.find({ key: 'ad-tick-D2' })
+    // Review: every section, phase and build, ticked, with its reason; nothing written yet.
+    let drawn = await drawnText(ui)
+    const on1 = surface === 'desktop' ? '☑' : '[x]'
+    const off = surface === 'desktop' ? '☐' : '[ ]'
+    for (const id of ['D1', 'D2', 'D3', 'P1', 'P1.1', 'P1.2', 'P2', 'P2.1']) expect(drawn).toContain(`ad-tick-${id}`)
+    expect(drawn).toContain(`${on1} D2 · Salon page`)
+    expect(drawn).toContain('the salon page the notes assume; new id')
+    expect(drawn).toContain('notes/old-standup.md → left out (meeting notes with nothing to build)')
+    expect(drawn).toContain('Apply selected (8)')
+    if (surface === 'terminal') expect(drawn).toContain('2. [x] D2 · Salon page')
+    const keys = [...drawn.matchAll(/"key":"([^"]+)"/g)].map(m => m[1]!)
+    expect(keys.filter((k, i) => keys.indexOf(k) !== i)).toEqual([])
+    for (const f of ['/repo/design/DESIGN.md', '/repo/design/PLAN.md', 'tickets/BOARD.md']) expect(fs.files.has(f)).toBe(false)
+    expect(writes).toEqual([])
+    // The preview shows DESIGN.md as it will be written.
+    expect(await drawnText(ui)).not.toContain('Online booking for small salons.')
+    await ui.press({ key: 'adopt-preview-design' })
+    expect(await drawnText(ui)).toContain('Online booking for small salons.')
+    // Untick D2, then Apply.
+    await ui.press({ key: 'ad-tick-D2' })
+    drawn = await drawnText(ui)
+    expect(drawn).toContain(`${off} D2 · Salon page`)
+    expect(drawn).toContain('Apply selected (7)')
+    await ui.press({ key: 'adopt-apply' })
+    await until(async () => (await drawnText(ui)).includes('Adopted 2 sections, 2 phases and 3 builds into design/DESIGN.md and design/PLAN.md'), 'the apply')
+    const design = fs.files.get('/repo/design/DESIGN.md')!
+    expect(design).toContain('status: draft\n')
+    expect(design).toContain('version: 1\n')
+    expect(design).toContain('## D1 · Accounts')
+    expect(design).toContain('## D3 · Booking')
+    expect(design).not.toContain('D2 · Salon page')
+    expect(design).toContain('- [ ] Should a full day offer a waitlist?')
+    const plan = fs.files.get('/repo/design/PLAN.md')!
+    expect(plan).toContain('design-version: 1\n')
+    expect(plan).toContain('| P1.2 | Book a slot | M | P1.1 | D3 | a free slot is booked | — |')
+    expect(fs.files.get('tickets/BOARD.md')).toContain('# Ticket board\n\nDesign: design/DESIGN.md · Plan: design/PLAN.md\n')
+    // The source file is byte-identical and was never written; the proposal stays, marked applied.
+    expect(fs.files.get(NOTES_PATH)).toBe(ADOPT_NOTES)
+    expect(writes).not.toContain(NOTES_PATH)
+    expect(writes.filter(x => !x.startsWith('tickets/')).sort()).toEqual(['/repo/design/DESIGN.md', '/repo/design/PLAN.md', ADOPT_PATH()].sort())
+    expect(fs.files.get(ADOPT_PATH())).toContain(`applied: ${ADOPT_DATE()}`)
+    // The coverage checks ran; the Plan view shows the result.
+    drawn = await drawnText(ui)
+    expect(drawn).toContain('checks: 3 builds with no ticket: P1.1, P1.2, P2.1')
+    await ui.find({ key: 'phase-toggle-P1' })
+    expect(drawn).toContain('Magic link sign-in')
+    // Back goes to Start: the stepper has moved on to Tickets.
+    await ui.press({ key: 'back' })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    expect(await drawnText(ui)).toMatch(/● Tickets/)
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`adopt errors: empty input, a path outside the project and a missing path start nothing (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, writes } = await boot($, on, surface, adoptFiles(), { blank: true })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await openAdoptView(ui)
+    await ui.press({ key: 'adopt-convert' })
+    await ui.find({ type: 'Text', text: /Type one or more file or folder paths inside the project/ })
+    await ui.input({ key: 'adopt-paths', text: '/etc/passwd', kind: 'submit' } as any)
+    await ui.find({ type: 'Text', text: /\/etc\/passwd is outside the project/ })
+    await ui.input({ key: 'adopt-paths', text: '../elsewhere/notes.md', kind: 'submit' } as any)
+    await ui.find({ type: 'Text', text: /\.\.\/elsewhere\/notes\.md is outside the project/ })
+    await ui.input({ key: 'adopt-paths', text: 'notes/salon.md, notes/nope.md', kind: 'submit' } as any)
+    await ui.find({ type: 'Text', text: /notes\/nope\.md was not found in this project/ })
+    expect(w.spawned).toEqual([])
+    expect(writes).toEqual([])
+    expect(await drawnText(ui)).not.toContain('Converting')
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`adopt never overwrites an existing DESIGN.md: pick another name or cancel (${surface})`, async ($, on) => {
+    const existing = '---\ndesign: Old\nversion: 4\nstatus: approved\nupdated: 2026-01-01\n---\n# Old\n\n## D1 · Old thing\nRev: 3\n'
+    const files = adoptFiles({ 'tickets/BOARD.md': BLANK_BOARD, '/repo/design/DESIGN.md': existing, [ADOPT_PATH()]: adoptProposal(ADOPT_DATE()) })
+    const { ui, fs, writes } = await boot($, on, surface, files, { blank: true })
+    // A design and no plan: the board with its banner; Set up opens Start, where the proposal on disk is offered.
+    await ui.find({ key: 'banner-setup' })
+    await ui.press({ key: 'banner-setup' })
+    await openAdoptView(ui)
+    await ui.find({ key: 'ad-tick-D1' })
+    await ui.press({ key: 'adopt-apply' })
+    await ui.find({ type: 'Text', text: /design\/DESIGN\.md already exists: pick another name or cancel/ })
+    expect(fs.files.get('/repo/design/DESIGN.md')).toBe(existing)
+    expect(fs.files.has('/repo/design/PLAN.md')).toBe(false)
+    expect(writes).toEqual([])
+    // Cancel: still nothing written.
+    await ui.press({ key: 'adopt-cancel' })
+    await ui.find({ type: 'Text', text: /Nothing was written/ })
+    expect(await drawnText(ui)).not.toContain('adopt-rename-apply')
+    expect(writes).toEqual([])
+    // Apply again, pick another name: the old DESIGN.md stays as it was.
+    await ui.press({ key: 'adopt-apply' })
+    await ui.find({ key: 'adopt-design-name' })
+    expect(await drawnText(ui)).toContain('design/DESIGN-adopted.md')
+    await ui.input({ key: 'adopt-design-name', text: 'design/DESIGN-salon.md', kind: 'submit' } as any)
+    await ui.press({ key: 'adopt-rename-apply' })
+    await until(() => fs.files.has('/repo/design/DESIGN-salon.md'), 'the renamed design')
+    expect(fs.files.get('/repo/design/DESIGN.md')).toBe(existing)
+    expect(fs.files.get('/repo/design/DESIGN-salon.md')).toContain('status: draft')
+    expect(fs.files.get('tickets/BOARD.md')).toContain('Design: design/DESIGN-salon.md · Plan: design/PLAN.md')
+    expect(writes).not.toContain('/repo/design/DESIGN.md')
+    expect(fs.files.get(NOTES_PATH)).toBe(ADOPT_NOTES)
+    await ui.unmount()
+  })
+}
+
+for (const surface of ['terminal', 'desktop'] as const)
+  test(`the Start screen gives "I already have docs…" one button and the h key (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, adoptFiles(), { blank: true })
+    await ui.find({ key: 'start-adopt' })
+    expect(await hotkeyed(ui, 'h')).toEqual(['start-adopt'])
+    expect(await drawnText(ui)).toContain('I already have docs…')
+    await ui.unmount()
+  })
+
+for (const scheme of ['auto', 'dark', 'light'] as const) {
+  for (const mode of ['light', 'dark'] as const) {
+    const checker = () => {
+      const failures: string[] = []
+      const check = async (ui: any, view: string) => {
+        for (const f of contrastFailures(await ui.drawn(), scheme, mode)) failures.push(`[${view}] ${f}`)
+      }
+      return { failures, check }
+    }
+    const opts = () => ({ blank: true, store: new Map<string, unknown>([['colors', scheme]]), theme: mode })
+
+    test(`every Button and Text is readable in the ${scheme} scheme, app ${mode}: adopt Start, paths, error and converting (desktop)`, async ($, on) => {
+      const { failures, check } = checker()
+      const w = fakeWriter(on)
+      const { ui } = await boot($, on, 'desktop', adoptFiles(), opts())
+      await ui.find({ type: 'Text', text: /Start a project/ })
+      await check(ui, 'start')
+      await openAdoptView(ui)
+      await check(ui, 'adopt paths')
+      await ui.press({ key: 'adopt-convert' })
+      await ui.find({ type: 'Text', text: /Type one or more/ })
+      await check(ui, 'adopt error')
+      await ui.input({ key: 'adopt-paths', text: 'notes/salon.md', kind: 'submit' } as any)
+      await until(() => w.spawned.length === 1, 'the adopt agent')
+      await until(async () => (await drawnText(ui)).includes('Converting notes/salon.md'), 'converting')
+      await check(ui, 'adopt converting')
+      w.done()
+      await ui.unmount()
+      expect(failures).toEqual([])
+    })
+
+    test(`every Button and Text is readable in the ${scheme} scheme, app ${mode}: adopt review, preview and the name prompt (desktop)`, async ($, on) => {
+      const { failures, check } = checker()
+      // The review, its preview and the name prompt, over an existing DESIGN.md.
+      const files = adoptFiles({ 'tickets/BOARD.md': BLANK_BOARD, '/repo/design/DESIGN.md': '# Old\n', [ADOPT_PATH()]: adoptProposal(ADOPT_DATE()) })
+      const second = await boot($, on, 'desktop', files, opts())
+      await second.ui.find({ key: 'banner-setup' })
+      await second.ui.press({ key: 'banner-setup' })
+      await openAdoptView(second.ui)
+      await second.ui.find({ key: 'ad-tick-D1' })
+      await check(second.ui, 'adopt review')
+      await second.ui.press({ key: 'ad-tick-P1' })
+      await second.ui.press({ key: 'adopt-preview-plan' })
+      await check(second.ui, 'adopt preview')
+      await second.ui.press({ key: 'adopt-apply' })
+      await second.ui.find({ key: 'adopt-rename-apply' })
+      await check(second.ui, 'adopt name prompt')
+      await second.ui.unmount()
       expect(failures).toEqual([])
     })
   }

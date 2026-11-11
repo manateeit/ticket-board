@@ -51,6 +51,8 @@ export type View =
   | { kind: 'design'; section?: string; from?: View }
   /** The replan review (0016): the newest replan proposal's items to tick and apply. */
   | { kind: 'replan'; from?: View }
+  /** Adopt existing docs (0009): the path box, the converting state, then the review of the proposal. */
+  | { kind: 'adopt'; from?: View }
 
 export type PlanMode = 'list' | 'timeline'
 /** A writer job. `plan` jobs (0008) write a ticket from a plan build: `build` is its id, `extra` a note kept after the AI status. */
@@ -126,6 +128,16 @@ export const S = {
   replanTicks: new Set<number>(),
   /** An Apply or Dismiss on the replan review is running. */
   isApplying: false,
+  /** The agent converting existing docs (0009): its agent, the proposal it may write and the source paths. */
+  adoptJob: undefined as { agentId: string; path: string; sources: string[] } | undefined,
+  /** The adopt proposal under review (newest unapplied `design/changes/<date>-adopt.md`); undefined when none. */
+  adoptFile: undefined as { name: string; path: string; text: string } | undefined,
+  /** Adopt review: the ids the person unticked. Every section, phase and build starts ticked. */
+  adoptOff: new Set<string>(),
+  /** Set when Apply found DESIGN.md or PLAN.md already there: the other names offered (the person can edit them). */
+  adoptNames: undefined as { design?: string; plan?: string } | undefined,
+  /** Adopt review: which file the preview shows, '' for none. */
+  adoptPreview: '' as '' | 'design' | 'plan',
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -158,7 +170,12 @@ export function resetSession(cwd: string) {
     isCreating: false,
     replanJob: undefined,
     isApplying: false,
+    adoptJob: undefined,
+    adoptFile: undefined,
+    adoptNames: undefined,
+    adoptPreview: '',
   })
+  S.adoptOff.clear()
   S.replanTicks.clear()
   S.planOpen.clear()
   S.planFailed.clear()
@@ -736,6 +753,16 @@ export async function createSkeleton(
   )
   await refresh($, true)
   return { number, folder }
+}
+
+/** Writes `tickets/BOARD.md` from the plugin's template (and `TEMPLATE/rd.md`, `eval.md` when missing). Throws on a failed write. */
+export async function createBoardFiles($: $): Promise<void> {
+  const root = $.plugin.root
+  await $.fs.write(abs(boardPath()), await $.fs.read(abs(`${root}/templates/BOARD.md`)))
+  for (const f of ['rd.md', 'eval.md']) {
+    const path = `${dir()}/TEMPLATE/${f}`
+    if (!(await $.fs.exists(abs(path)))) await $.fs.write(abs(path), await $.fs.read(abs(`${root}/skills/ticket/TEMPLATE/${f}`)))
+  }
 }
 
 /** Adds a new ticket's number to its build's `Ticket` cell in the bound PLAN.md. Only the pane writes PLAN.md. */

@@ -1302,3 +1302,285 @@ export function withNoteFollowUp(md: string, text: string): string {
   while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop()
   return [...lines, '', '## Follow-ups', `- ${text}`, ''].join(eol)
 }
+
+// ── Adopt existing docs (0009) ────────────────────────────────────────────
+
+/** One source file of an adopt proposal: what it became (`D1, P1.2`) or why it was left out. */
+export type AdoptSource = { path: string; text: string; isLeftOut: boolean }
+
+/** What the adopt review ticks: a design section, a plan phase or a build of the drafts. */
+export type AdoptItem = {
+  kind: 'section' | 'phase' | 'build'
+  /** `D3`, `P2`, `P2.1`. */
+  id: string
+  title: string
+  /** A build's phase id (`P2`; '' in a plan without phase headings). */
+  phase?: string
+  /** The `## Reasons` line for this id; '' when the proposal gives none. */
+  reason: string
+  /** One short line: a section's What, a phase's Goal, a build's size, needs and covers. */
+  detail: string
+}
+
+export type AdoptProposal = {
+  /** `YYYY-MM-DD` from the front matter, else from the file name. */
+  date: string
+  /** The project's name for the drafts: front matter `design`, else the draft's own name. */
+  name: string
+  /** The pane applied it (front matter `applied: <date>`): no longer offered for review. */
+  isApplied: boolean
+  sources: AdoptSource[]
+  /** The DESIGN.md and PLAN.md drafts (the fenced blocks under `## DESIGN.md` and `## PLAN.md`). */
+  design?: string
+  plan?: string
+  items: AdoptItem[]
+  /** Format problems and the parsers' warnings on the drafts. */
+  warnings: string[]
+}
+
+const ADOPT_DESIGN = /^##\s+(?:proposed\s+)?(?:design(?:\.md)?|design\s+draft)\s*$/i
+const ADOPT_PLAN = /^##\s+(?:proposed\s+)?(?:plan(?:\.md)?|plan\s+draft)\s*$/i
+const FENCE = /^\s*(`{3,}|~{3,})/
+
+/** The fenced block right under heading line `head` (blank lines allowed before it): its text and the line after its closing fence. */
+function fencedAfter(lines: readonly string[], head: number): { text: string; end: number } | undefined {
+  let i = head + 1
+  while (i < lines.length && lines[i]!.trim() === '') i++
+  const open = FENCE.exec(lines[i] ?? '')
+  if (open === null) return undefined
+  const mark = open[1]!
+  const out: string[] = []
+  for (let j = i + 1; j < lines.length; j++) {
+    const t = lines[j]!.trim()
+    if (t.startsWith(mark) && /^(`+|~+)$/.test(t) && t[0] === mark[0]) return { text: out.join('\n'), end: j + 1 }
+    out.push(lines[j]!)
+  }
+  return { text: out.join('\n'), end: lines.length }
+}
+
+/** The `- ` lines under an H2 heading (`## Sources`, `## Reasons`), each with its indented continuation lines. */
+function listUnder(lines: readonly string[], heading: RegExp): string[] {
+  const head = lines.findIndex(l => heading.test(l))
+  if (head === -1) return []
+  const out: string[] = []
+  for (let i = head + 1; i < lines.length; i++) {
+    const line = lines[i]!
+    if (/^#{1,2}\s/.test(line)) break
+    const m = /^[-*]\s+(.*)$/.exec(line)
+    if (m !== null) out.push(m[1]!.trim())
+    else if (/^\s+\S/.test(line) && out.length > 0) out[out.length - 1] = `${out[out.length - 1]} ${line.trim()}`
+  }
+  return out.filter(l => l !== '' && !/^none\b/i.test(l))
+}
+
+/**
+ * Reads an adopt proposal (`design/changes/<date>-adopt.md`, format in docs/STANDARD.md section 9):
+ * `## Sources` (one line per source file), `## Reasons` (`- D1: …`, one per section, phase and
+ * build), and the DESIGN.md and PLAN.md drafts as fenced blocks under `## DESIGN.md` and
+ * `## PLAN.md`. The review items are every section, phase and build of the drafts. Never throws.
+ */
+export function parseAdopt(md: string | undefined, name = ''): AdoptProposal {
+  const fromName = /^(\d{4}-\d{2}-\d{2})/.exec(name)
+  const out: AdoptProposal = { date: fromName?.[1] ?? '', name: '', isApplied: false, sources: [], items: [], warnings: [] }
+  if (md === undefined || md.trim() === '') {
+    out.warnings.push('the proposal is empty')
+    return out
+  }
+  const lines = md.split(/\r?\n/)
+  const { values } = frontMatter(lines)
+  if (values.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(values.date)) out.date = values.date
+  out.isApplied = (values.applied ?? '') !== ''
+  const dHead = lines.findIndex(l => ADOPT_DESIGN.test(l))
+  const pHead = lines.findIndex(l => ADOPT_PLAN.test(l))
+  const d = dHead === -1 ? undefined : fencedAfter(lines, dHead)
+  const p = pHead === -1 ? undefined : fencedAfter(lines, pHead)
+  if (d !== undefined) out.design = d.text
+  if (p !== undefined) out.plan = p.text
+  if (dHead !== -1 && d === undefined) out.warnings.push('the DESIGN.md draft is not in a fenced block')
+  if (pHead !== -1 && p === undefined) out.warnings.push('the PLAN.md draft is not in a fenced block')
+  if (dHead === -1 && pHead === -1) out.warnings.push('no ## DESIGN.md or ## PLAN.md draft')
+  // Sources and reasons are read outside the drafts only.
+  const outside = lines.map((l, i) => ((d !== undefined && i > dHead && i < d.end) || (p !== undefined && i > pHead && i < p.end) ? '' : l))
+  for (const s of listUnder(outside, /^##\s+sources?\s*$/i)) {
+    const m = /^`?([^`]+?)`?\s*(?::|→|->|—|–)\s*(.*)$/.exec(s)
+    const path = (m?.[1] ?? s).trim()
+    const text = (m?.[2] ?? '').trim()
+    out.sources.push({ path, text, isLeftOut: /^(left out|not used|skipped|ignored)\b/i.test(text) })
+  }
+  const reasons = new Map<string, string>()
+  for (const r of listUnder(outside, /^##\s+reasons?\s*$/i)) {
+    const m = /^(?:\*\*)?([A-Za-z]+\d+(?:\.\d+)*)(?:\*\*)?\s*(?::|·|—|–|-)\s*(.*)$/.exec(r)
+    if (m !== null && !reasons.has(m[1]!.toUpperCase())) reasons.set(m[1]!.toUpperCase(), m[2]!.trim())
+  }
+  const design = parseDesign(out.design)
+  const plan = parsePlan(out.plan)
+  out.name = values.design ?? values.name ?? (design.name || plan.name)
+  out.warnings.push(...design.warnings.filter(w => !/no front matter/.test(w)), ...plan.warnings)
+  const seen = new Set<string>()
+  const add = (it: Omit<AdoptItem, 'reason'>) => {
+    if (seen.has(it.id)) return
+    seen.add(it.id)
+    out.items.push({ ...it, reason: reasons.get(it.id) ?? '' })
+  }
+  for (const s of design.sections) {
+    const qs = s.questions.filter(q => !q.isResolved).length
+    add({ kind: 'section', id: s.id, title: s.title, detail: s.isDropped ? 'dropped' : [s.what, qs === 0 ? '' : `${qs} open question${qs === 1 ? '' : 's'}`].filter(Boolean).join(' · ') })
+  }
+  for (const ph of plan.phases) {
+    if (!ph.isImplicit) add({ kind: 'phase', id: ph.id, title: ph.title, detail: ph.goal })
+    for (const b of ph.builds) {
+      const needs = [...b.needs, ...b.needsOther]
+      add({
+        kind: 'build',
+        id: b.id,
+        title: b.name,
+        phase: ph.id,
+        detail: [b.size || 'unsized', needs.length === 0 ? '' : `needs ${needs.join(', ')}`, b.covers.length === 0 ? 'covers nothing' : `covers ${b.covers.join(', ')}`, b.status].filter(Boolean).join(' · '),
+      })
+    }
+  }
+  return out
+}
+
+/** The ids Apply leaves out: the unticked ones, plus every build of an unticked phase. */
+export function adoptLeftOut(p: AdoptProposal, off: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>()
+  for (const it of p.items) if (off.has(it.id) || (it.kind === 'build' && it.phase !== undefined && it.phase !== '' && off.has(it.phase))) out.add(it.id)
+  return out
+}
+
+/** Removes the `## ` blocks whose heading matches `re` with an id in `ids` (the heading up to the next `## `). */
+function withoutBlocks(md: string, re: RegExp, prefix: string, ids: ReadonlySet<string>): string {
+  const keep: string[] = []
+  let skipping = false
+  for (const line of md.split(/\r?\n/)) {
+    if (/^##\s/.test(line)) {
+      const m = re.exec(line)
+      skipping = m !== null && ids.has(`${prefix}${Number(m[1])}`)
+    }
+    if (!skipping) keep.push(line)
+  }
+  return keep.join('\n')
+}
+
+/** Strips the ids in `ids` from a comma list cell (`D1, D3` → `D1`); `—` when nothing is left. */
+function withoutIds(cell: string, ids: ReadonlySet<string>): string {
+  const parts = cell
+    .split(/[,;]/)
+    .map(s => s.trim())
+    .filter(s => s !== '' && !NONE.test(s))
+  const kept = parts.filter(s => !ids.has(stripMd(s).toUpperCase()))
+  if (kept.length === parts.length) return cell.trim()
+  return kept.length === 0 ? '—' : kept.join(', ')
+}
+
+export type AdoptResult = {
+  /** DESIGN.md as Apply writes it (`status: draft`, `version: 1`); undefined when the proposal has no design. */
+  design?: string
+  /** PLAN.md as Apply writes it (`design-version: 1`); undefined when the proposal has no plan. */
+  plan?: string
+  sections: number
+  phases: number
+  builds: number
+}
+
+/**
+ * The files Apply writes from a proposal and the ids left out: the drafts without the left-out
+ * sections, phases and builds (a build of a left-out phase goes too; a left-out id is struck from
+ * the `Covers` and `Needs` cells of the rest). Every id that stays keeps its number: nothing is
+ * renumbered, so an id is never reused.
+ */
+export function adoptResult(p: AdoptProposal, off: ReadonlySet<string>, date: string): AdoptResult {
+  const out = adoptLeftOut(p, off)
+  const res: AdoptResult = { sections: 0, phases: 0, builds: 0 }
+  if (p.design !== undefined && p.design.trim() !== '') {
+    let md = withoutBlocks(p.design, D_HEADING, 'D', out).replace(/\s*$/, '\n')
+    if (frontMatter(md.split('\n')).values.design === undefined && p.name !== '') md = setFrontMatterKey(md, 'design', p.name)
+    md = setFrontMatterKey(setFrontMatterKey(setFrontMatterKey(md, 'version', '1'), 'status', 'draft'), 'updated', date)
+    res.design = md
+    res.sections = parseDesign(md).sections.filter(s => !s.isDropped).length
+  }
+  if (p.plan !== undefined && p.plan.trim() !== '') {
+    const lines = withoutBlocks(p.plan, P_HEADING, 'P', out).split('\n')
+    for (const t of planTables(lines).reverse())
+      for (let j = t.end - 1; j > t.head; j--) {
+        const line = lines[j]!
+        if (isSeparatorLine(line)) continue
+        const c = cells(line)
+        if (out.has(stripMd(c[t.cols.id!] ?? '').toUpperCase())) {
+          lines.splice(j, 1)
+          continue
+        }
+        let next = line
+        for (const col of [t.cols.covers, t.cols.needs]) {
+          if (col === undefined || c[col] === undefined) continue
+          const v = withoutIds(c[col]!, out)
+          if (v !== c[col]!.trim()) next = replaceCell(next, col, v)
+        }
+        lines[j] = next
+      }
+    let md = lines.join('\n').replace(/\s*$/, '\n')
+    if (frontMatter(md.split('\n')).values.plan === undefined && p.name !== '') md = setFrontMatterKey(md, 'plan', p.name)
+    md = setFrontMatterKey(setFrontMatterKey(md, 'design-version', '1'), 'updated', date)
+    res.plan = md
+    const plan = parsePlan(md)
+    res.phases = plan.phases.filter(x => !x.isImplicit).length
+    res.builds = allBuilds(plan).length
+  }
+  return res
+}
+
+/** Sets the `Design: … · Plan: …` binding line under the BOARD.md title (replacing the one there). Other lines are kept. */
+export function setBindingLine(board: string, design: string | undefined, plan: string | undefined): string {
+  const text = [design === undefined ? '' : `Design: ${design}`, plan === undefined ? '' : `Plan: ${plan}`].filter(Boolean).join(' · ')
+  if (text === '') return board
+  const eol = board.includes('\r\n') ? '\r\n' : '\n'
+  const lines = board.split(/\r?\n/)
+  const tableAt = lines.findIndex(l => isTableLine(l))
+  const before = tableAt === -1 ? lines.length : tableAt
+  const at = lines.findIndex((l, i) => i < before && /^\s*(?:\*\*)?(design|plan)(?:\*\*)?\s*:/i.test(l))
+  if (at !== -1) {
+    lines[at] = text
+    return lines.join(eol)
+  }
+  const title = lines.findIndex((l, i) => i < before && /^#\s/.test(l))
+  if (title === -1) return [text, '', ...lines].join(eol)
+  const add = ['', text]
+  if ((lines[title + 1] ?? '').trim() !== '') add.push('')
+  lines.splice(title + 1, 0, ...add)
+  return lines.join(eol)
+}
+
+/**
+ * The paths typed into the adopt box (comma or newline separated), relative to the project root
+ * `root`. An error for empty input or a path outside the project (an absolute path elsewhere, `~`,
+ * or `..` climbing out). Whether each one exists is checked by the caller.
+ */
+export function adoptPaths(input: string, root: string): { paths: string[]; error?: string } {
+  const raw = input
+    .split(/[\n,]/)
+    .map(s => s.trim().replace(/^["'`]|["'`]$/g, '').trim())
+    .filter(s => s !== '')
+  if (raw.length === 0) return { paths: [], error: 'Type one or more file or folder paths inside the project' }
+  const base = root.replace(/\/+$/, '')
+  const paths: string[] = []
+  for (const p of raw) {
+    if (p.startsWith('~')) return { paths: [], error: `${p} is outside the project` }
+    let rel = p
+    if (p.startsWith('/')) {
+      if (p !== base && !p.startsWith(`${base}/`)) return { paths: [], error: `${p} is outside the project` }
+      rel = p.slice(base.length + 1)
+    }
+    const parts: string[] = []
+    for (const part of rel.split('/')) {
+      if (part === '' || part === '.') continue
+      if (part === '..') {
+        if (parts.length === 0) return { paths: [], error: `${p} is outside the project` }
+        parts.pop()
+      } else parts.push(part)
+    }
+    const norm = parts.length === 0 ? '.' : parts.join('/')
+    if (!paths.includes(norm)) paths.push(norm)
+  }
+  return { paths }
+}

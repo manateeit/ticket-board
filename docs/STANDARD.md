@@ -13,7 +13,7 @@ starting points are in [templates/](../templates/): `design.md`, `plan.md`, `bri
 Contents: [Folder layout](#1-folder-layout) · [DESIGN.md](#2-designmd) · [PLAN.md](#3-planmd) ·
 [Ticket lines](#4-ticket-lines-in-rdmd) · [BOARD.md binding line](#5-boardmd-binding-line) ·
 [Who may write what](#6-who-may-write-what) · [Progress vocabulary](#7-progress-vocabulary) ·
-[Other files](#8-brainstorms-changes-and-decisions)
+[Other files](#8-brainstorms-changes-and-decisions) · [Adopting existing documents](#9-adopting-existing-documents)
 
 ## 1. Folder layout
 
@@ -29,6 +29,7 @@ design/
   brainstorms/2026-11-10-offline-sync.md     one file per brainstorm (whole concept or one item)
   changes/2026-11-10-design-v3.md            one note per redesign
   changes/2026-11-12-replan.md               one note per replan
+  changes/2026-11-10-adopt.md                one proposal per adoption of existing docs
   decisions/0001-router-in-one-session.md    ADRs, optional (NNNN-<slug>.md)
 ```
 
@@ -406,3 +407,100 @@ Design v3 adds D9, changes D3 and drops D7.
 
 `design/decisions/NNNN-<slug>.md` holds an architecture decision record (context, decision,
 consequences) in free prose.
+
+## 9. Adopting existing documents
+
+A project with docs of its own (notes, a spec, an old roadmap or plan) is brought into this
+standard by **adopting** them: the pane's Start screen (**I already have docs…**) starts the
+`planner` agent in adopt mode on the files and folders the person names. The agent writes one
+proposal, `design/changes/<date>-adopt.md` (`<date>-adopt-2.md` when one already exists that day),
+and nothing else; the person reviews it and the pane writes the files on **Apply selected**.
+
+```markdown
+---
+change: adopt
+date: 2026-11-10
+sources: notes/roadmap.md, notes/old-standup.md
+---
+# Adopt existing docs
+
+## Sources
+- notes/roadmap.md: D1, D2, D3, P1, P1.1, P1.2
+- notes/old-standup.md: left out (meeting notes with nothing to build)
+
+## Reasons
+- D1: "Accounts (D1)" in notes/roadmap.md, id kept
+- D2: the salon page the notes assume; new id
+- P1.1: milestone 1 in notes/roadmap.md
+
+## DESIGN.md
+~~~~markdown
+---
+design: Salon
+version: 1
+status: draft
+updated: 2026-11-10
+---
+# Salon: design
+
+## D1 · Accounts
+Rev: 1
+…
+~~~~
+
+## PLAN.md
+~~~~markdown
+---
+plan: Salon
+design-version: 1
+updated: 2026-11-10
+---
+# Salon: plan
+
+## P1 · Foundations
+…
+~~~~
+```
+
+| Part | Holds |
+|---|---|
+| front matter | `change: adopt`, `date`, `sources` (the paths the person named); the pane adds `applied: <date>` after Apply, and an applied proposal is not offered again |
+| `## Sources` | one line per source file: `- <path>: <the ids it became>`, or `- <path>: left out (<why>)` |
+| `## Reasons` | one line per design section, phase and build: `- <id>: <where it comes from>` |
+| `## DESIGN.md` | the whole design draft (section 2) in a fenced block (`~~~~` or a backtick fence longer than any inside it) |
+| `## PLAN.md` | the whole plan draft (section 3) in a fenced block |
+
+How adopted documents map to the standard:
+
+- **Prose about what and why** (vision, problem, users, non-goals) becomes the unnumbered context
+  sections of DESIGN.md.
+- **Each feature, capability or requirement** becomes a numbered `## D<n> · Title` section with
+  `Rev: 1`, `Why`, `What` and `Done when` taken from the source; acceptance criteria and "it
+  works when …" lines become `Done when` bullets.
+- **Milestones, releases or sprints** become phases `## P<n> · Title` (Goal, Appetite, Exit), and
+  their tasks become builds in the phase's build table, sized `S`, `M` or `L`, with `Covers`
+  naming the D sections they implement. An existing ticket number the source names goes into the
+  Ticket cell; otherwise it is `—`.
+- **Ids are kept.** A source that already uses this standard's ids (`D3`, `P2`, `P2.1`) keeps them
+  exactly; everything new takes the next unused number. Nothing is renumbered, so an id is never
+  reused.
+- **Nothing is guessed.** What the agent cannot map (an unclear requirement, two sources that
+  disagree, a "maybe one day") becomes an open question (`- [ ] …`) under the closest design
+  section, to be answered before the design is approved.
+- The design is always `version: 1`, `status: draft`; the plan is `design-version: 1`. Only a
+  person approves the design (section 6).
+
+**Applying.** The review shows one checkbox per section, phase and build, all ticked, with the
+reason under each. On **Apply selected** the pane:
+
+1. leaves out the unticked sections, phases and builds (a phase's builds go with it), strikes a
+   left-out section from the other builds' `Covers` and a left-out build from their `Needs`, and
+   keeps every other id as it is;
+2. writes `design/DESIGN.md` and `design/PLAN.md`, or other names the person picks: an existing
+   DESIGN.md or PLAN.md is **never overwritten** (Apply asks for another name or cancel and writes
+   nothing);
+3. sets the BOARD.md binding line (section 5) to the files written, creating `tickets/BOARD.md`
+   from the template when there is none;
+4. marks the proposal `applied`, and runs the roadmap's coverage checks.
+
+The source files are never modified or deleted.

@@ -10,7 +10,10 @@ import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } f
 import { isReadyable } from './core/ticket'
 import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
 import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
+import { openAdopt } from './adopt'
 import {
+  ADOPT_LABEL,
+  ADOPT_NOTE,
   ASK_NOTE,
   CLEARED,
   ORIGIN_NOTE,
@@ -1439,6 +1442,21 @@ function SetupLine(ui: UI, key: string, mark: string, label: string, detail: str
   )
 }
 
+/** "I already have docs…": opens the adopt flow (0009), where AI converts existing files and you review the result. */
+function AdoptStart($: $, ui: UI): RenderChildren {
+  const { Box, Text, Button } = ui
+  return (
+    <Box key="start-adopt-box" flexDirection="column" gap={0}>
+      <Box key="start-adopt-actions" flexDirection="row" gap={1}>
+        <Button key="start-adopt" label={ADOPT_LABEL} hotkey="h" onPress={() => openAdopt($)} />
+      </Box>
+      <Text key="start-adopt-note" color={G.faint} size="footnote">
+        {ADOPT_NOTE}
+      </Text>
+    </Box>
+  )
+}
+
 /** The Start screen: a Setup → Idea → Design → Plan → Tickets stepper with ways to begin. Buttons only fill the prompt. */
 export function deskStart($: $, ui: UI): RenderChildren {
   const { Box, Text, Button, Input } = ui
@@ -1536,6 +1554,7 @@ export function deskStart($: $, ui: UI): RenderChildren {
                 Type your idea to brainstorm it or go straight to design.
               </Text>
             ) : null,
+            AdoptStart($, ui),
           ],
           { key: 'start-idea-card', title: 'Idea', accent: at === 'idea' || at === 'design' ? tint(G.accent, 0.5) : undefined },
         )}
@@ -1550,6 +1569,7 @@ export function deskStart($: $, ui: UI): RenderChildren {
             ),
             at === 'plan' ? <Button key="start-plan" label="Plan the builds from the design" hotkey="p" variant="primary" onPress={() => startFill($, startPrompt.plan())} /> : null,
             f.hasPlan ? <Text key="plan-file" color={STATUS_HEX.ready!}>{`✓ ${p?.planPath ?? ''}`}</Text> : null,
+            f.hasDesign !== f.hasPlan ? AdoptStart($, ui) : null,
           ],
           { key: 'start-design-card', title: 'Design and plan' },
         )}

@@ -1,7 +1,7 @@
 // ticket-board: tickets/BOARD.md and its tickets in a side pane.
 import type { EngineInterface, Register } from 'claude-code'
 
-import { finishReplan, isInsideFolder, isReplanFile, jobNote, pumpPlanQueue } from './ai'
+import { finishAdopt, finishReplan, isAdoptFile, isInsideFolder, isReplanFile, jobNote, pumpPlanQueue } from './ai'
 import { docsGaps } from './core/ticket'
 import { S, abs, isLive, dir, resetSession, editRow, followAppTheme, loadAgents, loadAppTheme, loadFilters, loadJobs, loadScheme, loadPlanMode, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
@@ -31,7 +31,7 @@ let shownTitle = TITLE
 /** The pane's tab says when work is going on, so a full-size or background pane still tells you. */
 function syncTitle($: $) {
   if (!S.isOpen) return
-  const working = S.busySince !== 0 || S.jobs.size > 0 || S.agents.some(isLive)
+  const working = S.busySince !== 0 || S.jobs.size > 0 || S.adoptJob !== undefined || S.agents.some(isLive)
   const t = working ? `${TITLE} · ● working` : TITLE
   if (t === shownTitle) return
   shownTitle = t
@@ -186,6 +186,11 @@ export const register: Register = (on, options) => {
     if (planner !== undefined && e.agentId === planner.agentId && WRITE_TOOLS.has(input.tool)) {
       if (typeof path !== 'string' || !isReplanFile(path)) return { deny: `ticket-board: the replan planner may only write ${planner.path}.` }
     }
+    // The adopt agent (0009) writes its proposal and nothing else: no DESIGN.md, PLAN.md, BOARD.md or source file.
+    const adopter = S.adoptJob
+    if (adopter !== undefined && e.agentId === adopter.agentId && WRITE_TOOLS.has(input.tool)) {
+      if (typeof path !== 'string' || !isAdoptFile(path)) return { deny: `ticket-board: the adopt agent may only write ${adopter.path}.` }
+    }
     const ran = await next(e)
     if (S.isOpen && (WRITE_TOOLS.has(input.tool) ? touchesTickets(path) : input.tool === 'Bash')) bg(refresh($))
     return ran
@@ -215,6 +220,12 @@ export const register: Register = (on, options) => {
       syncTitle($)
     }
     if (e.agentId !== undefined && S.isOpen) bg(loadAgents($))
+    if (e.agentId !== undefined && e.agentId === S.adoptJob?.agentId) {
+      await finishAdopt($, e.isAborted || e.reason !== 'answer', String(e.reason)).catch(() => undefined)
+      redraw($)
+      syncTitle($)
+      return next(e)
+    }
     if (e.agentId !== undefined && e.agentId === S.replanJob?.agentId) {
       await finishReplan($, e.isAborted || e.reason !== 'answer', String(e.reason)).catch(() => undefined)
       redraw($)

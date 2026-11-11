@@ -46,6 +46,9 @@ import {
 import { historyOf } from '../hooks/core/designfile'
 import { answerQuestion, docsGaps, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
+import { adoptLeftOut, adoptPaths, adoptResult, bindFromBoard, parseAdopt, setBindingLine } from '../hooks/core/roadmap'
+import { DEMO_ROADMAP } from './demo-roadmap'
+import { ADOPT_NOTES, adoptProposal } from './adopt-fixture'
 
 const BOARD = `# Ticket board
 
@@ -812,4 +815,137 @@ test('docs follow-up: one "Update README/docs" item in the proposal and one line
   expect(listed).toBe(`---\nchange: design-v3\n---\n# Design v3\n\n## Changes\n- Changed D3 (Rev 1 → 2): SMS\n\n## Follow-ups\n- Replan: P1.3\n- ${text}\n`)
   expect(withNoteFollowUp(listed, text!)).toBe(listed)
   expect(withNoteFollowUp('# Design v3\n', text!)).toBe(`# Design v3\n\n## Follow-ups\n- ${text}\n`)
+})
+
+// ---------- Adopt existing docs and the demo roadmap (0009) ----------
+
+/** The demo's roadmap as the board computes it: every ticket's row status and rd.md. */
+function demoRoadmap() {
+  const board = parseBoard(DEMO_ROADMAP['tickets/BOARD.md']!)!
+  const rdOf = (n: string) => Object.entries(DEMO_ROADMAP).find(([k]) => k.startsWith(`tickets/${n}-`) && k.endsWith('/rd.md'))?.[1]
+  const refs = board.rows.map(r => ticketRef(r, rdOf(r.number)))
+  const b = bindFromBoard(DEMO_ROADMAP['tickets/BOARD.md'], p => DEMO_ROADMAP[p])
+  return { board, b, rm: roadmap(b.design, b.plan, refs), rdOf }
+}
+
+test('demo roadmap: everything parses with no warnings beyond the intended alerts', () => {
+  const { board, b, rm, rdOf } = demoRoadmap()
+  expect(b.isBound).toBe(true)
+  expect(b.designPath).toBe('design/DESIGN.md')
+  expect(b.planPath).toBe('design/PLAN.md')
+  expect(b.warnings).toEqual([])
+  expect(rm.design.warnings).toEqual([])
+  expect(rm.plan.warnings).toEqual([])
+  // 6+ tickets in mixed statuses, each with its folder.
+  expect(board.rows.length).toBeGreaterThanOrEqual(6)
+  expect(new Set(board.rows.map(r => r.status)).size).toBeGreaterThanOrEqual(5)
+  for (const r of board.rows) {
+    expect(rdOf(r.number)).toBeDefined()
+    expect(Object.keys(DEMO_ROADMAP).some(k => k.startsWith(`tickets/${r.number}-`) && k.endsWith('/eval.md'))).toBe(true)
+  }
+  // Design: several sections, approved, one stale (D3 now Rev 2), one dropped.
+  expect(rm.design.status).toBe('approved')
+  expect(rm.design.sections.length).toBeGreaterThanOrEqual(5)
+  expect(rm.design.sections.filter(s => s.isDropped).map(s => s.id)).toEqual(['D5'])
+  // Plan: 3 phases, S/M/L sizes, Covers and Ticket cells.
+  expect(rm.plan.phases.map(p => p.id)).toEqual(['P1', 'P2', 'P3'])
+  const builds = rm.plan.phases.flatMap(p => p.builds)
+  expect(new Set(builds.map(x => x.size))).toEqual(new Set(['S', 'M', 'L']))
+  expect(builds.every(x => x.covers.length > 0)).toBe(true)
+  expect(builds.filter(x => x.tickets.length > 0).length).toBe(5)
+  // One change note, read as design v2.
+  const notes = Object.keys(DEMO_ROADMAP).filter(k => k.startsWith('design/changes/'))
+  expect(notes).toEqual(['design/changes/2026-11-02-design-v2.md'])
+  const note = parseChangeNote(DEMO_ROADMAP[notes[0]!], '2026-11-02-design-v2.md')
+  expect(note.version).toBe(2)
+  expect(note.changed.map(c => c.id)).toEqual(['D3'])
+  expect(note.dropped).toEqual(['D5'])
+  // Every ticket has a Type line; the plan tickets have Plan: and Design:.
+  for (const r of board.rows) expect(rdOf(r.number)).toMatch(/^Type: (feature|bug)$/m)
+  expect(board.rows.filter(r => /^Plan: /m.test(rdOf(r.number)!) && /^Design: /m.test(rdOf(r.number)!)).length).toBe(5)
+})
+
+test('demo roadmap: Plan % between 0 and 100, a current phase, the stale and no-ticket alerts, one off-plan ticket', () => {
+  const { rm } = demoRoadmap()
+  expect(rm.progress.planPct).toBeGreaterThan(0)
+  expect(rm.progress.planPct).toBeLessThan(100)
+  expect(rm.progress.currentPhase).toBe('P2')
+  expect(rm.checks.map(a => a.id).sort()).toEqual(['build-no-ticket', 'off-plan', 'stale-tickets'])
+  expect(rm.checks.find(a => a.id === 'build-no-ticket')!.subjects).toEqual(['P3.2'])
+  expect(rm.checks.find(a => a.id === 'stale-tickets')!.subjects).toEqual(['0003'])
+  expect(rm.links.stale).toEqual([{ ticket: '0003', section: 'D3', rev: 1, now: 2 }])
+  expect(rm.links.offPlan.map(t => t.number)).toEqual(['0006'])
+  expect(rm.links.missing).toEqual([])
+  expect(rm.links.mismatched).toEqual([])
+})
+
+test('adopt: the proposal reads sources, reasons, both drafts and one item per section, phase and build', () => {
+  const p = parseAdopt(adoptProposal('2026-11-10'), '2026-11-10-adopt.md')
+  expect(p.date).toBe('2026-11-10')
+  expect(p.isApplied).toBe(false)
+  expect(p.warnings).toEqual([])
+  expect(p.sources).toEqual([
+    { path: 'notes/salon.md', text: 'D1, D2, D3, P1, P1.1, P1.2, P2, P2.1', isLeftOut: false },
+    { path: 'notes/old-standup.md', text: 'left out (meeting notes with nothing to build)', isLeftOut: true },
+  ])
+  expect(p.items.map(i => `${i.kind}:${i.id}`)).toEqual(['section:D1', 'section:D2', 'section:D3', 'phase:P1', 'build:P1.1', 'build:P1.2', 'phase:P2', 'build:P2.1'])
+  expect(p.items.find(i => i.id === 'D1')!.reason).toBe('"Accounts (D1)" in notes/salon.md, id kept')
+  expect(p.items.find(i => i.id === 'D3')!.detail).toBe('Clients book a free slot. · 1 open question')
+  expect(p.items.find(i => i.id === 'P1.2')!.detail).toBe('M · needs P1.1 · covers D2, D3')
+  expect(p.design).toContain('## D3 · Booking')
+  expect(p.plan).toContain('| P2.1 | Waitlist |')
+  // Missing or broken drafts are warnings, never a throw.
+  expect(parseAdopt('# nothing').warnings).toEqual(['no ## DESIGN.md or ## PLAN.md draft'])
+  expect(parseAdopt('## DESIGN.md\n\nno fence\n').warnings).toEqual(['the DESIGN.md draft is not in a fenced block'])
+  expect(parseAdopt(undefined).items).toEqual([])
+  expect(parseAdopt(`---\napplied: 2026-11-10\n---\n${adoptProposal('2026-11-10')}`).isApplied).toBe(true)
+})
+
+test('adopt: Apply leaves out the unticked items, keeps every other id and writes a version 1 draft', () => {
+  const p = parseAdopt(adoptProposal('2026-11-01'))
+  const all = adoptResult(p, new Set(), '2026-11-10')
+  expect([all.sections, all.phases, all.builds]).toEqual([3, 2, 3])
+  const d = parseDesign(all.design)
+  expect([d.status, d.version, d.updated, d.name]).toEqual(['draft', 1, '2026-11-10', 'Salon'])
+  expect(parsePlan(all.plan).designVersion).toBe(1)
+  // Untick D2: the section goes, D3 stays D3 (never renumbered), D2 leaves P1.2's Covers.
+  const r = adoptResult(p, new Set(['D2']), '2026-11-10')
+  expect(parseDesign(r.design).sections.map(s => s.id)).toEqual(['D1', 'D3'])
+  expect(r.design).not.toContain('Salon page')
+  expect(r.design).toContain('## Vision')
+  expect(r.plan).toContain('| P1.2 | Book a slot | M | P1.1 | D3 | a free slot is booked | — |')
+  // Untick phase P2: its build goes with it; untick P1.1: P1.2 no longer needs it.
+  expect([...adoptLeftOut(p, new Set(['P2']))].sort()).toEqual(['P2', 'P2.1'])
+  const r2 = adoptResult(p, new Set(['P2', 'P1.1']), '2026-11-10')
+  const plan = parsePlan(r2.plan)
+  expect(plan.phases.map(x => x.id)).toEqual(['P1'])
+  expect(plan.phases[0]!.builds.map(b => b.id)).toEqual(['P1.2'])
+  expect(plan.phases[0]!.builds[0]!.needs).toEqual([])
+  expect(plan.warnings).toEqual([])
+  // A draft without front matter gets one.
+  const bare = parseAdopt('## DESIGN.md\n~~~\n# X\n\n## D4 · Only\nRev: 1\n~~~\n')
+  const made = adoptResult({ ...bare, name: 'X' }, new Set(), '2026-11-10').design!
+  expect(made.startsWith('---\ndesign: X\nversion: 1\nstatus: draft\nupdated: 2026-11-10\n---\n')).toBe(true)
+  expect(parseDesign(made).sections.map(s => s.id)).toEqual(['D4'])
+})
+
+test('adopt: the binding line goes under the BOARD.md title, or replaces the one there', () => {
+  const board = '# Ticket board\n\nIntro.\n\n| # | Ticket | Status |\n|---|---|---|\n'
+  const bound = setBindingLine(board, 'design/DESIGN.md', 'design/PLAN.md')
+  expect(bound).toBe('# Ticket board\n\nDesign: design/DESIGN.md · Plan: design/PLAN.md\n\nIntro.\n\n| # | Ticket | Status |\n|---|---|---|\n')
+  expect(setBindingLine(bound, 'design/DESIGN-adopted.md', 'design/PLAN.md')).toBe(bound.replace('design/DESIGN.md', 'design/DESIGN-adopted.md'))
+  expect(setBindingLine('# T\nIntro\n', 'd.md', undefined)).toBe('# T\n\nDesign: d.md\n\nIntro\n')
+  expect(setBindingLine(board, undefined, undefined)).toBe(board)
+})
+
+test('adopt: paths must be inside the project; empty input is an error', () => {
+  expect(adoptPaths('', '/repo').error).toBe('Type one or more file or folder paths inside the project')
+  expect(adoptPaths(' , \n', '/repo').error).toBe('Type one or more file or folder paths inside the project')
+  expect(adoptPaths('/etc/passwd', '/repo').error).toBe('/etc/passwd is outside the project')
+  expect(adoptPaths('../other/notes.md', '/repo').error).toBe('../other/notes.md is outside the project')
+  expect(adoptPaths('~/notes.md', '/repo').error).toBe('~/notes.md is outside the project')
+  expect(adoptPaths('/repo-old/x.md', '/repo').error).toBe('/repo-old/x.md is outside the project')
+  expect(adoptPaths('notes/salon.md, ./docs/\n/repo/specs/a.md\n`notes/salon.md`', '/repo')).toEqual({ paths: ['notes/salon.md', 'docs', 'specs/a.md'] })
+  expect(adoptPaths('docs/../notes.md', '/repo/')).toEqual({ paths: ['notes.md'] })
+  expect(ADOPT_NOTES).toContain('(D1)')
 })
