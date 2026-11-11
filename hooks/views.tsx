@@ -320,7 +320,8 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
   const all = items()
   const counts = STATUSES.map(s => [s, all.filter(i => i.status === s).length] as const).filter(([, n]) => n > 0)
   const list = query(all, S.filters)
-  const pageSize = Math.max(4, Math.floor((frame.rows - 10) / 2))
+  // At most TERM_PAGE rows, however tall the pane: the drawing stays within the host's bound (0022).
+  const pageSize = Math.min(TERM_PAGE, Math.max(4, Math.floor((frame.rows - 10) / 2)))
   const pages = Math.max(1, Math.ceil(list.length / pageSize))
   const page = Math.min(S.page, pages - 1)
   const shown = list.slice(page * pageSize, page * pageSize + pageSize)
@@ -539,9 +540,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
       {pages > 1 && (
         <Box flexDirection="row" gap={1}>
           <Button key="prev" label="‹ Prev" plain onPress={() => ((S.page = Math.max(0, page - 1)), redraw($))} />
-          <Text dimColor>
-            page {page + 1}/{pages} · {list.length} tickets
-          </Text>
+          <Text dimColor>{`Rows ${page * pageSize + 1}–${page * pageSize + shown.length} of ${list.length}`}</Text>
           <Button key="next" label="Next ›" plain onPress={() => ((S.page = Math.min(pages - 1, page + 1)), redraw($))} />
         </Box>
       )}
@@ -1322,6 +1321,18 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
       return withProject($, ui, replanView($, ui, v))
   }
   return null
+}
+
+/** Rows on one page of the terminal board at most. */
+const TERM_PAGE = 30
+
+/** A drawing's size as the host measures it: its serialized length (0 when it cannot be serialized). */
+export function drawnSize(drawing: RenderChildren): number {
+  try {
+    return JSON.stringify(drawing)?.length ?? 0
+  } catch {
+    return 0
+  }
 }
 
 /** What the pane may hand the host: it refuses a drawing over 100,000 characters serialized, and the pane goes blank ("nothing to show"). */

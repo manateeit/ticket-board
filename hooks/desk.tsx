@@ -22,6 +22,7 @@ import {
   checksFor,
   createTicket,
   draftInChat,
+  drawnSize,
   fail,
   fill,
   fillWithIdea,
@@ -602,6 +603,18 @@ function RoadmapCard($: $, ui: UI, plan: PlanSummary, phaseFilter: string): Rend
   )
 }
 
+/** What the board's rows may take of the drawing (the host refuses one over 100,000 characters); the rest is the board's chrome. */
+export const ROWS_BUDGET = 60_000
+/** Rows on one page of a board too long to draw whole. */
+export const ROWS_PAGE = 20
+
+/** Every row when they fit ROWS_BUDGET; else ROWS_PAGE a page, fewer when the largest row would not let that many fit (never under 5). */
+export function rowsPerPage(sizes: readonly number[]): number {
+  const sum = sizes.reduce((a, b) => a + b, 0)
+  if (sum <= ROWS_BUDGET) return Math.max(1, sizes.length)
+  return Math.max(5, Math.min(ROWS_PAGE, Math.floor(ROWS_BUDGET / Math.max(1, ...sizes))))
+}
+
 function boardIntro(text: string): { title: string; notes: string } {
   const lines = text.split(/\r?\n/)
   const h = lines.findIndex(l => /^#\s+/.test(l))
@@ -621,7 +634,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
   const openBugs = all.filter(i => i.kind === 'bug' && i.status !== 'done').length
   const active = by('in-progress') + by('in-check')
   const run = runnable()
-  const rows = query(all, f).slice(0, 200)
+  const list = query(all, f)
 
   const text = S.snap?.boardText ?? ''
   const board = S.snap?.board
@@ -644,6 +657,17 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
   const phaseFilter = f.phase ?? 'any'
   const isFiltered = f.show !== 'all' || f.kind !== 'any' || f.mode !== 'any' || f.search.trim() !== '' || (plan !== undefined && phaseFilter !== 'any')
   const grouped = f.sort === 'status'
+  // Rows of the filtered, sorted list; in pages when they would not fit the drawing (0022).
+  const drawnRows = list.map((i, n) => tableRow($, ui, i, n, cols))
+  const pageSize = rowsPerPage(drawnRows.map(drawnSize))
+  const pages = Math.max(1, Math.ceil(list.length / pageSize))
+  const page = Math.max(0, Math.min(S.page, pages - 1))
+  const first = page * pageSize
+  const rows = list.slice(first, first + pageSize)
+  const turn = (n: number) => {
+    S.page = n
+    redraw($)
+  }
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -772,15 +796,22 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
               <Box key={`g-${i.status}`} flexDirection="row" gap={1} paddingX={1} paddingTop={1}>
                 {StatusPill(ui, i.status)}
                 <Text color={G.faint} size="footnote">
-                  {String(rows.filter(r => r.status === i.status).length)}
+                  {String(list.filter(r => r.status === i.status).length)}
                 </Text>
               </Box>
             ) : null
-          return [head, tableRow($, ui, i, n, cols)]
+          return [head, drawnRows[first + n]]
         })}
       </Box>
+      {pages > 1 && (
+        <Box key="rows-pager" flexDirection="row" gap={1} alignItems="center">
+          {page > 0 && <Button key="rows-prev" label="‹ Previous" onPress={() => turn(page - 1)} />}
+          <Text color={G.soft} size="footnote">{`Rows ${first + 1}–${first + rows.length} of ${list.length}`}</Text>
+          {page < pages - 1 && <Button key="rows-next" label="Next ›" onPress={() => turn(page + 1)} />}
+        </Box>
+      )}
       <Text color={G.faint} size="footnote">
-        {`Showing ${rows.length} of ${total} · click a column to sort · open a ticket for its full notes`}
+        {`Showing ${list.length} of ${total} · click a column to sort · open a ticket for its full notes`}
       </Text>
 
       {plan !== undefined && RoadmapCard($, ui, plan, phaseFilter)}
