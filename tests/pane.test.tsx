@@ -3327,3 +3327,55 @@ test('plated rows give the action column room for Open and Run', () => {
   expect(action(true)).toBeGreaterThanOrEqual(17)
   for (const plated of [false, true]) for (const hasPlan of [false, true]) expect(boardCols(hasPlan, plated).reduce((s, c) => s + Number(c.width.replace('%', '')), 0)).toBe(100)
 })
+
+// ---------- 0021: activity wording ----------
+
+const ACTIVITY_STATES = [
+  { name: 'busy turn', agents: undefined, jobs: [], busy: true, want: /^Claude is working · Thinking · since \d\d:\d\d {2}· {2}1 agent running$/, count: 1 },
+  { name: 'turn ended, 1 live agent', agents: undefined, jobs: [], busy: false, want: /^Waiting on 1 agent {2}· {2}Claude continues when it reports$/, count: 1 },
+  {
+    name: 'turn ended, 2 live agents',
+    agents: [
+      { id: 'a1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
+      { id: 'a3', description: 'Check 0001', type: 'checker', status: 'running', name: 'checker-0001' },
+    ],
+    jobs: [],
+    busy: false,
+    want: /^Waiting on 2 agents {2}· {2}Claude continues when they report$/,
+    count: 2,
+  },
+  {
+    name: 'turn ended, AI writer only',
+    agents: [],
+    jobs: [{ agentId: 'w9', number: '0003', kind: 'enhance', startedAt: Date.now() }],
+    busy: false,
+    want: /^Waiting on the AI {2}· {2}AI writing 1 ticket {2}· {2}the board updates when it is done$/,
+    count: 0,
+  },
+  { name: 'nothing running', agents: [], jobs: [], busy: false, want: /Claude is idle/, count: 0 },
+] as const
+
+for (const surface of ['desktop', 'terminal'] as const)
+  for (const st of ACTIVITY_STATES)
+    test(`activity wording: ${st.name} (${surface})`, async ($, on) => {
+      AGENTS_OVERRIDE = st.agents === undefined ? undefined : [...st.agents]
+      try {
+        on('turn.start', (_: unknown, e: unknown) => e)
+        const store = new Map<string, unknown>([['jobs:/repo', [...st.jobs]]])
+        const { ui } = await boot($, on, surface, {}, { store })
+        await ui.find({ type: 'Text', text: /Dark mode/ })
+        if (st.busy) await ($ as any).turn.start({ turnId: 't-main', prompt: 'go' })
+        if (surface === 'desktop') await ui.find({ type: 'Text', text: st.want })
+        else await ui.find({ type: 'Button', label: new RegExp(`^Agents ● ${st.count}$`) } as any)
+        const drawn = await drawnText(ui)
+        expect(drawn.toLowerCase()).not.toContain('waiting for you')
+        if (surface === 'terminal') {
+          // The terminal has no activity strip: only the Agents count and the pane's tab title show work.
+          expect(drawn).not.toContain('Waiting on')
+          expect(drawn).not.toContain('Claude is working')
+        }
+        await ui.unmount()
+      } finally {
+        AGENTS_OVERRIDE = undefined
+      }
+    })
