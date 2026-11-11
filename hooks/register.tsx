@@ -5,7 +5,7 @@ import { finishAdopt, finishReplan, isAdoptFile, isInsideFolder, isReplanFile, j
 import { docsGaps } from './core/ticket'
 import { S, abs, isLive, dir, resetSession, editRow, followAppTheme, loadAgents, loadAppTheme, loadFilters, loadJobs, loadScheme, loadPlanMode, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
-import { drawPane, go, type UI } from './views'
+import { drawPane, fitDrawing, go, type UI } from './views'
 
 const PANE = 'ticket-board'
 const TITLE = 'Tickets'
@@ -152,13 +152,13 @@ export const register: Register = (on, options) => {
       const ui = { ...glassUI(base as unknown as UI), Svg: base.Svg }
       return (
         <base.Box flexDirection="column" flexGrow={1} backgroundColor={G.base} borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
-          {drawPane($, ui, { ...frame, glass: true })}
+          {fitDrawing($, ui, drawPane($, ui, { ...frame, glass: true }))}
         </base.Box>
       )
     }
     const ui = $.ui.resolve(e)
     const { Box } = ui
-    return <Box flexDirection="column">{drawPane($, ui, frame)}</Box>
+    return <Box flexDirection="column">{fitDrawing($, ui, drawPane($, ui, frame))}</Box>
   })
 
   // Keep the ticket writer inside its ticket folder; refresh after edits to the tickets folder.

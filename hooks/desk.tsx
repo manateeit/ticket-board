@@ -387,7 +387,7 @@ type Col = { id: string; label: string; width: string; sort?: Sort }
  * takes that room from Title too. Widths total 100%.
  */
 export function boardCols(hasPlan: boolean, isPlated = false): Col[] {
-  const extra = isPlated ? 6 : 0
+  const extra = isPlated ? 9 : 0
   return [
     { id: 'num', label: 'ID', width: '6%', sort: 'number' },
     { id: 'kind', label: 'Type', width: '9%', sort: 'kind' },
@@ -1662,6 +1662,7 @@ export function ProjectBar($: $, ui: UI): RenderChildren {
 
 export async function openReadme($: $) {
   if (S.view.kind === 'readme') return go($, { kind: 'board' })
+  S.readmePart = 0
   go($, { kind: 'readme' })
   await refresh($, true)
 }
@@ -1669,11 +1670,77 @@ export async function openReadme($: $) {
 const README_ASK =
   'Update README.md so it matches the project as it is now: what it is, how to install and run it, how to use it, and what changed recently (see tickets/BOARD.md). Keep what is still true; fix what is stale.'
 
+/** Characters of README per part on the glass: its markdown is drawn several times larger than the text. */
+export const README_PART = 8000
+
+/**
+ * A long README split into parts the glass can draw: the host refuses a drawing over 100,000
+ * characters serialized (and the pane goes blank), and the glass markdown of a 60 KB README is
+ * nearly 300,000. Parts break before a heading or at a blank line, never inside a code block.
+ */
+export function readmeParts(text: string, max = README_PART): string[] {
+  const parts: string[] = []
+  let cur: string[] = []
+  let size = 0
+  let inCode = false
+  for (const line of text.split(/\r?\n/)) {
+    const isBreak = !inCode && (/^#{1,6}\s/.test(line) || line.trim() === '')
+    if (size >= max && (isBreak || size >= max * 3)) {
+      parts.push(cur.join('\n'))
+      cur = []
+      size = 0
+    }
+    if (line.startsWith('```')) inCode = !inCode
+    cur.push(line)
+    size += line.length + 1
+  }
+  if (cur.some(l => l.trim() !== '')) parts.push(cur.join('\n'))
+  return parts.length === 0 ? [''] : parts
+}
+
+/** What one README part may take of the drawing, the view's own chrome left room for. */
+const README_PART_BUDGET = 60_000
+let partsMemo: { text: string; parts: string[] } | undefined
+
+/** `readmeParts`, each part split again until its glass drawing fits README_PART_BUDGET (dense tables and callouts draw far larger than prose). */
+function drawableParts(ui: UI, text: string): string[] {
+  if (partsMemo?.text === text) return partsMemo.parts
+  const size = (t: string) => {
+    try {
+      return JSON.stringify(ui.Markdown({ text: t } as never))?.length ?? 0
+    } catch {
+      return 0
+    }
+  }
+  const split = (t: string, max: number): string[] => {
+    if (max < 250 || size(t) <= README_PART_BUDGET) return [t]
+    const parts = readmeParts(t, Math.floor(max / 2))
+    return parts.length === 1 ? parts : parts.flatMap(p => split(p, Math.floor(max / 2)))
+  }
+  const parts = readmeParts(text).flatMap(p => split(p, README_PART))
+  partsMemo = { text, parts }
+  return parts
+}
+
 export function deskReadme($: $, ui: UI): RenderChildren {
   const { Box, Text, Button } = ui
   const p = S.project
   const text = p?.readme
   const rel = p === undefined || p.readmePath === '' ? 'README.md' : p.readmePath.replace(`${p.folder}/`, '')
+  const parts = text === undefined ? [] : drawableParts(ui, text)
+  const part = Math.max(0, Math.min(S.readmePart, parts.length - 1))
+  const turn = (n: number) => {
+    S.readmePart = n
+    redraw($)
+  }
+  const pager =
+    parts.length > 1 ? (
+      <Box key="readme-pager" flexDirection="row" gap={1} alignItems="center">
+        {part > 0 && <Button key="readme-prev" label="‹ Previous part" onPress={() => turn(part - 1)} />}
+        <Text color={G.soft} size="footnote">{`Part ${part + 1} of ${parts.length}`}</Text>
+        {part < parts.length - 1 && <Button key="readme-next" label="Next part ›" onPress={() => turn(part + 1)} />}
+      </Box>
+    ) : null
   return (
     <Box flexDirection="column" gap={1}>
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
@@ -1704,7 +1771,7 @@ export function deskReadme($: $, ui: UI): RenderChildren {
             <Text color={G.soft}>This project has no README yet. Every ticket's workflow includes keeping it current; you can also ask Claude to write one now.</Text>,
             { key: 'readme-none', title: 'No README' },
           )
-        : Card(ui, <ui.Markdown key="readme-md" text={text} />, { key: 'readme-body', title: rel })}
+        : Card(ui, [<ui.Markdown key="readme-md" text={parts[part]!} />, pager], { key: 'readme-body', title: rel })}
     </Box>
   )
 }
