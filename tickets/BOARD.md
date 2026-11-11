@@ -33,6 +33,7 @@ the checker fails the ticket if they are stale.
 | 0017 | If a run is in failed state | ready | solo | — | — | AI draft done · all 4 questions answered (no retry button; blocked-ticket explain is a separate ticket) |
 | 0018 | Light colors hide buttons, tabs and text | done | solo | — | — | merged 9ff6f75, all 5 checks PASS, 213/213 · cause: desktop native buttons draw labels in app colors on painted glass; fix: inverseText plates + darker palette · needs a person to look in each Colors setting (plate width in column cells unverified) |
 | 0019 | Light mode that follows the app | done | solo | 0018 | — | merged 611eb71, all 6 checks PASS, 263/263 · dark+dark unchanged except 0018 plates removed · needs a person to look: app light/dark × Colors app/dark/light; narrow-pane overflow of plated groups unverified |
+| 0020 | Pane goes blank: README view too large | in-check | solo | — | checker | 2026-11-11 on 0.5.0: README view (o) drew a 290K-char tree over the host 100K limit → pane unmounted · reproducer 5ebb8e1: README in parts, size guard, defensive store load, wider Run column · 299/299 |
 
 How to read this board:
 
