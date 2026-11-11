@@ -8,7 +8,7 @@ import { allBuilds, staleOf, staleText, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
 import { startJob, suggestAnswer } from './ai'
-import { Tabs, brainstorm, deskDesign, deskPlan, designView, openDesign, openPlan, planView, viewName } from './plan'
+import { Tabs, TermReplanBanner, brainstorm, deskDesign, deskPlan, deskReplan, designView, openDesign, openPlan, planView, replanView, viewName } from './plan'
 import { G, STATUS_HEX, barSvg, heroSvg, tint } from './glass'
 import {
   S,
@@ -377,6 +377,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
             {plan.compact}
           </Text>
           {plan.warnings.length > 0 && <Text color="warning">{`⚠ ${plan.warnings[0]}`}</Text>}
+          {TermReplanBanner($, ui)}
         </Box>
       )}
       {planWarning !== undefined && <Text color="warning">{`⚠ ${planWarning}`}</Text>}
@@ -1281,7 +1282,9 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
                     ? deskPlan($, ui, v)
                     : v.kind === 'design'
                       ? deskDesign($, ui, v)
-                      : deskNew($, ui)
+                      : v.kind === 'replan'
+                        ? deskReplan($, ui, v)
+                        : deskNew($, ui)
     return (
       <ui.Box flexDirection="column" gap={1}>
         {ProjectBar($, ui)}
@@ -1310,5 +1313,7 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
       return withProject($, ui, planView($, ui, v))
     case 'design':
       return withProject($, ui, designView($, ui, v))
+    case 'replan':
+      return withProject($, ui, replanView($, ui, v))
   }
 }

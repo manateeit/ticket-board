@@ -76,7 +76,9 @@ sections in a section redesign). Then:
   `design-version: <N>`; `## Why`; `## Changes` with one line per section
   (`- Changed D3 (Rev 1 → 2): …`, `- Added D9 · Title`, `- Dropped D7 · Title`);
   `## Follow-ups` naming the plan builds and tickets that cover changed sections (a replan, via
-  `/ticket-board:planning`, deals with them).
+  `/ticket-board:planning` or the pane's Replan banner, deals with them), plus one line
+  `- Update README/docs for design v<N>: <sections>` when README or docs describe behaviour the
+  redesign changes (the replan proposal carries the same Follow-up item).
 
 A redesign **never edits PLAN.md or any ticket**, not even a ticket's `Design:` line.
 
