@@ -2222,3 +2222,204 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 }
+
+// ---------- 0018: contrast in every color scheme ----------
+//
+// The model of what the desktop draws:
+// - Text in a raw color is drawn in that color over every backgroundColor above it (rgba composited).
+// - Text in a theme key, and every native control (a non-primary Button, whatever its children say;
+//   a Link), is drawn in the APP's colors. Those read only where the ground under them is the app's
+//   own (the app's backdrop with see-through washes, or a plate in `inverseText`, the app's opposite
+//   of its text color). On a painted glass backdrop they are unknown, so they fail.
+// - A primary Button is the host's filled button: its own fill and label, readable anywhere.
+// The app itself can be in light or dark mode: every pair is checked in both.
+const APP = {
+  light: { ground: '#FFFFFF', inverseText: '#FFFFFF' },
+  dark: { ground: '#262624', inverseText: '#000000' },
+} as const
+const SCHEME_BASE: Record<string, string> = { dark: '#0A0F1E', light: '#F8FAFC' }
+const THEME_KEYS = new Set(['text', 'inverseText', 'inactive', 'subtle', 'suggestion', 'remember', 'success', 'error', 'warning', 'merged', 'claude', 'permission', 'planMode', 'autoAccept', 'promptBorder', 'bashBorder', 'ide'])
+
+type Rgba = [number, number, number, number]
+function parseColor(c: string): Rgba | undefined {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c)
+  if (hex) {
+    const h = hex[1]!.length === 3 ? [...hex[1]!].map(x => x + x).join('') : hex[1]!
+    const n = parseInt(h, 16)
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 1]
+  }
+  const m = /^rgba?\(([^)]+)\)$/.exec(c.replace(/\s+/g, ''))
+  if (m) {
+    const p = m[1]!.split(',').map(Number)
+    return [p[0]!, p[1]!, p[2]!, p[3] ?? 1]
+  }
+  return undefined
+}
+const over = (top: Rgba, under: Rgba): Rgba => [0, 1, 2].map(i => top[i]! * top[3] + under[i]! * (1 - top[3])).concat(1) as Rgba
+const lum = (c: Rgba) => {
+  const ch = (v: number) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+  return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2])
+}
+const ratio = (a: Rgba, b: Rgba) => {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p)
+  return (x! + 0.05) / (y! + 0.05)
+}
+
+/** The ground under a node: its composited color, and whether it is still the app's own ground. */
+type Ground = { rgb: Rgba | undefined; isApp: boolean }
+function paint(g: Ground, bg: unknown, mode: keyof typeof APP): Ground {
+  if (typeof bg !== 'string' || bg === '') return g
+  if (bg === 'inverseText') return { rgb: parseColor(APP[mode].inverseText), isApp: true }
+  if (THEME_KEYS.has(bg)) return { rgb: undefined, isApp: false }
+  const c = parseColor(bg)
+  if (c === undefined || g.rgb === undefined) return { rgb: undefined, isApp: false }
+  // A see-through wash keeps the app's ground; a solid paint replaces it.
+  return { rgb: over(c, g.rgb), isApp: g.isApp && c[3] <= 0.2 }
+}
+
+/** Every Text, Button and Link in a drawn tree that does not reach its contrast floor. */
+function contrastFailures(tree: unknown, scheme: string): string[] {
+  const out: string[] = []
+  for (const mode of ['light', 'dark'] as const) {
+    const base = SCHEME_BASE[scheme]
+    const start: Ground = base === undefined ? { rgb: parseColor(APP[mode].ground), isApp: true } : { rgb: parseColor(base), isApp: false }
+    type Style = { color?: string; size?: string; weight?: string; dim?: boolean }
+    const textOf = (n: any): string => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(textOf).join('') : n?.children ? textOf(n.children) : '')
+    const visit = (n: any, g: Ground, st: Style): void => {
+      if (n === null || n === undefined || typeof n === 'boolean') return
+      if (Array.isArray(n)) return n.forEach(c => visit(c, g, st))
+      if (typeof n === 'string') {
+        if (n.trim() === '') return
+        const where = `${scheme}/app-${mode}: "${n.slice(0, 40)}"`
+        const c = st.color
+        if (c === undefined || THEME_KEYS.has(c)) {
+          if (!g.isApp) out.push(`${where} in app color ${c ?? '(none)'} on painted glass`)
+          return
+        }
+        const fg = parseColor(c)
+        if (fg === undefined || g.rgb === undefined) return void out.push(`${where} color ${c} on an unknown background`)
+        const small = st.size === 'caption' || st.size === 'footnote'
+        const large = st.size === 'heading' || st.size === 'title'
+        const bold = st.weight === 'bold' || st.weight === 'semibold'
+        const floor = large || (bold && !small) || st.dim === true ? 3 : 4.5
+        const r = ratio(over(fg, g.rgb), g.rgb)
+        if (r < floor) out.push(`${where} ${c} is ${r.toFixed(2)}:1, needs ${floor}:1`)
+        return
+      }
+      const p = n.props ?? {}
+      if (n.type === 'Button' || n.type === 'Link') {
+        const isFilled = n.type === 'Button' && p.variant === 'primary' && p.plain !== true
+        if (!isFilled && !g.isApp) out.push(`${scheme}/app-${mode}: ${n.type} "${p.label ?? textOf(n)}" (key ${p.key ?? '-'}) is drawn in the app's colors on painted glass`)
+        return
+      }
+      if (n.type === 'Box') return visit(n.children, paint(g, p.backgroundColor, mode), st)
+      if (n.type === 'Text') {
+        const next: Style = {
+          color: p.color ?? st.color,
+          size: p.size ?? st.size,
+          weight: p.weight ?? (p.bold === true ? 'semibold' : st.weight),
+          dim: p.dimColor === true || st.dim,
+        }
+        return visit(n.children, paint(g, p.backgroundColor, mode), next)
+      }
+      // Svg, Input, Select: drawn by their own rules.
+    }
+    visit(tree, start, {})
+  }
+  return [...new Set(out)]
+}
+
+test('contrast floor: the reproduction model catches app-colored controls on painted glass', () => {
+  const tree = { type: 'Box', props: {}, children: [{ type: 'Button', props: { key: 'x', label: 'Plan', variant: 'secondary' } }, { type: 'Text', props: { color: '#EEF2FF' }, children: ['pale'] }] }
+  expect(contrastFailures(tree, 'light').length).toBe(4)
+  const plated = { type: 'Box', props: { backgroundColor: 'inverseText' }, children: [{ type: 'Button', props: { key: 'x', label: 'Plan' } }] }
+  expect(contrastFailures(plated, 'light')).toEqual([])
+  expect(contrastFailures({ type: 'Button', props: { key: 'n', label: 'New', variant: 'primary' } }, 'light')).toEqual([])
+})
+
+/** A README with every markdown part the glass reader draws: code, a table, a quote, a callout, a list, `status` pills. */
+const CONTRAST_README = `# Salon
+
+Book a chair at a small salon, with \`ready\` and \`blocked\` work and \`npm test\` inline.
+
+## Install
+
+\`\`\`
+npm install
+\`\`\`
+
+| Name | Value |
+|------|-------|
+| a | **b** |
+| c | *d* |
+
+> A quoted line.
+
+Decision 2026-11-10 (human): keep it simple.
+
+Note: a lead line.
+
+(an aside)
+
+- [x] done item
+- [ ] open item
+- a [link](https://example.com)
+`
+
+for (const scheme of ['auto', 'dark', 'light'] as const) {
+  const checker = () => {
+    const failures: string[] = []
+    const check = async (ui: any, view: string) => {
+      for (const f of contrastFailures(await ui.drawn(), scheme)) failures.push(`[${view}] ${f}`)
+    }
+    return { failures, check }
+  }
+  const store = () => new Map<string, unknown>([['colors', scheme]])
+
+  test(`every Button, tab, chip and Text is readable in the ${scheme} scheme: board, ticket, Plan, Design, new, README (desktop)`, async ($, on) => {
+    const { failures, check } = checker()
+    const { ui } = await boot($, on, 'desktop', { ...p7Files(), '/repo/README.md': CONTRAST_README }, { blank: true, store: store() })
+    await ui.find({ key: 'tab-plan' })
+    expect(JSON.stringify(await ui.drawn())).toContain(scheme === 'auto' ? 'Colors: app' : `Colors: ${scheme}`)
+    await check(ui, 'board')
+    await ui.press({ key: 'open-0005' })
+    await ui.find({ key: 'back' })
+    await check(ui, 'ticket')
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    await check(ui, 'plan')
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D1' })
+    await check(ui, 'design')
+    await ui.press({ key: 'tab-board' })
+    await ui.press({ key: 'new' })
+    await ui.find({ type: 'Text', text: /What happens next/ })
+    await check(ui, 'new')
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'readme' })
+    await check(ui, 'readme')
+    await ui.unmount()
+    expect(failures).toEqual([])
+  })
+
+  test(`every Button and Text is readable in the ${scheme} scheme: questions (desktop)`, async ($, on) => {
+    const { failures, check } = checker()
+    const { ui } = await boot($, on, 'desktop', {}, { store: store() })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await check(ui, 'board')
+    await ui.press({ key: 'ans-0003' })
+    await check(ui, 'questions')
+    await ui.unmount()
+    expect(failures).toEqual([])
+  })
+
+  test(`every Button and Text is readable in the ${scheme} scheme: Start (desktop)`, async ($, on) => {
+    const { failures, check } = checker()
+    const { ui } = await boot($, on, 'desktop', { '/repo/src/app.ts': 'export {}\n' }, { blank: true, store: store() })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await check(ui, 'start')
+    await ui.unmount()
+    expect(failures).toEqual([])
+  })
+}

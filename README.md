@@ -94,7 +94,7 @@ The pane opens beside the chat. When a session starts, it opens on its own only 
 
 It re-reads the board every few seconds while it is open, and right after any tool writes into `tickets/`, so changes from the router, workers or your editor show up without a refresh.
 
-**Desktop layout.** In the Claude desktop app the pane is a professional tracker drawn in one dark glass container (it paints its own background, so it looks the same on any app theme). In the terminal it uses compact views in your terminal's colors.
+**Desktop layout.** In the Claude desktop app the pane is a professional tracker in one glass container, in the colors the **Colors** button picks (see [Colors](#colors)). In the terminal it uses compact views in your terminal's colors.
 
 - **Board.** A title bar with *+ New ticket*, *Agents ● N*, *Refresh* and *▶ Run ready (N)* (the buttons keep their size; a long board path beside them is cut short instead); five numbers (Need you, Ready to run, In flight, Open bugs, and **Plan %**) and a status bar; status tabs with counts (All, Needs me, Open, Draft, Ready, …); type filters (Features, Bugs, Chores); a mode filter, a phase filter (when there is a plan) and search. **Plan %** is the share of the plan's build weight that is built (S = 1, M = 3, L = 8; every counted build is in the total, including builds with no ticket yet, so a plan with few tickets reads low). Its sub-line reads `P2 of 4 · D 5/9 · tickets 60%`: the current phase of the phase count, the design sections built of the numbered, non-dropped ones (left out when there is no design), and the share of tickets done beside it, so the gap shows. A project with no plan keeps the old fifth number, **Done** = the share of tickets done (`N of M`). **Activity.** A strip across the top of every desktop view shows what the session is doing: a spinner and a moving light bar while Claude works (with the kind of step, e.g. "Running a command" or "Editing files", and when the turn started), how many agents are running, and how many tickets the AI writer is drafting. When nothing runs it shrinks to a quiet "Claude is idle". The pane's tab also reads `Tickets · ● working` while anything runs, so you can expand the pane to full size and still see that work is going on.
 
@@ -376,6 +376,18 @@ Change these in `/plugin` → ticket-board → configure:
 | Ticket writer model | *(session's)* | Model for the AI writer, e.g. `opus` or `sonnet` |
 | Show version | on | Show the running ticket-board version (`ticket-board 0.4.15`) as a small label on the board, so after an update and reload you can tell the new version loaded |
 
+### Colors
+
+The **Colors** button in the desktop pane's PROJECT card cycles three schemes; the pane remembers your choice.
+
+| Button says | What it does |
+|---|---|
+| **◐ Colors: app** (default) | Follows the Claude app: no painted background, text and status colors in the app's own theme colors, buttons in the app's own style. Readable in the app's light and dark mode. |
+| **☾ Colors: dark** | Paints a dark glass background with light text and pastel status colors. |
+| **☀ Colors: light** | Paints a light background with dark text and deep status colors. |
+
+In every scheme, text keeps at least 4.5:1 contrast against what it sits on (3:1 for headings, bold body text and dimmed controls); captions and footnotes are held to 4.5:1. The desktop draws its buttons, tabs, filter chips and links in the app's own colors, whatever the pane asks for, so in the dark and light schemes each one sits on a small plate in the app's background color: on a light app the plates are white with dark labels, on a dark app they are black with light labels. Primary buttons (the active tab, the selected filter, **+ New ticket**) are the app's filled buttons and read the same in every scheme.
+
 ## How it edits your files
 
 - **BOARD.md:** finds the ticket's row by number and rewrites only the cells it is changing. Column widths are padded to match. Every other line in the file stays exactly as it was, so `git diff` shows one line. A `|` in your text is escaped. New rows go right after the last row of the table.
@@ -400,6 +412,7 @@ Change these in `/plugin` → ticket-board → configure:
 | The AI writer stopped | The note says why. **Watch** opens its transcript; **✎ Enhance with AI** starts it again. For a ticket from the plan, **↻ Create again** on the build does the same. |
 | A build stays *queued* | Three writer jobs are already running; it starts when one finishes. After a restart the queue is gone: use **✎ Enhance with AI** on the draft ticket. |
 | *The prompt box is busy* | Something else is in the prompt box. Copy the line shown and paste it yourself. |
+| Buttons or tabs look blank | Version 0.4.19 or older in **☀ Colors: light** or **☾ Colors: dark**: the app drew the button labels in its own colors on the pane's painted background. Update the plugin. Still blank (the dark and light schemes' button plates follow the app's light or dark mode)? Press **Colors** until it says **◐ Colors: app**. |
 
 ## Development
 
