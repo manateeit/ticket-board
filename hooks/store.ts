@@ -76,6 +76,7 @@ export const S = {
   snap: undefined as Snapshot | undefined,
   view: { kind: 'board' } as View,
   filters: { ...DEFAULT_FILTERS } as Filters,
+  /** Board: the page of rows shown (terminal: by the pane's height; desktop: when the rows would not fit the drawing, 0022). Any filter or sort change goes back to 0. */
   page: 0,
   isOpen: false,
   openedByCommand: false,
@@ -114,6 +115,8 @@ export const S = {
   showBoard: false,
   /** Plan view: List or Timeline, remembered per project. */
   planMode: 'list' as PlanMode,
+  /** Plan view of a plan too large to draw whole (0022): the phase shown, '' for the current one; remembered per project. */
+  planPhase: '',
   /** Plan view phases the person opened (true) or closed (false) this session; others follow their %. */
   planOpen: new Map<string, boolean>(),
   /** Tickets from the plan (0008) waiting for a writer slot, oldest first. Kept across redraws, not restarts. */
@@ -168,6 +171,7 @@ export function resetSession(cwd: string) {
     agents: [],
     showAgents: false,
     planMode: 'list',
+    planPhase: '',
     planQueue: [],
     isCreating: false,
     replanJob: undefined,
@@ -350,6 +354,8 @@ export async function followCwd($: $): Promise<boolean> {
     filters: { ...DEFAULT_FILTERS },
     startFlags: { ...NO_START_FLAGS },
     planMode: 'list',
+    planPhase: '',
+    page: 0,
   })
   S.jobs.clear()
   await loadFilters($)
@@ -656,6 +662,23 @@ export async function loadPlanMode($: $) {
     if (saved === 'list' || saved === 'timeline') S.planMode = saved
   } catch {
     // default list
+  }
+  try {
+    const phase = await $.store.get(`plan-phase:${S.cwd}`)
+    if (typeof phase === 'string') S.planPhase = phase
+  } catch {
+    // default: the current phase
+  }
+}
+
+/** The phase a large plan shows (0022), remembered per project (in the pane store). */
+export async function setPlanPhase($: $, phase: string) {
+  S.planPhase = phase
+  redraw($)
+  try {
+    await $.store.set(`plan-phase:${S.cwd}`, phase)
+  } catch {
+    // a convenience
   }
 }
 

@@ -11,8 +11,8 @@ import { runLine } from './core/query'
 import { REPLAN_GROUPS, allBuilds, type Build, type BuildState, type Hill, type Phase, type ReplanItem, type Roadmap } from './core/roadmap'
 import { Card, Pill, Toast, hexOf, statusName } from './desk'
 import { G, HUE, STATUS_HEX, hillSvg, needsPlate, phaseBarSvg, timelineSvg, tint, wash } from './glass'
-import { S, approveDesign, fullRoadmap, latestProposal, redraw, roadmapView, rowOf, saveDesignAnswer, say, setPlanMode, statusOf, type LatestProposal, type View } from './store'
-import { blockersOpen, fail, fill, go, runnable, type UI } from './views'
+import { S, approveDesign, fullRoadmap, latestProposal, redraw, roadmapView, rowOf, saveDesignAnswer, say, setPlanMode, setPlanPhase, statusOf, type LatestProposal, type View } from './store'
+import { blockersOpen, drawnSize, fail, fill, go, runnable, type UI } from './views'
 
 type $ = EngineInterface
 type PlanView = Extract<View, { kind: 'plan' }>
@@ -176,6 +176,47 @@ export function redesign($: $, id: string) {
   void fill($, `/ticket-board:design ${id}`, START_NOTE)
 }
 
+// ---------- Large plans, one phase at a time (0022) ----------
+
+/** What the Plan view's phases (list or timeline) may take of the drawing; the rest is the pane's chrome. */
+export const PLAN_BUDGET = 60_000
+
+/** A phase's state for the switcher: done, now (the current phase), started or not started. */
+export function phaseState(rm: Roadmap, p: Pick<Phase, 'id'>): string {
+  const pr = rm.progress.phases.find(x => x.id === p.id)
+  if (pr !== undefined && pr.counted > 0 && pr.pct >= 100) return 'done'
+  if (p.id === rm.progress.currentPhase) return 'now'
+  return (pr?.pct ?? 0) > 0 ? 'started' : 'not started'
+}
+
+/**
+ * The phase a large plan shows: the one holding the focused build, else the person's choice
+ * (remembered per project), else the current phase (the last once the plan is complete).
+ */
+export function shownPhase(rm: Roadmap, focus: string | undefined): Phase | undefined {
+  const ps = rm.plan.phases
+  const byFocus = focus === undefined ? undefined : ps.find(p => p.builds.some(b => b.id === focus))
+  return byFocus ?? ps.find(p => pidOf(p) === S.planPhase) ?? ps.find(p => p.id === rm.progress.currentPhase) ?? ps[ps.length - 1]
+}
+
+/** Shows one phase of a large plan: the choice is remembered, and the phase opens. */
+function pickPhase($: $, p: Phase, v: PlanView) {
+  const pid = pidOf(p)
+  if (!S.planOpen.has(pid)) S.planOpen.set(pid, true)
+  if (v.focus !== undefined) go($, { kind: 'plan', ...(v.from === undefined ? {} : { from: v.from }) })
+  void setPlanPhase($, pid)
+}
+
+/**
+ * Whether the plan is drawn one phase at a time: when every phase drawn open in the list, or the
+ * whole timeline, would take more than PLAN_BUDGET of the drawing (the host refuses a drawing over
+ * 100,000 characters). Measured with every phase open, so folding a phase never flips the view.
+ */
+function isPaged(rm: Roadmap, list: () => RenderChildren, timeline: () => RenderChildren): boolean {
+  if (rm.plan.phases.length < 2) return false
+  return drawnSize(list()) > PLAN_BUDGET || drawnSize(timeline()) > PLAN_BUDGET
+}
+
 function isPhaseOpen(rm: Roadmap, p: Phase, focus: string | undefined): boolean {
   const set = S.planOpen.get(pidOf(p))
   if (set !== undefined) return set
@@ -199,9 +240,9 @@ function openBuild($: $, rm: Roadmap, b: Build) {
   go($, { kind: 'plan', focus: b.id, ...(v.kind === 'plan' && v.from !== undefined ? { from: v.from } : {}) })
 }
 
-function timelineInput(rm: Roadmap) {
+function timelineInput(rm: Roadmap, phases: readonly Phase[] = rm.plan.phases) {
   return {
-    phases: rm.plan.phases.map(p => ({
+    phases: phases.map(p => ({
       id: p.id,
       builds: p.builds.map(b => ({ id: b.id, name: b.name, needs: b.needs, hex: stateHex(rm.progress.states[b.id]) })),
     })),
@@ -425,13 +466,13 @@ function deskBuildRow($: $, ui: UI, rm: Roadmap, b: Build, n: number, focus: str
   )
 }
 
-function deskPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefined): RenderChildren {
+function deskPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefined, isMeasure = false): RenderChildren {
   const { Box, Text, Button } = ui
   const pid = pidOf(p)
   const pr = rm.progress.phases.find(x => x.id === p.id)
   const pct = pr?.pct ?? 0
   const hl = rm.hill.find(x => x.phase === p.id)
-  const isOpen = isPhaseOpen(rm, p, focus)
+  const isOpen = isMeasure || isPhaseOpen(rm, p, focus)
   const ids = p.builds.map(b => b.id)
   const ready = readyOf(rm, ids)
   const creatable = creatableIds(rm, p.builds)
@@ -501,17 +542,17 @@ function deskPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefine
   )
 }
 
-function deskTimeline($: $, ui: UI, rm: Roadmap): RenderChildren {
+function deskTimeline($: $, ui: UI, rm: Roadmap, phases: readonly Phase[] = rm.plan.phases): RenderChildren {
   const { Box, Text, Button } = ui
-  const builds = allBuilds(rm.plan)
+  const builds = phases.flatMap(p => p.builds)
   return Card(
     ui,
     [
       ui.Svg !== undefined ? (
         <ui.Svg
           key="timeline"
-          source={timelineSvg(timelineInput(rm), HUE.slate, HUE.slate)}
-          alt={rm.plan.phases.map(p => `${p.id || 'Plan'}: ${p.builds.map(b => b.id).join(', ')}`).join('; ')}
+          source={timelineSvg(timelineInput(rm, phases), HUE.slate, HUE.slate)}
+          alt={phases.map(p => `${p.id || 'Plan'}: ${p.builds.map(b => b.id).join(', ')}`).join('; ')}
         />
       ) : null,
       <Text key="hill-title" color={G.soft} size="caption" weight="bold">
@@ -533,6 +574,30 @@ function deskTimeline($: $, ui: UI, rm: Roadmap): RenderChildren {
       </Box>,
     ],
     { key: 'timeline-card', title: 'Timeline' },
+  )
+}
+
+/** The phase switcher of a large plan: one button per phase with its % and state, the shown one primary. */
+function deskPhaseSwitcher($: $, ui: UI, rm: Roadmap, shown: Phase, v: PlanView): RenderChildren {
+  const { Box, Text, Button } = ui
+  const ps = rm.plan.phases
+  return (
+    <Box key="plan-phases" flexDirection="column" gap={1}>
+      <Box key="plan-phases-buttons" flexDirection="row" gap={1} flexWrap="wrap">
+        {ps.map(p => {
+          const pct = rm.progress.phases.find(x => x.id === p.id)?.pct ?? 0
+          return (
+            <Button
+              key={`plan-phase-${pidOf(p)}`}
+              label={`${p.id || 'Plan'} · ${pct}% · ${phaseState(rm, p)}`}
+              variant={p === shown ? 'primary' : 'secondary'}
+              onPress={() => pickPhase($, p, v)}
+            />
+          )
+        })}
+      </Box>
+      <Text key="plan-phases-note" color={G.soft} size="footnote">{`Phase ${ps.indexOf(shown) + 1} of ${ps.length} · a plan this large is shown one phase at a time`}</Text>
+    </Box>
   )
 }
 
@@ -565,6 +630,13 @@ export function deskPlan($: $, ui: UI, v: PlanView): RenderChildren {
   }
   const mode = S.planMode
   const fresh = notStartedIds(rm)
+  const paged = isPaged(
+    rm,
+    () => rm.plan.phases.map(p => deskPhase($, ui, rm, p, v.focus, true)),
+    () => deskTimeline($, ui, rm),
+  )
+  const shown = paged ? shownPhase(rm, v.focus) : undefined
+  const phases = shown === undefined ? rm.plan.phases : [shown]
   const sub = [
     rm.plan.designVersion === undefined ? '' : `made from design v${rm.plan.designVersion}`,
     rm.plan.updated === '' ? '' : `updated ${rm.plan.updated}`,
@@ -597,7 +669,8 @@ export function deskPlan($: $, ui: UI, v: PlanView): RenderChildren {
           {`⚠ ${w}`}
         </Text>
       ))}
-      {mode === 'timeline' ? deskTimeline($, ui, rm) : rm.plan.phases.map(p => deskPhase($, ui, rm, p, v.focus))}
+      {shown !== undefined && deskPhaseSwitcher($, ui, rm, shown, v)}
+      {mode === 'timeline' ? deskTimeline($, ui, rm, phases) : phases.map(p => deskPhase($, ui, rm, p, v.focus))}
     </Box>
   )
 }
@@ -863,12 +936,12 @@ function termBuild($: $, ui: UI, rm: Roadmap, b: Build, focus: string | undefine
   )
 }
 
-function termPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefined): RenderChildren {
+function termPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefined, isMeasure = false): RenderChildren {
   const { Box, Text, Button } = ui
   const pid = pidOf(p)
   const pct = rm.progress.phases.find(x => x.id === p.id)?.pct ?? 0
   const hl = rm.hill.find(x => x.phase === p.id)
-  const isOpen = isPhaseOpen(rm, p, focus)
+  const isOpen = isMeasure || isPhaseOpen(rm, p, focus)
   const ids = p.builds.map(b => b.id)
   const ready = readyOf(rm, ids)
   const creatable = creatableIds(rm, p.builds)
@@ -904,18 +977,18 @@ function termPhase($: $, ui: UI, rm: Roadmap, p: Phase, focus: string | undefine
   )
 }
 
-function termTimeline($: $, ui: UI, rm: Roadmap): RenderChildren {
+function termTimeline($: $, ui: UI, rm: Roadmap, phases: readonly Phase[] = rm.plan.phases): RenderChildren {
   const { Box, Text, Button } = ui
   return (
     <Box key="timeline" flexDirection="column">
-      {rm.plan.phases.map(p => (
+      {phases.map(p => (
         <Text key={`lane-${pidOf(p)}`} wrap="truncate">
           {`${(p.id || 'Plan').padEnd(4)} │ ${p.builds.map(b => (b.needs.length === 0 ? b.id : `${b.needs.join('+')} → ${b.id}`)).join('   ') || '—'}`}
         </Text>
       ))}
       <Text key="hill-line" dimColor>{`Hill: ${rm.hill.map(hl => `${hl.phase || 'Plan'} ${hillLabel(hl).replace('⛰ ', '')} (${hl.position})`).join(' · ')}`}</Text>
       <Box key="tl-links" flexDirection="row" flexWrap="wrap" columnGap={1}>
-        {allBuilds(rm.plan).map(b => (
+        {phases.flatMap(p => p.builds).map(b => (
           <Button key={`tl-${b.id}`} label={b.id} plain onPress={() => openBuild($, rm, b)} />
         ))}
       </Box>
@@ -945,6 +1018,13 @@ export function planView($: $, ui: UI, v: PlanView): RenderChildren {
   }
   const mode = S.planMode
   const fresh = notStartedIds(rm)
+  const paged = isPaged(
+    rm,
+    () => rm.plan.phases.map(p => termPhase($, ui, rm, p, v.focus, true)),
+    () => termTimeline($, ui, rm),
+  )
+  const shown = paged ? shownPhase(rm, v.focus) : undefined
+  const phases = shown === undefined ? rm.plan.phases : [shown]
   return (
     <Box flexDirection="column" gap={1}>
       {termHeader($, ui, `Plan · ${rm.plan.name || 'Plan'} · ${rm.progress.planPct}%${rm.plan.designVersion === undefined ? '' : ` · made from design v${rm.plan.designVersion}`}`, v.from)}
@@ -958,7 +1038,16 @@ export function planView($: $, ui: UI, v: PlanView): RenderChildren {
       {rm.plan.warnings.map((w, n) => (
         <Text key={`plan-warn-${n}`} color="warning">{`⚠ ${w}`}</Text>
       ))}
-      {mode === 'timeline' ? termTimeline($, ui, rm) : rm.plan.phases.map(p => termPhase($, ui, rm, p, v.focus))}
+      {shown !== undefined && (
+        <Box key="plan-phases" flexDirection="row" columnGap={1} flexWrap="wrap">
+          {rm.plan.phases.map(p => {
+            const label = `${p.id || 'Plan'} ${rm.progress.phases.find(x => x.id === p.id)?.pct ?? 0}% ${phaseState(rm, p)}`
+            return <Button key={`plan-phase-${pidOf(p)}`} label={p === shown ? `[${label}]` : label} plain onPress={() => pickPhase($, p, v)} />
+          })}
+          <Text key="plan-phases-note" dimColor>{`phase ${rm.plan.phases.indexOf(shown) + 1} of ${rm.plan.phases.length}`}</Text>
+        </Box>
+      )}
+      {mode === 'timeline' ? termTimeline($, ui, rm, phases) : phases.map(p => termPhase($, ui, rm, p, v.focus))}
     </Box>
   )
 }

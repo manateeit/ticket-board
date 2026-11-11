@@ -2,7 +2,7 @@ import { expect, test, type TestBody } from 'claude-code/testing'
 
 import { parseBoard } from '../hooks/core/board'
 import { parseProposal, planHash, roadmap, ticketRef } from '../hooks/core/roadmap'
-import { boardCols, readmeParts } from '../hooks/desk'
+import { boardCols, readmeParts, rowsPerPage } from '../hooks/desk'
 import { railSvg } from '../hooks/glass'
 import { runLine, today } from '../hooks/core/query'
 import { PLAN_COLS } from '../hooks/plan'
@@ -3326,6 +3326,304 @@ test('plated rows give the action column room for Open and Run', () => {
   const action = (plated: boolean) => Number(boardCols(true, plated).find(c => c.id === 'action')!.width.replace('%', ''))
   expect(action(true)).toBeGreaterThanOrEqual(17)
   for (const plated of [false, true]) for (const hasPlan of [false, true]) expect(boardCols(hasPlan, plated).reduce((s, c) => s + Number(c.width.replace('%', '')), 0)).toBe(100)
+})
+
+// ---------- 0022: large plans and boards drawn in pages, every view within the host's bound ----------
+
+/** 8 phases, 49 builds (7 + 6 × 7), as the plan reported from ticket-board-gui; 40 design sections. */
+const BIG_PHASES = Array.from({ length: 8 }, (_, p) => ({ id: `P${p + 1}`, n: p === 0 ? 7 : 6 }))
+const BIG_BUILDS = BIG_PHASES.flatMap(ph => Array.from({ length: ph.n }, (_, b) => `${ph.id}.${b + 1}`))
+const BIG_DESIGN = `---
+design: Studio
+version: 2
+status: approved
+updated: 2026-11-01
+---
+# Studio: design
+
+${Array.from({ length: 40 }, (_, n) => `## D${n + 1} · Section number ${n + 1} of the studio design\nRev: 1\nWhy: People need part ${n + 1}.\nWhat: The studio does part ${n + 1} well.\n`).join('\n')}`
+const BIG_PLAN = `---
+plan: Studio
+design-version: 2
+updated: 2026-11-10
+---
+# Studio: plan
+
+${BIG_PHASES.map(
+  (ph, p) => `## ${ph.id} · Phase ${p + 1} of the studio
+Appetite: 2 weeks
+Exit: phase ${p + 1} works end to end
+
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+${Array.from({ length: ph.n }, (_, b) => {
+  const id = `${ph.id}.${b + 1}`
+  const i = BIG_BUILDS.indexOf(id)
+  return `| ${id} | Build ${id} of the studio plan | M | ${i === 0 ? '—' : BIG_BUILDS[i - 1]} | D${(i % 40) + 1}, D${((i + 7) % 40) + 1} | it works | |`
+}).join('\n')}
+`,
+).join('\n')}`
+/** 120 tickets: the first 49 on the plan's builds (the first 20 done, the next 6 in flight), the rest a mix. */
+const BIG_STATUS = (n: number) => (n <= 20 ? 'done' : n <= 26 ? 'in-progress' : n % 5 === 0 ? 'done' : n % 5 === 1 ? 'ready' : n % 5 === 2 ? 'blocked' : 'draft')
+const bigNum = (n: number) => String(n).padStart(4, '0')
+const BIG_BOARD = `# Studio board
+
+Design: design/DESIGN.md · Plan: design/PLAN.md
+
+| #    | Ticket | Status | Mode | Blocked by | Owner | Notes |
+|------|--------|--------|------|------------|-------|-------|
+${Array.from({ length: 120 }, (_, k) => `| ${bigNum(k + 1)} | ${k % 7 === 0 ? 'Fix' : 'Make'} studio ticket ${k + 1} | ${BIG_STATUS(k + 1)} | ${k % 2 === 0 ? 'solo' : 'team'} | ${k > 0 && k % 4 === 0 ? bigNum(k) : '—'} | — | ${k % 3 === 0 ? 'merged' : ''} |`).join('\n')}
+
+Status flow: draft → ready → in-progress → in-check → done
+`
+function bigFiles(): Record<string, string> {
+  const out: Record<string, string> = { ...GIT_READY, 'tickets/BOARD.md': BIG_BOARD, '/repo/design/DESIGN.md': BIG_DESIGN, '/repo/design/PLAN.md': BIG_PLAN }
+  for (let k = 1; k <= 120; k++) {
+    const head = k <= 49 ? `Plan: ${BIG_BUILDS[k - 1]}\nDesign: D${((k - 1) % 40) + 1}` : ''
+    out[`tickets/${bigNum(k)}-studio-ticket-${k}/rd.md`] = rmRd(bigNum(k), `Studio ticket ${k}`, head).replace('Type: feature', `Type: ${k % 7 === 0 ? 'bug' : 'feature'}`)
+    out[`tickets/${bigNum(k)}-studio-ticket-${k}/eval.md`] = EVAL
+  }
+  return out
+}
+
+/** Fixture copy with a bigger plan: 8 phases × 20 builds, too large for the terminal to draw whole. */
+function hugePlan(): string {
+  const ids = Array.from({ length: 8 }, (_, p) => Array.from({ length: 20 }, (_, b) => `P${p + 1}.${b + 1}`))
+  return `---
+plan: Studio
+design-version: 2
+updated: 2026-11-10
+---
+# Studio: plan
+
+${ids
+  .map(
+    (builds, p) => `## P${p + 1} · Phase ${p + 1} of the studio
+Appetite: 2 weeks
+Exit: phase ${p + 1} works end to end
+
+| # | Build | Size | Needs | Covers | Done when | Ticket |
+|---|---|---|---|---|---|---|
+${builds.map((id, b) => `| ${id} | Build ${id} of the studio plan with a long name | M | ${b === 0 ? '—' : builds[b - 1]} | D${b + 1}, D${b + 2} | it works | |`).join('\n')}
+`,
+  )
+  .join('\n')}`
+}
+
+const BIG_PHASE_IDS = BIG_PHASES.map(p => p.id)
+/** The ticket numbers drawn as board rows. */
+const rowNumbers = (drawn: string) => [...new Set([...drawn.matchAll(/"key":"row-(\d{4})"/g)].map(m => m[1]!))]
+/** The phases drawn open or folded in the Plan list. */
+const phasesDrawn = (drawn: string) => [...new Set([...drawn.matchAll(/"key":"phase-toggle-(P\d+)"/g)].map(m => m[1]!))]
+/** Draws within the host's bound, with no "too large" notice in its place. */
+async function fits(ui: any): Promise<string> {
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).not.toContain('too large for the pane')
+  expect(drawn.length).toBeLessThan(95_000)
+  return drawn
+}
+
+for (const scheme of ['auto', 'dark', 'light'] as const) {
+  for (const mode of ['light', 'dark'] as const) {
+    const opts = (more: [string, unknown][] = []) => ({ store: new Map<string, unknown>([['colors', scheme], ...more]), theme: mode })
+
+    test(`a plan of 8 phases and 49 builds draws one phase at a time, list and timeline, readable (${scheme} glass, app ${mode})`, async ($, on) => {
+      const failures: string[] = []
+      const { ui, store } = await boot($, on, 'desktop', bigFiles(), opts())
+      await ui.find({ key: 'tab-plan' })
+      await ui.press({ key: 'tab-plan' })
+      await ui.find({ key: 'plan-phases' })
+      // The current phase (P1–P3 are built, P4 is under way) is the one shown first.
+      let drawn = await fits(ui)
+      expect(phasesDrawn(drawn)).toEqual(['P4'])
+      expect(drawn).toMatch(/P4 · \d+% · now/)
+      expect(drawn).toContain('P1 · 100% · done')
+      expect(drawn).toContain('Phase 4 of 8')
+      for (const f of contrastFailures(await ui.drawn(), scheme, mode)) failures.push(`[plan P4] ${f}`)
+      // Every phase is reachable through the switcher, and the choice is remembered for the project.
+      for (const id of BIG_PHASE_IDS) {
+        await ui.press({ key: `plan-phase-${id}` })
+        drawn = await fits(ui)
+        expect(phasesDrawn(drawn)).toEqual([id])
+        expect(drawn).toContain(`"key":"build-${id}.1"`)
+        expect(store.get('plan-phase:/repo')).toBe(id)
+      }
+      for (const f of contrastFailures(await ui.drawn(), scheme, mode)) failures.push(`[plan P8] ${f}`)
+      // The timeline shows the same phase, and every phase through the same switcher.
+      await ui.press({ key: 'plan-timeline' })
+      await ui.find({ key: 'timeline-card' })
+      drawn = await fits(ui)
+      expect(drawn).toContain('"key":"tl-P8.1"')
+      expect(drawn).not.toContain('"key":"tl-P1.1"')
+      for (const id of BIG_PHASE_IDS) {
+        await ui.press({ key: `plan-phase-${id}` })
+        drawn = await fits(ui)
+        expect(drawn).toContain(`"key":"tl-${id}.1"`)
+        expect(drawn).toContain('HILL CHART')
+      }
+      for (const f of contrastFailures(await ui.drawn(), scheme, mode)) failures.push(`[timeline] ${f}`)
+      // A design of 40 sections lists them all within the bound.
+      await ui.press({ key: 'tab-design' })
+      await ui.find({ key: 'sec-D40' })
+      drawn = await fits(ui)
+      for (let n = 1; n <= 40; n++) expect(drawn).toContain(`"key":"sec-D${n}"`)
+      await ui.unmount()
+      expect(failures).toEqual([])
+    })
+
+    test(`a board of 120 tickets draws in pages of rows, readable (${scheme} glass, app ${mode})`, async ($, on) => {
+      const failures: string[] = []
+      const { ui } = await boot($, on, 'desktop', bigFiles(), opts())
+      await ui.find({ key: 'rows-pager' })
+      let drawn = await fits(ui)
+      expect(drawn).toContain('Rows 1–20 of 120')
+      expect(drawn).not.toContain('"key":"rows-prev"')
+      for (const f of contrastFailures(await ui.drawn(), scheme, mode)) failures.push(`[board page 1] ${f}`)
+      // Every row is reachable through Next.
+      const seen = new Set<string>()
+      for (let page = 1; page <= 10; page++) {
+        drawn = await fits(ui)
+        for (const n of rowNumbers(drawn)) seen.add(n)
+        if (!drawn.includes('"key":"rows-next"')) break
+        await ui.press({ key: 'rows-next' })
+      }
+      expect(seen.size).toBe(120)
+      expect(drawn).toContain('Rows 101–120 of 120')
+      for (const f of contrastFailures(await ui.drawn(), scheme, mode)) failures.push(`[board last page] ${f}`)
+      await ui.press({ key: 'rows-prev' })
+      expect(await fits(ui)).toContain('Rows 81–100 of 120')
+      await ui.unmount()
+      expect(failures).toEqual([])
+    })
+  }
+}
+
+test('a large board: done hidden, a filter and a sort apply before paging, and each change goes back to page 1 (desktop)', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop', bigFiles())
+  await ui.find({ key: 'rows-pager' })
+  await ui.press({ key: 'rows-next' })
+  expect(await fits(ui)).toContain('Rows 21–40 of 120')
+  // Hide done: 20 + 19 done tickets leave 81, and the board is back on page 1.
+  await ui.press({ key: 'hide-done' })
+  let drawn = await fits(ui)
+  expect(drawn).toContain('Rows 1–20 of 81')
+  const open = new Set<string>()
+  for (let page = 1; page <= 10; page++) {
+    drawn = await fits(ui)
+    for (const n of rowNumbers(drawn)) open.add(n)
+    if (!drawn.includes('"key":"rows-next"')) break
+    await ui.press({ key: 'rows-next' })
+  }
+  const notDone = Array.from({ length: 120 }, (_, k) => k + 1).filter(n => BIG_STATUS(n) !== 'done').map(bigNum)
+  expect([...open].sort()).toEqual(notDone)
+  // Sort by number, newest first: page 1 holds the first rows of the whole sorted list.
+  await ui.press({ key: 'sort-num' })
+  drawn = await fits(ui)
+  expect(drawn).toContain('Rows 1–20 of 81')
+  const firstPage = rowNumbers(drawn)
+  expect(firstPage).toEqual([...notDone].reverse().slice(0, 20))
+  // A filter: bugs only (every 7th ticket), few enough for one page and no pager.
+  await ui.press({ key: 'rows-next' })
+  await ui.press({ key: 'kind-bug' })
+  drawn = await fits(ui)
+  expect(drawn).not.toContain('"key":"rows-pager"')
+  const bugs = notDone.filter(n => Number(n) % 7 === 0)
+  expect(rowNumbers(drawn).sort()).toEqual(bugs)
+  await ui.unmount()
+})
+
+test('a large board pages on the terminal too, every row reachable, and a filter goes back to page 1', async ($, on) => {
+  const { ui } = await boot($, on, 'terminal', bigFiles(), { store: new Map<string, unknown>([['filters:/repo', { show: 'all' }]]) })
+  await ui.find({ key: 'next' })
+  let drawn = await fits(ui)
+  expect(drawn).toMatch(/Rows 1–\d+ of 120/)
+  const seen = new Set<string>()
+  for (let page = 1; page <= 20; page++) {
+    drawn = await fits(ui)
+    for (const n of rowNumbers(drawn)) seen.add(n)
+    if (drawn.includes('–120 of 120')) break
+    await ui.press({ key: 'next' })
+  }
+  expect(seen.size).toBe(120)
+  await ui.press({ key: 'hide-done' })
+  expect(await fits(ui)).toMatch(/Rows 1–\d+ of 81/)
+  await ui.unmount()
+})
+
+test('the plan phase chosen is remembered for the project: a new session opens on it (desktop)', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop', bigFiles(), { store: new Map<string, unknown>([['plan-phase:/repo', 'P2'], ['plan-mode:/repo', 'list']]) })
+  await ui.find({ key: 'tab-plan' })
+  await ui.press({ key: 'tab-plan' })
+  await ui.find({ key: 'plan-phases' })
+  const drawn = await fits(ui)
+  expect(phasesDrawn(drawn)).toEqual(['P2'])
+  expect(drawn).toContain('Phase 2 of 8')
+  await ui.unmount()
+})
+
+test('a plan of 8 phases and 49 builds fits the terminal whole: every phase, no switcher', async ($, on) => {
+  const { ui } = await boot($, on, 'terminal', bigFiles())
+  await ui.press({ key: 'tab-plan' })
+  await ui.find({ key: 'phase-toggle-P8' })
+  let drawn = await fits(ui)
+  expect(phasesDrawn(drawn)).toEqual(BIG_PHASE_IDS)
+  expect(drawn).not.toContain('"key":"plan-phases"')
+  await ui.press({ key: 'plan-timeline' })
+  drawn = await fits(ui)
+  expect(drawn).toContain('"key":"tl-P8.6"')
+  await ui.unmount()
+})
+
+test('a plan too large for the terminal (8 phases × 20 builds) draws one phase at a time there, list and timeline', async ($, on) => {
+  const { ui, store } = await boot($, on, 'terminal', { ...bigFiles(), '/repo/design/PLAN.md': hugePlan() })
+  await ui.press({ key: 'tab-plan' })
+  await ui.find({ key: 'plan-phases' })
+  let drawn = await fits(ui)
+  expect(phasesDrawn(drawn)).toHaveLength(1)
+  for (const id of BIG_PHASE_IDS) {
+    await ui.press({ key: `plan-phase-${id}` })
+    drawn = await fits(ui)
+    expect(phasesDrawn(drawn)).toEqual([id])
+    expect(drawn).toContain(`"key":"build-${id}.20"`)
+  }
+  expect(store.get('plan-phase:/repo')).toBe('P8')
+  await ui.press({ key: 'plan-timeline' })
+  for (const id of BIG_PHASE_IDS) {
+    await ui.press({ key: `plan-phase-${id}` })
+    drawn = await fits(ui)
+    expect(drawn).toContain(`"key":"tl-${id}.20"`)
+  }
+  await ui.unmount()
+})
+
+for (const surface of ['desktop', 'terminal'] as const) {
+  test(`a small plan and board draw as before: no phase switcher, no row pager (${surface})`, async ($, on) => {
+    const { ui } = await boot($, on, surface, p7Files(), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    let drawn = await fits(ui)
+    expect(drawn).not.toContain('rows-pager')
+    expect(drawn).not.toContain('Rows 1–')
+    expect(rowNumbers(drawn).length).toBe(6)
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    drawn = await fits(ui)
+    expect(drawn).not.toContain('plan-phases')
+    expect(phasesDrawn(drawn)).toEqual(['P1', 'P2', 'P3'])
+    await ui.press({ key: 'plan-timeline' })
+    drawn = await fits(ui)
+    expect(drawn).not.toContain('plan-phases')
+    expect(drawn).toContain('"key":"tl-P1.1"')
+    expect(drawn).toContain('"key":"tl-P3.1"')
+    await ui.unmount()
+  })
+}
+
+test('rows per page: every row when they fit, else 20, fewer for very large rows, never under 5', () => {
+  expect(rowsPerPage(Array(6).fill(3000))).toBe(6)
+  expect(rowsPerPage([])).toBe(1)
+  expect(rowsPerPage(Array(120).fill(2800))).toBe(20)
+  expect(rowsPerPage(Array(120).fill(5000))).toBe(12)
+  expect(rowsPerPage(Array(120).fill(50_000))).toBe(5)
 })
 
 // ---------- 0021: activity wording ----------
