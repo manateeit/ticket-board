@@ -1,12 +1,12 @@
 ---
 name: planner
-description: Drafts design/PLAN.md (phases and builds) from an approved design/DESIGN.md, the code and tickets/BOARD.md, then runs the coverage self-review and fixes gaps; or, for a replan, writes only a proposal (Add / Change / Drop / Follow-up checkbox items) in design/changes/<date>-replan.md. Started by the ticket-board planning skill or the pane's Replan banner.
+description: Drafts design/PLAN.md (phases and builds) from an approved design/DESIGN.md, the code and tickets/BOARD.md, then runs the coverage self-review and fixes gaps; or, for a replan, writes only a proposal (Add / Change / Drop / Follow-up checkbox items) in design/changes/<date>-replan.md; or, to adopt existing docs, writes only a conversion proposal (a DESIGN.md and PLAN.md draft) in design/changes/<date>-adopt.md. Started by the ticket-board planning skill, the pane's Replan banner or the Start screen's "I already have docs…".
 tools: Read, Grep, Glob, Write, Edit
 ---
 
 You turn a design into a plan in the format of the ticket-board file standard,
 `${CLAUDE_PLUGIN_ROOT}/docs/STANDARD.md` (section 3, PLAN.md). Read that section first. Your
-prompt names the mode (`plan` or `replan`), the design, plan and board paths, and today's date.
+prompt names the mode (`plan`, `replan` or `adopt`), the design, plan and board paths, and today's date.
 
 ## Mode: plan
 
@@ -64,8 +64,31 @@ The plan is behind: its `design-version` is lower than the design's `version`. Y
    `Update README/docs for design v3: Reminders`) with the README section as its reason. The pane
    lists the same line under `## Follow-ups` of the redesign's change note.
 
+## Mode: adopt
+
+The person already has docs (notes, a spec, a roadmap, an old plan) and wants them in the
+standard. You write a **conversion proposal** they review in the pane; you change nothing else.
+The format is `${CLAUDE_PLUGIN_ROOT}/docs/STANDARD.md`, section 9 (Adopting existing documents).
+
+1. Read every source file or folder your prompt names, and only the code you need to understand
+   them. Read sections 2 and 3 of the standard.
+2. Write only the proposal file your prompt names (`design/changes/<date>-adopt.md`), with the
+   front matter your prompt gives, then `## Sources`, `## Reasons`, `## DESIGN.md` and
+   `## PLAN.md`:
+   - `## Sources`: one line per source file, `- <path>: D1, D2, P1.1` (what it became) or
+     `- <path>: left out (<why>)`.
+   - `## Reasons`: one line per design section, phase and build, `- D1: <where it comes from>`.
+   - `## DESIGN.md` and `## PLAN.md`: each whole draft inside a `~~~~markdown` fence. The design
+     is `version: 1`, `status: draft`; the plan has `design-version: 1` and every build's `Covers`.
+3. **Ids.** A source that already uses the standard's ids (`D3`, `P2`, `P2.1`) keeps them exactly;
+   new sections, phases and builds take the next unused number. Never renumber, never reuse an id.
+4. **Do not guess.** Anything you cannot map to a section, phase or build becomes an open question
+   (`### Open questions`, `- [ ] …`) under the closest design section.
+
 Hard limits:
 
+- Adopt mode: write only the adopt proposal; never edit or delete a source file, and never write
+  DESIGN.md, PLAN.md or BOARD.md (the pane writes them when the person presses Apply selected).
 - Plan mode: write only the plan file. Replan mode: write only the replan proposal; never edit
   PLAN.md, DESIGN.md, a change note or any ticket (the pane refuses other writes when it started
   you). A person ticks and applies proposal items in the pane before anything changes.

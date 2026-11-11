@@ -3,6 +3,10 @@ import type { EngineInterface } from 'claude-code'
 
 import { today } from './core/query'
 import {
+  DEFAULT_DESIGN,
+  DEFAULT_PLAN,
+  adoptPaths,
+  adoptResult,
   allBuilds,
   applyProposal,
   blockedByFor,
@@ -12,12 +16,14 @@ import {
   markProposal,
   missingNote,
   parseChangeNote,
+  parseAdopt,
   parseDesign,
   parsePlan,
   parseProposal,
   planBatch,
   planBrief,
   planHash,
+  setBindingLine,
   setFrontMatterKey,
   withDocsItem,
   withNoteFollowUp,
@@ -25,7 +31,7 @@ import {
   type Roadmap,
 } from './core/roadmap'
 import type { Question } from './core/ticket'
-import { S, abs, addPlanTicket, changesFolder, createSkeleton, dir, editRow, folderOf, latestProposal, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
+import { S, abs, addPlanTicket, boardPath, changesFolder, createBoardFiles, createSkeleton, dir, editRow, folderOf, fullRoadmap, latestProposal, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
 
 type $ = EngineInterface
 
@@ -187,7 +193,7 @@ export async function pumpPlanQueue($: $): Promise<void> {
   try {
     do {
       pumpAgain = false
-      while (S.planQueue.length > 0 && S.jobs.size < MAX_JOBS) {
+      while (S.planQueue.length > 0 && runningJobs() < MAX_JOBS) {
         const q = S.planQueue.shift()!
         await startJob($, q.number, 'plan', q.brief, { build: q.build, folder: q.folder, extra: q.extra })
         redraw($)
@@ -559,6 +565,259 @@ export async function dismissReplan($: $, ticked: readonly number[]): Promise<vo
   for (const i of sel) S.replanTicks.delete(i)
   await refresh($, true)
   say($, `Dismissed ${plural(sel.length, 'item')}`)
+}
+
+// ---------- Adopt existing docs (0009) ----------
+
+/** Where adopt proposals go: `design/changes/` beside the default DESIGN.md. */
+export const ADOPT_FOLDER = changesFolder(DEFAULT_DESIGN)
+
+/** Writer jobs, the adopt agent included: what the 3-slot queue counts. */
+export const runningJobs = () => S.jobs.size + (S.adoptJob === undefined ? 0 : 1)
+
+function adoptBrief($: $, a: { path: string; sources: string[]; date: string }): string {
+  return [
+    'Mode: adopt. Convert the person\'s existing documents into a draft design and plan in the ticket-board file standard, as a proposal they review in the pane.',
+    `Repository root: ${S.root || S.cwd}. Today: ${a.date}.`,
+    `Source files and folders (read these, and only the code you need for context): ${a.sources.join(', ')}.`,
+    `Follow ${$.plugin.root}/agents/planner.md (mode adopt) and ${$.plugin.root}/docs/STANDARD.md: sections 2 (DESIGN.md) and 3 (PLAN.md) for the drafts, section 9 for the proposal file.`,
+    `Write only ${a.path}. Never edit or delete a source file, and never write DESIGN.md, PLAN.md, BOARD.md, code or any other file: writes elsewhere are refused.`,
+    'Start the file with exactly this front matter:',
+    '---',
+    'change: adopt',
+    `date: ${a.date}`,
+    `sources: ${a.sources.join(', ')}`,
+    '---',
+    'Then `# Adopt existing docs`, and these headings in order:',
+    '- `## Sources`: one line per source file you read, `- <path>: <the D and P ids it became>` or `- <path>: left out (<why>)`.',
+    '- `## Reasons`: one line per design section, phase and build, `- D1: <where it comes from in the sources>`.',
+    '- `## DESIGN.md`: the whole design draft inside a `~~~~markdown` fence (front matter `design`, `version: 1`, `status: draft`, `updated`; context sections; `## D<n> · Title` sections with Rev 1, Why, What, Done when).',
+    '- `## PLAN.md`: the whole plan draft inside a `~~~~markdown` fence (front matter `plan`, `design-version: 1`, `updated`; `## P<n> · Title` phases with Goal, Appetite, Exit and the build table `| # | Build | Size | Needs | Covers | Done when | Ticket |`).',
+    'Ids: a source that already uses the standard\'s ids (D1…, P1…, P1.1…) keeps them; new ids take the next unused number; never reuse or renumber an id. Ticket cells are `—` unless a source names an existing ticket.',
+    'Anything you cannot map to a section, phase or build becomes an open question (`### Open questions`, `- [ ] …`) under the closest design section: ask, never guess.',
+    'Finish with one line: the file written and the number of sections, phases and builds.',
+  ].join('\n')
+}
+
+/** Reads the adopt box's paths, checks each is inside the project and exists, and starts the converting agent. Starts nothing on an error. */
+export async function startAdopt($: $, input: string): Promise<boolean> {
+  if (S.adoptJob !== undefined) {
+    say($, 'The adopt agent is already converting your docs', 'warning')
+    return false
+  }
+  const { paths, error } = adoptPaths(input, S.root || S.cwd)
+  if (error !== undefined) {
+    say($, error, 'error')
+    return false
+  }
+  for (const p of paths) {
+    let found = false
+    try {
+      found = await $.fs.exists(abs(p))
+    } catch {
+      found = false
+    }
+    if (!found) {
+      say($, `${p} was not found in this project`, 'error')
+      return false
+    }
+  }
+  const date = today(Date.now())
+  let path = `${ADOPT_FOLDER}/${date}-adopt.md`
+  for (let n = 2; (await $.fs.exists(abs(path)).catch(() => false)) && n < 100; n++) path = `${ADOPT_FOLDER}/${date}-adopt-${n}.md`
+  const description = 'Adopt existing docs'
+  let r: { deny: string } | { agentId?: string }
+  try {
+    r = await $.agent.spawn({
+      prompt: adoptBrief($, { path, sources: paths, date }),
+      description,
+      subagentType: PLANNER,
+      ...(S.options.writerModel ? { model: S.options.writerModel } : {}),
+      name: 'adopt',
+    })
+  } catch (err) {
+    r = { deny: err instanceof Error ? err.message : String(err) }
+  }
+  if ('deny' in r) {
+    say($, `Could not start the adopt agent: ${r.deny}`, 'error')
+    return false
+  }
+  const agentId = r.agentId ?? (await listedWriter($, description))
+  if (agentId === undefined) {
+    say($, 'The adopt agent started without an agent id; refresh when it is done', 'warning')
+    return true
+  }
+  S.adoptJob = { agentId, path, sources: paths }
+  S.adoptFile = undefined
+  S.adoptOff.clear()
+  S.adoptNames = undefined
+  say($, `Converting ${paths.join(', ')}: the agent writes ${path}; nothing else changes`)
+  return true
+}
+
+/** Is `path` (as a tool gave it) the adopt proposal the agent may write? */
+export function isAdoptFile(path: string): boolean {
+  const job = S.adoptJob
+  if (job === undefined) return false
+  const full = abs(path).replace(/\/\.\//g, '/')
+  return !full.includes('/../') && full === abs(job.path)
+}
+
+/** The newest adopt proposal not applied yet, read into `S.adoptFile` (kept when it is the one already there). */
+export async function loadAdopt($: $): Promise<void> {
+  let entries: { name: string; kind: string; mtimeMs: number }[] = []
+  try {
+    entries = await $.fs.list(abs(ADOPT_FOLDER))
+  } catch {
+    entries = []
+  }
+  const names = entries
+    .filter(e => e.kind === 'file' && /-adopt(-\d+)?\.md$/i.test(e.name))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name))
+    .map(e => e.name)
+  for (const name of names) {
+    const path = `${ADOPT_FOLDER}/${name}`
+    const text = await readText($, path)
+    if (text === undefined || parseAdopt(text, name).isApplied) continue
+    if (S.adoptFile?.path !== path || S.adoptFile.text !== text) {
+      if (S.adoptFile?.path !== path) S.adoptOff.clear()
+      S.adoptFile = { name, path, text }
+      redraw($)
+    }
+    return
+  }
+  if (S.adoptFile !== undefined) {
+    S.adoptFile = undefined
+    redraw($)
+  }
+}
+
+/** The adopt agent ended: its proposal goes up for review, or the reason it did not. */
+export async function finishAdopt($: $, failed: boolean, reason: string): Promise<void> {
+  const job = S.adoptJob
+  if (job === undefined) return
+  S.adoptJob = undefined
+  await pumpPlanQueue($).catch(() => undefined)
+  if (failed) return say($, `The adopt agent stopped (${reason}); nothing was written`, 'error')
+  const text = await readText($, job.path)
+  if (text === undefined) return say($, `The adopt agent finished without writing ${job.path}`, 'warning')
+  const name = job.path.slice(job.path.lastIndexOf('/') + 1)
+  S.adoptFile = { name, path: job.path, text }
+  S.adoptOff.clear()
+  S.adoptNames = undefined
+  const p = parseAdopt(text, name)
+  const line = `Conversion ready: ${plural(p.items.length, 'item')} to review`
+  $.ui.toast(line)
+  say($, p.items.length === 0 ? `${line}; ${p.warnings[0] ?? 'the proposal has no sections, phases or builds'}` : `${line} in ${job.path}`, p.items.length === 0 ? 'warning' : 'success')
+}
+
+/** "Pick another name or cancel": Cancel drops the names offered and writes nothing. */
+export function cancelAdoptNames($: $) {
+  S.adoptNames = undefined
+  say($, 'Nothing was written', 'warning')
+}
+
+/** `design/DESIGN.md` → `design/DESIGN-adopted.md`. */
+const otherName = (path: string) => path.replace(/(\.md)?$/i, m => `-adopted${m || '.md'}`)
+
+/** A name typed for DESIGN.md or PLAN.md: inside the project and ending in .md, else why not. */
+function badName(path: string): string | undefined {
+  const { paths, error } = adoptPaths(path, S.root || S.cwd)
+  if (error !== undefined || paths.length !== 1) return error ?? `${path} is not one file name`
+  return /\.md$/i.test(paths[0]!) ? undefined : `${path} must end in .md`
+}
+
+/**
+ * Apply selected: writes DESIGN.md (`status: draft`, `version: 1`) and PLAN.md from the ticked
+ * items, and the `Design: … · Plan: …` binding line under the BOARD.md title (making BOARD.md from
+ * the template when there is none). Never overwrites an existing DESIGN.md or PLAN.md: it offers
+ * other names and writes nothing. Source files are never written. Then runs the roadmap checks.
+ * Returns which view to show, or undefined when nothing was written.
+ */
+export async function applyAdopt($: $, names?: { design?: string; plan?: string }): Promise<'plan' | 'design' | undefined> {
+  if (S.isApplying) {
+    say($, 'Still applying the last selection', 'warning')
+    return undefined
+  }
+  const file = S.adoptFile
+  if (file === undefined) {
+    say($, 'No adopt proposal to apply', 'warning')
+    return undefined
+  }
+  S.isApplying = true
+  try {
+    const text = await readText($, file.path)
+    if (text === undefined) {
+      say($, `Could not read the adopt proposal: ${file.path}`, 'error')
+      return undefined
+    }
+    const p = parseAdopt(text, file.name)
+    const date = today(Date.now())
+    const r = adoptResult(p, S.adoptOff, date)
+    if (r.design === undefined && r.plan === undefined) {
+      say($, `Nothing to apply: ${file.path} has no DESIGN.md or PLAN.md draft`, 'error')
+      return undefined
+    }
+    if (r.sections + r.phases + r.builds === 0) {
+      say($, 'Nothing ticked: nothing applied', 'warning')
+      return undefined
+    }
+    const designPath = r.design === undefined ? undefined : (names?.design ?? DEFAULT_DESIGN).trim()
+    const planPath = r.plan === undefined ? undefined : (names?.plan ?? DEFAULT_PLAN).trim()
+    for (const n of [designPath, planPath]) {
+      const bad = n === undefined ? undefined : badName(n)
+      if (bad !== undefined) {
+        say($, bad, 'error')
+        return undefined
+      }
+    }
+    if (designPath !== undefined && designPath === planPath) {
+      say($, 'DESIGN.md and PLAN.md need two different names', 'error')
+      return undefined
+    }
+    const exists = async (path: string | undefined) => path !== undefined && (await $.fs.exists(abs(path)).catch(() => true))
+    const taken = { design: await exists(designPath), plan: await exists(planPath) }
+    if (taken.design || taken.plan) {
+      S.adoptNames = {
+        ...(designPath === undefined ? {} : { design: taken.design ? otherName(designPath) : designPath }),
+        ...(planPath === undefined ? {} : { plan: taken.plan ? otherName(planPath) : planPath }),
+      }
+      const which = [taken.design ? designPath : '', taken.plan ? planPath : ''].filter(Boolean).join(' and ')
+      say($, `${which} already ${taken.design && taken.plan ? 'exist' : 'exists'}: pick another name or cancel. Nothing was written.`, 'warning')
+      return undefined
+    }
+    if (r.design !== undefined && designPath !== undefined) await $.fs.write(abs(designPath), r.design)
+    if (r.plan !== undefined && planPath !== undefined) await $.fs.write(abs(planPath), r.plan)
+    const hadBoard = (await readText($, boardPath())) !== undefined
+    if (!hadBoard) await createBoardFiles($)
+    const board = (await readText($, boardPath())) ?? ''
+    const bound = setBindingLine(board, designPath, planPath)
+    if (bound !== board) await $.fs.write(abs(boardPath()), bound)
+    await $.fs.write(abs(file.path), setFrontMatterKey(text, 'applied', date))
+    S.adoptFile = undefined
+    S.adoptOff.clear()
+    S.adoptNames = undefined
+    S.showBoard = true
+    await refresh($, true)
+    // The coverage checks from 0003 on what was just written.
+    const rm = fullRoadmap()
+    const alerts = rm?.checks ?? []
+    const wrote = [designPath, planPath].filter(Boolean).join(' and ')
+    say(
+      $,
+      [
+        `Adopted ${plural(r.sections, 'section')}, ${plural(r.phases, 'phase')} and ${plural(r.builds, 'build')} into ${wrote}`,
+        hadBoard ? '' : `created ${boardPath()}`,
+        alerts.length === 0 ? 'checks: all clear' : `checks: ${alerts.map(a => a.message).join('; ')}`,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      alerts.some(a => a.severity !== 'info') ? 'warning' : 'success',
+    )
+    return r.plan !== undefined && r.builds > 0 ? 'plan' : 'design'
+  } finally {
+    S.isApplying = false
+  }
 }
 
 /** Is `path` (as a tool gave it) inside the job's ticket folder? */

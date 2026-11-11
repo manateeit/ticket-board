@@ -8,11 +8,13 @@ import { allBuilds, staleOf, staleText, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
 import { startJob, suggestAnswer } from './ai'
+import { adoptView, deskAdopt, openAdopt } from './adopt'
 import { Tabs, TermReplanBanner, brainstorm, deskDesign, deskPlan, deskReplan, designView, openDesign, openPlan, planView, replanView, viewName } from './plan'
 import { G, STATUS_HEX, barSvg, heroSvg, tint } from './glass'
 import {
   S,
   boardPath,
+  createBoardFiles,
   createSkeleton,
   dir,
   editRow,
@@ -1004,13 +1006,7 @@ function readmeView($: $, ui: UI): RenderChildren {
 
 export async function setUp($: $) {
   try {
-    const root = $.plugin.root
-    const board = await $.fs.read(abs(`${root}/templates/BOARD.md`))
-    await $.fs.write(abs(boardPath()), board)
-    for (const f of ['rd.md', 'eval.md']) {
-      const path = `${dir()}/TEMPLATE/${f}`
-      if (!(await $.fs.exists(abs(path)))) await $.fs.write(abs(path), await $.fs.read(abs(`${root}/skills/ticket/TEMPLATE/${f}`)))
-    }
+    await createBoardFiles($)
     await refresh($, true)
     say($, `Created ${boardPath()} — press + New ticket to add the first one`)
   } catch (err) {
@@ -1044,7 +1040,7 @@ export function isStartState(): boolean {
 /** Whether the pane draws Start rather than the current view. */
 export function showsStart(): boolean {
   const v = S.view
-  if (v.kind === 'readme') return false
+  if (v.kind === 'readme' || v.kind === 'adopt') return false
   if (v.kind === 'start' || S.snap?.hasBoard !== true) return true
   return (v.kind === 'board' || v.kind === 'doc') && !S.showBoard && isStartState()
 }
@@ -1092,6 +1088,9 @@ export function setupLines(): {
       : { mark: '!' as const, label: 'No GitHub repository', detail: '' }
   return { git, github }
 }
+
+export const ADOPT_LABEL = 'I already have docs…'
+export const ADOPT_NOTE = 'AI converts your existing files to the design and plan standard; you review before anything is written.'
 
 export const ASK_NOTE = 'Claude will ask before running the command.'
 export const ORIGIN_NOTE = 'Tickets work locally; the router needs origin to open PRs.'
@@ -1216,11 +1215,14 @@ function startView($: $, ui: UI): RenderChildren {
             {p?.hasCode === true && <Button key="start-code" label="Draft a design from the code" hotkey="c" onPress={() => startFill($, startPrompt.fromCode())} />}
           </Box>
           {idea === '' && <Text dimColor>Type your idea to brainstorm it or go straight to design.</Text>}
+          <Button key="start-adopt" label={ADOPT_LABEL} hotkey="h" onPress={() => openAdopt($)} />
+          <Text dimColor>{ADOPT_NOTE}</Text>
         </Box>
       )}
       {at === 'design' && (
         <Button key="start-from-idea" label={`Write the design from ${p?.ideaPath ?? 'the idea'}`} hotkey="w" variant="primary" onPress={() => startFill($, startPrompt.fromIdea())} />
       )}
+      {f.hasDesign !== f.hasPlan && <Button key="start-adopt" label={ADOPT_LABEL} hotkey="h" onPress={() => openAdopt($)} />}
       {f.hasDesign && <Text color="success">{`✓ Design  ${p?.designPath ?? ''}`}</Text>}
       {at === 'plan' && <Button key="start-plan" label="Plan the builds from the design" hotkey="p" variant="primary" onPress={() => startFill($, startPrompt.plan())} />}
       {f.hasPlan && <Text color="success">{`✓ Plan  ${p?.planPath ?? ''}`}</Text>}
@@ -1268,7 +1270,9 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
     const body =
       v.kind === 'readme'
         ? deskReadme($, ui)
-        : showsStart()
+        : v.kind === 'adopt'
+          ? deskAdopt($, ui, v)
+          : showsStart()
           ? deskStart($, ui)
           : S.snap.board === undefined
             ? <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
@@ -1295,6 +1299,7 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
     )
   }
   if (v.kind === 'readme') return withProject($, ui, readmeView($, ui))
+  if (v.kind === 'adopt') return withProject($, ui, adoptView($, ui, v))
   if (showsStart()) return withProject($, ui, startView($, ui))
   if (S.snap.board === undefined)
     return <Text color="error">{boardPath()} has no ticket table (a markdown table with # and Status columns).</Text>
@@ -1316,4 +1321,5 @@ export function drawPane($: $, ui: UI, frame: Frame): RenderChildren {
     case 'replan':
       return withProject($, ui, replanView($, ui, v))
   }
+  return null
 }

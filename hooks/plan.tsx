@@ -42,6 +42,10 @@ export function viewName(v: View | undefined): string {
       return 'New ticket'
     case 'replan':
       return 'Replan review'
+    case 'start':
+      return 'Start'
+    case 'adopt':
+      return 'Adopt'
     default:
       return 'Board'
   }
