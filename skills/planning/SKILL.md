@@ -47,20 +47,37 @@ yourself) and check again. Do not finish with a gap.
 
 ## 3. Mode: replan
 
-The plan was made from an older design version. Start the planner with mode `replan`, the
-design, plan and board paths, and today's date. It diffs the design versions (the change notes
-in `design/changes/` and each section's `Rev` and dropped status) against the plan and the
-tickets' `Design:` lines, and writes **only a proposal** to
-`design/changes/<YYYY-MM-DD>-replan.md`, grouped as:
+The plan was made from an older design version. The pane's replan banner (*Plan is behind design
+vN*) starts the planner itself with **Replan**; from the CLI, start the planner with mode
+`replan`, the design, plan and board paths, today's date and the proposal path
+`design/changes/<YYYY-MM-DD>-replan.md`. It diffs the design versions (the change notes in
+`design/changes/` and each section's `Rev` and dropped status) against the plan and the tickets'
+`Design:` lines, and writes **only that proposal**, in the format of
+`${CLAUDE_PLUGIN_ROOT}/docs/STANDARD.md` section 8: front matter `change: replan`, `date`,
+`design-version` (and `plan-hash`, which the pane fills in when the planner was started from the
+CLI), then one `- [ ]` line per item under these headings, each with its reason on the next line,
+indented:
 
-- **Add build**: a section with no build;
-- **Change build**: a build whose covers, size, needs or done-when must change;
-- **Drop build**: a build that only covers dropped sections;
-- **Follow-up ticket**: a done build that a change affects; the done ticket is never rewritten,
-  a new draft ticket does the change.
+- **`## Add`**: a section with no build; the item is the new build row
+  `| P2.3 | Name | M | P2.1 | D9 | done when |`;
+- **`## Change`**: a build whose name, size, needs, covers or done-when must change; the item is
+  the whole new row in the same six cells;
+- **`## Drop`**: a build that only covers dropped sections: `P2.2 · Name`;
+- **`## Follow-up`**: a done build that a change affects: `P1.1 · What the new ticket does`. The
+  done ticket is never rewritten; a new draft ticket does the change.
 
-Replan does not edit PLAN.md, DESIGN.md or any ticket. The person reviews the proposal and ticks
-what to apply in the pane's Replan review.
+**Docs follow-up rule.** When a redesign or replan changes behaviour that README or docs
+describe, the proposal has exactly one Follow-up item `Update README/docs for <change>`, and the
+redesign's change note lists the same line under `## Follow-ups`. When the pane started the
+planner it adds both if they are missing; from the CLI, check both yourself (you may add the line
+to the change note; the planner may not).
+
+Replan does not edit PLAN.md, DESIGN.md or any ticket. The person reviews the proposal in the
+pane's **Review replan** screen, ticks items (nothing is ticked by default) and presses **Apply
+selected**: the pane edits PLAN.md (Add row, Change cells, Drop as `Status: dropped`,
+`design-version`), creates draft tickets for Add and Follow-up items and marks the applied items
+`[x]`. If PLAN.md changed since the proposal, Apply stops with *plan changed; regenerate the
+proposal*.
 
 ## 4. Finish
 
@@ -70,7 +87,8 @@ Plan view (or `/ticket` with the build id, which writes the `Plan:` and `Design:
 
 ## Rules
 
-- Plan mode writes only PLAN.md. Replan mode writes only the replan note.
+- Plan mode writes only PLAN.md. Replan mode writes only the replan proposal (and, from the CLI,
+  the docs follow-up line in the change note).
 - Never edit `DESIGN.md`, `tickets/BOARD.md` or any ticket; never rewrite a done ticket.
 - Never set the design's status; never write code.
 - In the build table never write done or in-progress state; the optional `Status` column holds

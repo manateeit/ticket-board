@@ -5,7 +5,7 @@ import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } 
 import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import { isLightTheme, type Scheme } from './glass'
 import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
-import { allBuilds, bindFromBoard, roadmap, setPlanTicket, ticketRef, type Binding, type Roadmap, type TicketRef } from './core/roadmap'
+import { allBuilds, bindFromBoard, parseProposal, roadmap, setPlanTicket, ticketRef, type Binding, type Proposal, type Roadmap, type TicketRef } from './core/roadmap'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
 import { answerDesignQuestion, approveDesignText } from './core/designfile'
 
@@ -33,7 +33,7 @@ export type Snapshot = {
   binding?: Binding
   /** File names in `design/changes/` next to the bound DESIGN.md; undefined when there is no such folder. */
   changes?: string[]
-  /** The texts of the redesign notes (`<date>-design-vN.md`) in `changes`, by file name (0015). */
+  /** The texts of the redesign notes (`<date>-design-vN.md`) and replan proposals (`<date>-replan.md`, 0016) in `changes`, by file name (0015). A listed note that could not be read has no entry. */
   changeNotes?: Record<string, string>
 }
 
@@ -49,6 +49,8 @@ export type View =
   | { kind: 'plan'; focus?: string; from?: View }
   /** The design (0007): `section` is the D id shown (the first one when absent). */
   | { kind: 'design'; section?: string; from?: View }
+  /** The replan review (0016): the newest replan proposal's items to tick and apply. */
+  | { kind: 'replan'; from?: View }
 
 export type PlanMode = 'list' | 'timeline'
 /** A writer job. `plan` jobs (0008) write a ticket from a plan build: `build` is its id, `extra` a note kept after the AI status. */
@@ -118,6 +120,12 @@ export const S = {
   planFailed: new Map<string, { number: string; reason: string }>(),
   /** A Create tickets press is making skeletons. */
   isCreating: false,
+  /** The planner writing a replan proposal (0016): its agent, the file it may write and PLAN.md's hash when it started. */
+  replanJob: undefined as { agentId: string; path: string; hash: string } | undefined,
+  /** Replan review: the item indexes ticked this session. Nothing is ticked by default. */
+  replanTicks: new Set<number>(),
+  /** An Apply or Dismiss on the replan review is running. */
+  isApplying: false,
 }
 
 /** A new session starts clean (the module can outlive one session). */
@@ -148,7 +156,10 @@ export function resetSession(cwd: string) {
     planMode: 'list',
     planQueue: [],
     isCreating: false,
+    replanJob: undefined,
+    isApplying: false,
   })
+  S.replanTicks.clear()
   S.planOpen.clear()
   S.planFailed.clear()
   S.jobs.clear()
@@ -401,12 +412,15 @@ export async function refresh($: $, force = false): Promise<boolean> {
   }
 }
 
-const changesFolder = (designPath: string) => `${designPath.includes('/') ? designPath.slice(0, designPath.lastIndexOf('/')) : '.'}/changes`
+export const changesFolder = (designPath: string) => `${designPath.includes('/') ? designPath.slice(0, designPath.lastIndexOf('/')) : '.'}/changes`
 
-/** The redesign notes among `names` (`<date>-design-vN.md`), read: the History shows the sections each one changed. */
+/**
+ * The redesign notes among `names` (`<date>-design-vN.md`), read: the History shows the sections
+ * each one changed. The replan proposals (`<date>-replan.md`) too: the replan review reads them (0016).
+ */
 async function readChangeNotes($: $, designPath: string, names: readonly string[]): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
-  for (const name of names.filter(n => /design-v\d+\.md$/i.test(n))) {
+  for (const name of names.filter(n => /(design-v\d+|replan)\.md$/i.test(n))) {
     const text = await readOr($, `${changesFolder(designPath)}/${name}`)
     if (text !== undefined) out[name] = text
   }
@@ -423,6 +437,20 @@ async function listChanges($: $, designPath: string): Promise<string[] | undefin
   } catch {
     return undefined
   }
+}
+
+/** The newest replan proposal next to the bound design (0016). `text` is undefined when the file could not be read. */
+export type LatestProposal = { name: string; path: string; text?: string; proposal?: Proposal }
+
+export function latestProposal(): LatestProposal | undefined {
+  const snap = S.snap
+  const designPath = snap?.binding?.designPath
+  if (snap?.changes === undefined || designPath === undefined) return undefined
+  const name = snap.changes.filter(n => /replan\.md$/i.test(n)).at(-1)
+  if (name === undefined) return undefined
+  const path = `${changesFolder(designPath)}/${name}`
+  const text = snap.changeNotes?.[name]
+  return text === undefined ? { name, path } : { name, path, text, proposal: parseProposal(text, name) }
 }
 
 export function rows(): BoardRow[] {

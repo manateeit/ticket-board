@@ -2,13 +2,35 @@
 import type { EngineInterface } from 'claude-code'
 
 import { today } from './core/query'
-import { allBuilds, blockedByFor, coveredDoneWhen, designLine, missingNote, planBatch, planBrief, type Build, type Roadmap } from './core/roadmap'
+import {
+  allBuilds,
+  applyProposal,
+  blockedByFor,
+  coveredDoneWhen,
+  designLine,
+  docsFollowUp,
+  markProposal,
+  missingNote,
+  parseChangeNote,
+  parseDesign,
+  parsePlan,
+  parseProposal,
+  planBatch,
+  planBrief,
+  planHash,
+  setFrontMatterKey,
+  withDocsItem,
+  withNoteFollowUp,
+  type Build,
+  type Roadmap,
+} from './core/roadmap'
 import type { Question } from './core/ticket'
-import { S, abs, addPlanTicket, createSkeleton, dir, editRow, folderOf, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
+import { S, abs, addPlanTicket, changesFolder, createSkeleton, dir, editRow, folderOf, latestProposal, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
 
 type $ = EngineInterface
 
 export const WRITER = 'ticket-board:ticket-writer'
+export const PLANNER = 'ticket-board:planner'
 
 /** At most this many writer jobs run at once; tickets from the plan wait in `S.planQueue` for a slot. */
 export const MAX_JOBS = 3
@@ -287,6 +309,256 @@ export async function retryPlanBuild($: $, buildId: string): Promise<void> {
   await setAiNote($, f.number, jobNote('AI queued', extra))
   await pumpPlanQueue($)
   if (!S.planFailed.has(buildId)) say($, `Writing ticket ${f.number} for ${buildId} again`)
+}
+
+// ---------- Replan: proposal, review and apply (0016) ----------
+
+/** What Apply shows, writing nothing, when PLAN.md is not the plan the proposal was made from. */
+export const PLAN_CHANGED = 'plan changed; regenerate the proposal'
+
+async function readText($: $, path: string): Promise<string | undefined> {
+  try {
+    return await $.fs.read(abs(path))
+  } catch {
+    return undefined
+  }
+}
+
+type ReplanFacts = { designPath: string; planPath: string; designVersion: number; planVersion: number | undefined; path: string; hash: string; date: string; changes: string }
+
+function replanBrief($: $, a: ReplanFacts): string {
+  return [
+    `Mode: replan. The plan is behind the design: ${a.planPath} has design-version ${a.planVersion ?? '(none)'}, ${a.designPath} is version ${a.designVersion}.`,
+    `Repository root: ${S.root || S.cwd}. Board: ${dir()}/BOARD.md. Change notes: ${a.changes}/. Today: ${a.date}.`,
+    `Follow ${$.plugin.root}/agents/planner.md (mode replan) and the proposal format in ${$.plugin.root}/docs/STANDARD.md, section 8.`,
+    `Write only ${a.path}. Never edit PLAN.md, DESIGN.md, BOARD.md, a change note or any ticket — writes elsewhere are refused.`,
+    'Start the file with exactly this front matter (plan-hash identifies the plan you are reading; keep it as given):',
+    '---',
+    'change: replan',
+    `date: ${a.date}`,
+    `design-version: ${a.designVersion}`,
+    `plan-hash: ${a.hash}`,
+    '---',
+    `Then \`# Replan for design v${a.designVersion}\`, \`## Why\`, and the headings \`## Add\`, \`## Change\`, \`## Drop\`, \`## Follow-up\` in that order. Under each, one \`- [ ] \` line per item with its reason on the next line, indented two spaces; \`- none\` under an empty heading.`,
+    '- Add and Change items are the whole build row: `- [ ] | P2.3 | Name | M | P2.1 | D9 | done when |` (# | Build | Size | Needs | Covers | Done when; no Ticket or Status cell). Add takes the next unused id of its phase.',
+    '- Drop items name the build: `- [ ] P2.2 · Name` (it gets Status dropped; the row stays).',
+    '- Follow-up items are new draft tickets: `- [ ] P1.1 · What the new ticket does` (the build it belongs to) or just the title.',
+    'A build whose ticket is done is never changed: propose a Follow-up for it. In-progress tickets are not rewritten either. Never propose making a ticket ready.',
+    'When a change alters behaviour that README.md or docs/ describe, add exactly one Follow-up item `Update README/docs for <change>`.',
+    'Finish with one line: the file written and the number of items per heading.',
+  ].join('\n')
+}
+
+/** The banner's Replan: a planner agent writes `design/changes/<date>-replan.md` and nothing else. */
+export async function startReplan($: $): Promise<boolean> {
+  if (S.replanJob !== undefined) {
+    say($, 'The planner is already writing a replan proposal', 'warning')
+    return false
+  }
+  await refresh($, true)
+  const b = S.snap?.binding
+  if (b?.designPath === undefined || b.planPath === undefined) {
+    say($, 'Replan needs a bound DESIGN.md and PLAN.md', 'warning')
+    return false
+  }
+  const plan = await readText($, b.planPath)
+  const design = parseDesign(b.design)
+  if (plan === undefined || design.version === undefined) {
+    say($, `Could not read ${plan === undefined ? b.planPath : `the design version in ${b.designPath}`}`, 'error')
+    return false
+  }
+  const date = today(Date.now())
+  const changes = changesFolder(b.designPath)
+  const path = `${changes}/${date}-replan.md`
+  const hash = planHash(plan)
+  const description = `Replan proposal for design v${design.version}`
+  let r: { deny: string } | { agentId?: string }
+  try {
+    r = await $.agent.spawn({
+      prompt: replanBrief($, { designPath: b.designPath, planPath: b.planPath, designVersion: design.version, planVersion: parsePlan(plan).designVersion, path, hash, date, changes }),
+      description,
+      subagentType: PLANNER,
+      name: 'replan',
+    })
+  } catch (err) {
+    r = { deny: err instanceof Error ? err.message : String(err) }
+  }
+  if ('deny' in r) {
+    say($, `Could not start the planner: ${r.deny}`, 'error')
+    return false
+  }
+  const agentId = r.agentId ?? (await listedWriter($, description))
+  if (agentId === undefined) {
+    say($, 'The planner started without an agent id; refresh when it is done', 'warning')
+    return true
+  }
+  S.replanJob = { agentId, path, hash }
+  say($, `The planner is writing ${path}`)
+  return true
+}
+
+/** Is `path` (as a tool gave it) the replan proposal the planner may write? */
+export function isReplanFile(path: string): boolean {
+  const job = S.replanJob
+  if (job === undefined) return false
+  const full = abs(path).replace(/\/\.\//g, '/')
+  return !full.includes('/../') && full === abs(job.path)
+}
+
+/**
+ * The planner ended. A proposal without `plan-hash` gets the hash of PLAN.md from when the run
+ * started. When README mentions a section the redesign changed, the proposal gets one
+ * "Update README/docs for …" Follow-up item and the newest redesign note lists it under Follow-ups.
+ */
+export async function finishReplan($: $, failed: boolean, reason: string): Promise<void> {
+  const job = S.replanJob
+  if (job === undefined) return
+  S.replanJob = undefined
+  await refresh($, true)
+  if (failed) return say($, `The planner stopped (${reason}); no replan proposal`, 'error')
+  const text = await readText($, job.path)
+  if (text === undefined) return say($, `The planner finished without writing ${job.path}`, 'warning')
+  let next = parseProposal(text).planHash === '' ? setFrontMatterKey(text, 'plan-hash', job.hash) : text
+  const b = S.snap?.binding
+  const design = parseDesign(b?.design)
+  const planVersion = parsePlan(b?.plan).designVersion ?? 0
+  const notes = Object.entries(S.snap?.changeNotes ?? {})
+    .filter(([name]) => /design-v\d+\.md$/i.test(name))
+    .map(([name, t]) => ({ name, t, note: parseChangeNote(t, name) }))
+    .filter(n => (n.note.version ?? 0) > planVersion)
+    .sort((x, y) => (x.note.version ?? 0) - (y.note.version ?? 0))
+  const docs = docsFollowUp(S.project?.readme, design, notes.map(n => n.note))
+  if (docs !== undefined) {
+    next = withDocsItem(next, docs, 'README describes behaviour this redesign changes.')
+    const newest = notes[notes.length - 1]
+    if (newest !== undefined && b?.designPath !== undefined) {
+      const noted = withNoteFollowUp(newest.t, docs)
+      if (noted !== newest.t) await $.fs.write(abs(`${changesFolder(b.designPath)}/${newest.name}`), noted)
+    }
+  }
+  if (next !== text) await $.fs.write(abs(job.path), next)
+  await refresh($, true)
+  const open = parseProposal(next).items.filter(i => i.state === 'open').length
+  const line = `Replan proposal ready: ${open} item${open === 1 ? '' : 's'} to review`
+  $.ui.toast(line)
+  say($, `${line} in ${job.path}`)
+}
+
+/**
+ * A proposal written without the pane (the planning skill from the CLI) has no `plan-hash`: when
+ * Review replan opens it, it gets the hash of PLAN.md as it is now, the plan the person reviews against.
+ */
+export async function stampProposal($: $): Promise<void> {
+  const lp = latestProposal()
+  const planPath = S.snap?.binding?.planPath
+  if (lp?.text === undefined || lp.proposal === undefined || !lp.proposal.hasGroups || lp.proposal.planHash !== '' || planPath === undefined) return
+  const plan = await readText($, planPath)
+  if (plan === undefined) return
+  await $.fs.write(abs(lp.path), setFrontMatterKey(lp.text, 'plan-hash', planHash(plan)))
+  await refresh($, true)
+}
+
+/** What a Follow-up item's draft ticket is written from: the item, its reason and its build (when it names one). */
+function followUpBrief(rm: Roadmap | undefined, b: Build | undefined, f: { title: string; reason: string }): string {
+  return [
+    `Follow-up from the replan: ${f.title}`,
+    `Reason: ${f.reason || '—'}`,
+    'A follow-up never edits a done ticket: this new ticket does the change.',
+    '',
+    ...(b === undefined || rm === undefined ? ['Lines under the title of rd.md:', 'Type: feature'] : [planBrief(rm.design, rm.plan, b)]),
+  ].join('\n')
+}
+
+/** Follow-up items become draft tickets through the plan create path: skeleton, Plan cell when they name a build, queued writer. */
+export async function createFollowUps($: $, items: readonly { build?: string; title: string; reason: string }[]): Promise<string[]> {
+  const made: string[] = []
+  for (const f of items) {
+    const rm = roadmapView()?.rm
+    const b = f.build === undefined || rm === undefined ? undefined : allBuilds(rm.plan).find(x => x.id === f.build)
+    const brief = followUpBrief(rm, b, f)
+    const { number, folder } = await createSkeleton(
+      $,
+      {
+        title: f.title,
+        text: brief,
+        mode: 'solo',
+        blockedBy: [],
+        kind: 'feature',
+        ...(b === undefined || rm === undefined ? {} : { plan: b.id, design: designLine(rm.design, b.covers), checks: coveredDoneWhen(rm.design, b) }),
+      },
+      jobNote('AI queued', ''),
+    )
+    if (b !== undefined) await addPlanTicket($, b.id, number)
+    made.push(number)
+    S.planQueue.push({ number, folder, build: b?.id ?? `follow-up-${number}`, brief, extra: '' })
+  }
+  if (made.length > 0) await pumpPlanQueue($)
+  return made
+}
+
+/**
+ * Apply selected: the ticked open items edit PLAN.md (Add, Change, Drop and `design-version`),
+ * Add and Follow-up items become draft tickets, and the proposal marks them `[x]` with the new
+ * plan's hash. Stops with PLAN_CHANGED and writes nothing when PLAN.md is not the plan the
+ * proposal was made from. Nothing ticked is a no-op. Done tickets are never written.
+ */
+export async function applyReplan($: $, ticked: readonly number[]): Promise<void> {
+  if (S.isApplying) return say($, 'Still applying the last selection', 'warning')
+  S.isApplying = true
+  try {
+    await refresh($, true)
+    const lp = latestProposal()
+    if (lp === undefined) return say($, 'No replan proposal to apply', 'warning')
+    const text = await readText($, lp.path)
+    const proposal = text === undefined ? undefined : parseProposal(text, lp.name)
+    if (text === undefined || proposal === undefined || !proposal.hasGroups) return say($, `Could not read the replan proposal: ${lp.path}`, 'error')
+    const sel = proposal.items.filter(i => i.state === 'open' && ticked.includes(i.index)).map(i => i.index)
+    if (sel.length === 0) return say($, 'Nothing ticked: nothing applied', 'warning')
+    const planPath = S.snap?.binding?.planPath
+    const plan = planPath === undefined ? undefined : await readText($, planPath)
+    if (planPath === undefined || plan === undefined) return say($, 'No PLAN.md is bound to this board', 'error')
+    if (proposal.planHash === '' || planHash(plan) !== proposal.planHash) return say($, PLAN_CHANGED, 'error')
+    const r = applyProposal(plan, proposal, sel, parseDesign(S.snap?.binding?.design).version, today(Date.now()))
+    if (r.md !== plan) await $.fs.write(abs(planPath), r.md)
+    await refresh($, true)
+    const added = r.added.length === 0 ? [] : await createPlanTickets($, r.added, 'the replan')
+    const follow = await createFollowUps($, r.followUps)
+    // The plan the remaining items now apply to: its hash goes into the proposal with the ticks.
+    const after = (await readText($, planPath)) ?? r.md
+    await $.fs.write(abs(lp.path), markProposal(text, proposal, new Map(r.applied.map(i => [i, 'applied' as const])), planHash(after)))
+    for (const i of r.applied) S.replanTicks.delete(i)
+    await refresh($, true)
+    const made = [...added, ...follow]
+    const left = proposal.items.filter(i => i.state === 'open').length - r.applied.length
+    say(
+      $,
+      [
+        `Applied ${plural(r.applied.length, 'item')}`,
+        made.length === 0 ? '' : `${plural(made.length, 'draft ticket')} (${made.join(', ')})`,
+        r.skipped.length === 0 ? '' : `skipped ${r.skipped.map(s => s.why).join('; ')}`,
+        left === 0 ? 'nothing left to review' : `${left} left to review`,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      r.skipped.length > 0 ? 'warning' : 'success',
+    )
+  } finally {
+    S.isApplying = false
+  }
+}
+
+/** Dismiss selected: the ticked open items are marked `[-]` in the proposal; PLAN.md and tickets are not touched. */
+export async function dismissReplan($: $, ticked: readonly number[]): Promise<void> {
+  const lp = latestProposal()
+  const text = lp === undefined ? undefined : await readText($, lp.path)
+  if (lp === undefined || text === undefined) return say($, `Could not read the replan proposal${lp === undefined ? '' : `: ${lp.path}`}`, 'error')
+  const proposal = parseProposal(text, lp.name)
+  const sel = proposal.items.filter(i => i.state === 'open' && ticked.includes(i.index)).map(i => i.index)
+  if (sel.length === 0) return say($, 'Nothing ticked: nothing dismissed', 'warning')
+  await $.fs.write(abs(lp.path), markProposal(text, proposal, new Map(sel.map(i => [i, 'dismissed' as const]))))
+  for (const i of sel) S.replanTicks.delete(i)
+  await refresh($, true)
+  say($, `Dismissed ${plural(sel.length, 'item')}`)
 }
 
 /** Is `path` (as a tool gave it) inside the job's ticket folder? */

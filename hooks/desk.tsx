@@ -46,7 +46,7 @@ import {
   type UI,
 } from './views'
 import { startStep } from './core/project'
-import { brainstorm, openDesign, openPlan, viewName } from './plan'
+import { DeskReplanBanner, brainstorm, openDesign, openPlan, viewName } from './plan'
 import type { View } from './store'
 
 type $ = EngineInterface
@@ -553,8 +553,8 @@ function tableRow($: $, ui: UI, i: Row, n: number, cols: Col[]): RenderChildren 
 
 /**
  * The Roadmap card: a static phase rail with a link per phase (each sets the phase filter), the
- * Now line and the roadmap checks as short warnings. "Open plan", "Replan" and "Review" come with
- * the Plan view (0007) and the flows (0008).
+ * Now line, the roadmap checks as short warnings, and the replan banner (0016) with Replan and
+ * Review replan while the plan is behind the design or a proposal has items left.
  */
 function RoadmapCard($: $, ui: UI, plan: PlanSummary, phaseFilter: string): RenderChildren {
   const { Box, Text, Button } = ui
@@ -588,6 +588,7 @@ function RoadmapCard($: $, ui: UI, plan: PlanSummary, phaseFilter: string): Rend
           {`⚠ ${w}`}
         </Text>
       )),
+      DeskReplanBanner($, ui),
     ],
     { key: 'roadmap-card', title: 'Roadmap', right: <Text color={G.faint} size="footnote">{`Plan ${plan.planPct}% · tickets ${plan.ticketPct}%`}</Text> },
   )

@@ -5,18 +5,19 @@
 // which write DESIGN.md, and Create tickets (0008), which makes draft tickets from builds.
 import type { EngineInterface, RenderChildren } from 'claude-code'
 
-import { createPlanTickets, isCreatable, planJobOf, retryPlanBuild } from './ai'
+import { applyReplan, createPlanTickets, dismissReplan, isCreatable, planJobOf, retryPlanBuild, stampProposal, startReplan } from './ai'
 import { historyOf } from './core/designfile'
 import { runLine } from './core/query'
-import { allBuilds, type Build, type BuildState, type Hill, type Phase, type Roadmap } from './core/roadmap'
+import { REPLAN_GROUPS, allBuilds, type Build, type BuildState, type Hill, type Phase, type ReplanItem, type Roadmap } from './core/roadmap'
 import { Card, Pill, Toast, hexOf, statusName } from './desk'
 import { G, HUE, STATUS_HEX, hillSvg, needsPlate, phaseBarSvg, timelineSvg, tint, wash } from './glass'
-import { S, approveDesign, fullRoadmap, redraw, roadmapView, rowOf, saveDesignAnswer, say, setPlanMode, statusOf, type View } from './store'
+import { S, approveDesign, fullRoadmap, latestProposal, redraw, roadmapView, rowOf, saveDesignAnswer, say, setPlanMode, statusOf, type LatestProposal, type View } from './store'
 import { blockersOpen, fail, fill, go, runnable, type UI } from './views'
 
 type $ = EngineInterface
 type PlanView = Extract<View, { kind: 'plan' }>
 type DesignView = Extract<View, { kind: 'design' }>
+type ReplanView = Extract<View, { kind: 'replan' }>
 
 const RUN_NOTE = 'Run line is in your prompt box — press Enter to send it'
 const START_NOTE = 'In your prompt box — press Enter to start'
@@ -39,6 +40,8 @@ export function viewName(v: View | undefined): string {
       return 'README'
     case 'new':
       return 'New ticket'
+    case 'replan':
+      return 'Replan review'
     default:
       return 'Board'
   }
@@ -63,7 +66,7 @@ export function tabsShown(): { plan: boolean; design: boolean } | undefined {
   const b = S.snap?.binding
   const plan = b?.plan !== undefined
   const design = b?.design !== undefined
-  const inside = S.view.kind === 'plan' || S.view.kind === 'design'
+  const inside = S.view.kind === 'plan' || S.view.kind === 'design' || S.view.kind === 'replan'
   if (!plan && !design && !inside) return undefined
   return { plan, design }
 }
@@ -77,7 +80,7 @@ export function Tabs($: $, ui: UI, isDesktop: boolean): RenderChildren {
   if (t === undefined) return null
   const { Box, Button } = ui
   const v = S.view
-  const at = v.kind === 'plan' ? 'plan' : v.kind === 'design' ? 'design' : 'board'
+  const at = v.kind === 'plan' || v.kind === 'replan' ? 'plan' : v.kind === 'design' ? 'design' : 'board'
   const dTaken = v.kind === 'ticket' && statusOf(v.number) === 'ready'
   const tab = (id: 'board' | 'plan' | 'design', label: string, hotkey: string | undefined, isBound: boolean, onPress: () => void) => (
     <Button
@@ -92,7 +95,7 @@ export function Tabs($: $, ui: UI, isDesktop: boolean): RenderChildren {
   return (
     <Box key="view-tabs" flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
       {tab('board', 'Board', undefined, true, () => (at === 'board' ? undefined : go($, { kind: 'board' })))}
-      {tab('plan', isDesktop ? 'Plan' : 'Plan (p)', 'p', t.plan, () => (at === 'plan' ? undefined : openPlan($)))}
+      {tab('plan', isDesktop ? 'Plan' : 'Plan (p)', 'p', t.plan, () => (v.kind === 'plan' ? undefined : openPlan($)))}
       {tab('design', isDesktop ? 'Design' : 'Design (d)', dTaken ? undefined : 'd', t.design, () => (at === 'design' ? undefined : openDesign($)))}
     </Box>
   )
@@ -584,6 +587,7 @@ export function deskPlan($: $, ui: UI, v: PlanView): RenderChildren {
         </Box>
       </Box>
       {Toast(ui)}
+      {DeskReplanBanner($, ui)}
       {rm.plan.warnings.map((w, n) => (
         <Text key={`plan-warn-${n}`} color={STATUS_HEX.draft!} size="footnote">
           {`⚠ ${w}`}
@@ -946,6 +950,7 @@ export function planView($: $, ui: UI, v: PlanView): RenderChildren {
         {fresh.length > 0 ? <Button key="plan-create-all" label={`+ Create tickets for all not started (${fresh.length})`} plain onPress={() => createTickets($, fresh, 'all not started builds')} /> : null}
       </Box>
       {termMessage(ui)}
+      {TermReplanBanner($, ui)}
       {rm.plan.warnings.map((w, n) => (
         <Text key={`plan-warn-${n}`} color="warning">{`⚠ ${w}`}</Text>
       ))}
@@ -1057,6 +1062,280 @@ export function designView($: $, ui: UI, v: DesignView): RenderChildren {
           {history.map(hl => (
             <Text key={`history-${hl.name}`} dimColor>{`${hl.label}${hl.date === '' ? '' : ` · ${hl.date}`}${hl.sections === '' ? '' : ` · ${hl.sections}`}  ${hl.name}`}</Text>
           ))}
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+// ---------- Replan banner and review (0016) ----------
+
+export type ReplanBanner = {
+  /** `Plan is behind design v3 · 4 replan items to review`. */
+  text: string
+  /** The banner's planner-run button label (Replan, or New proposal when one is open); undefined when it is not offered. */
+  start?: string
+  /** The banner's Review button opens the review screen. */
+  canReview: boolean
+}
+
+/** Whether the newest replan proposal is for the current design, and what is left in it. */
+function proposalFacts(rm: Roadmap): { lp?: LatestProposal; isUnreadable: boolean; isCurrent: boolean; open: number } {
+  const lp = latestProposal()
+  if (lp === undefined) return { isUnreadable: false, isCurrent: false, open: 0 }
+  const p = lp.proposal
+  const isUnreadable = p === undefined || !p.hasGroups
+  const dv = rm.design.version
+  const isCurrent = p === undefined || !p.hasGroups || p.designVersion === undefined || dv === undefined || p.designVersion >= dv
+  const open = isCurrent && p !== undefined && p.hasGroups ? p.items.filter(i => i.state === 'open').length : 0
+  return { lp, isUnreadable, isCurrent, open }
+}
+
+/**
+ * The replan banner on the board and the Plan view: while the plan is behind the design, while the
+ * planner writes a proposal, and while the current proposal has items nobody applied or dismissed.
+ */
+export function replanBanner(): ReplanBanner | undefined {
+  const rm = roadmapView()?.rm
+  if (rm === undefined) return undefined
+  const behind = rm.checks.some(a => a.id === 'plan-behind')
+  const f = proposalFacts(rm)
+  const isRunning = S.replanJob !== undefined
+  if (!behind && f.open === 0 && !isRunning) return undefined
+  const dv = rm.design.version
+  const head = behind ? (dv === undefined ? 'Plan is behind the design' : `Plan is behind design v${dv}`) : `Replan for design v${f.lp?.proposal?.designVersion ?? dv ?? '?'}`
+  const tail = isRunning
+    ? 'the planner is writing a replan proposal…'
+    : f.isCurrent && f.isUnreadable
+      ? `could not read the replan proposal ${f.lp!.path}`
+      : f.open > 0
+        ? `${f.open} replan item${f.open === 1 ? '' : 's'} to review`
+        : 'no replan proposal yet'
+  const canReview = f.isCurrent && (f.open > 0 || f.isUnreadable)
+  return {
+    text: `${head} · ${tail}`,
+    ...(behind && !isRunning ? { start: canReview ? '↻ New proposal' : 'Replan' } : {}),
+    canReview,
+  }
+}
+
+export function openReplan($: $) {
+  S.replanTicks.clear()
+  go($, { kind: 'replan', from: S.view })
+  void stampProposal($).catch(err => fail($, err))
+}
+
+function replan($: $) {
+  void startReplan($).catch(err => fail($, err))
+}
+
+function toggleTick($: $, index: number) {
+  if (S.replanTicks.has(index)) S.replanTicks.delete(index)
+  else S.replanTicks.add(index)
+  redraw($)
+}
+
+function applySelected($: $) {
+  void applyReplan($, [...S.replanTicks]).catch(err => fail($, err))
+}
+
+function dismissSelected($: $) {
+  void dismissReplan($, [...S.replanTicks]).catch(err => fail($, err))
+}
+
+/** The banner's buttons, the same on both surfaces. */
+function bannerButtons($: $, ui: UI, b: ReplanBanner, isPlain: boolean): RenderChildren {
+  const { Button } = ui
+  return [
+    b.canReview ? <Button key="replan-review" label="Review replan" {...(isPlain ? { plain: true } : { variant: 'primary' as const })} onPress={() => openReplan($)} /> : null,
+    b.start === undefined ? null : (
+      <Button key="replan-start" label={b.start} {...(isPlain ? { plain: true } : b.canReview ? {} : { variant: 'primary' as const })} onPress={() => replan($)} />
+    ),
+  ]
+}
+
+/** The desktop banner (board Roadmap card and Plan view). */
+export function DeskReplanBanner($: $, ui: UI): RenderChildren {
+  const b = replanBanner()
+  if (b === undefined) return null
+  const { Box, Text } = ui
+  return (
+    <Box key="replan-banner" flexDirection="row" gap={1} alignItems="center" flexWrap="wrap" backgroundColor={tint(STATUS_HEX.draft!, 0.1)} borderStyle="round" borderColor={tint(STATUS_HEX.draft!, 0.5)} paddingX={2} paddingY={1}>
+      <Text key="replan-banner-text" color={STATUS_HEX.draft!} weight="semibold">{`⚠ ${b.text}`}</Text>
+      {bannerButtons($, ui, b, false)}
+    </Box>
+  )
+}
+
+/** The terminal banner (board plan line and Plan view). */
+export function TermReplanBanner($: $, ui: UI): RenderChildren {
+  const b = replanBanner()
+  if (b === undefined) return null
+  const { Box, Text } = ui
+  return (
+    <Box key="replan-banner" flexDirection="row" columnGap={1} flexWrap="wrap">
+      <Text key="replan-banner-text" color="warning">{`⚠ ${b.text}`}</Text>
+      {bannerButtons($, ui, b, true)}
+    </Box>
+  )
+}
+
+type ReviewData = {
+  rm?: Roadmap
+  lp?: LatestProposal
+  /** Set when the proposal cannot be read: the line to show, naming the file. */
+  problem?: string
+  groups: { id: string; title: string; items: ReplanItem[] }[]
+  applied: number
+  dismissed: number
+  ticked: number
+}
+
+function reviewData(): ReviewData {
+  const rm = roadmapView()?.rm
+  const lp = latestProposal()
+  const empty: ReviewData = { groups: [], applied: 0, dismissed: 0, ticked: 0, ...(rm === undefined ? {} : { rm }) }
+  if (lp === undefined) return empty
+  const p = lp.proposal
+  if (p === undefined) return { ...empty, lp, problem: `Could not read the replan proposal: ${lp.path}` }
+  if (!p.hasGroups) return { ...empty, lp, problem: `Could not read the replan proposal: ${lp.path} has no Add, Change, Drop or Follow-up heading` }
+  const open = p.items.filter(i => i.state === 'open')
+  return {
+    ...empty,
+    lp,
+    groups: REPLAN_GROUPS.map(g => ({ id: g.id, title: g.title, items: open.filter(i => i.group === g.id) })),
+    applied: p.items.filter(i => i.state === 'applied').length,
+    dismissed: p.items.filter(i => i.state === 'dismissed').length,
+    ticked: open.filter(i => S.replanTicks.has(i.index)).length,
+  }
+}
+
+/** A Change item on a build whose ticket is done: the row changes, the done ticket does not. */
+function builtNote(rm: Roadmap | undefined, it: ReplanItem): string {
+  if (rm === undefined || it.group !== 'change' || it.build === undefined) return ''
+  const done = ticketsOf(rm, it.build).filter(t => t.status === 'done')
+  return done.length === 0 ? '' : `${done.map(t => t.number).join(', ')} done: only the plan row changes; a Follow-up does the work`
+}
+
+export function deskReplan($: $, ui: UI, v: ReplanView): RenderChildren {
+  const { Box, Text, Button } = ui
+  const d = reviewData()
+  const b = replanBanner()
+  const sub =
+    d.lp === undefined
+      ? ''
+      : [d.lp.path, d.lp.proposal?.designVersion === undefined ? '' : `for design v${d.lp.proposal.designVersion}`, `${d.applied} applied · ${d.dismissed} dismissed`].filter(Boolean).join(' · ')
+  const startButton = (label: string) => (b?.start === undefined ? null : <Button key="replan-start" label={label} variant="primary" onPress={() => replan($)} />)
+  return (
+    <Box flexDirection="column" gap={1}>
+      {deskCrumb($, ui, 'Replan review', v.from)}
+      <Box key="replan-title" flexDirection="column">
+        <Text color={G.ink} size="title" weight="bold">
+          Replan review
+        </Text>
+        {sub === '' ? null : (
+          <Text key="replan-sub" color={G.faint} size="footnote">
+            {sub}
+          </Text>
+        )}
+      </Box>
+      {Toast(ui)}
+      {d.lp === undefined
+        ? deskEmpty($, ui, 'replan-empty', 'No replan proposal', 'No replan proposal yet. Replan writes one to design/changes/<date>-replan.md.', undefined, startButton('Replan'))
+        : d.problem !== undefined
+          ? deskEmpty($, ui, 'replan-problem', 'Proposal', 'Fix the file (format in docs/STANDARD.md, section 8) or make a new proposal.', d.problem, startButton('↻ New proposal'))
+          : [
+              ...d.groups.map(g =>
+                Card(
+                  ui,
+                  g.items.length === 0
+                    ? [
+                        <Text key={`rp-none-${g.id}`} color={G.faint} size="footnote">
+                          Nothing to review.
+                        </Text>,
+                      ]
+                    : g.items.map(it => {
+                        const note = builtNote(d.rm, it)
+                        return (
+                          <Box key={`rp-item-${it.index}`} flexDirection="column">
+                            <Button key={`rp-tick-${it.index}`} label={`${S.replanTicks.has(it.index) ? '☑' : '☐'} ${it.title}`} plain onPress={() => toggleTick($, it.index)} />
+                            <Text key={`rp-reason-${it.index}`} color={G.soft} size="footnote">
+                              {it.reason === '' ? 'No reason given.' : it.reason}
+                            </Text>
+                            {it.problem === '' ? null : (
+                              <Text key={`rp-problem-${it.index}`} color={STATUS_HEX.blocked!} size="footnote">
+                                {`⚠ ${it.problem}`}
+                              </Text>
+                            )}
+                            {note === '' ? null : (
+                              <Text key={`rp-note-${it.index}`} color={STATUS_HEX.draft!} size="footnote">
+                                {note}
+                              </Text>
+                            )}
+                          </Box>
+                        )
+                      }),
+                  { key: `rp-group-${g.id}`, title: `${g.title} · ${g.items.length}` },
+                ),
+              ),
+              <Box key="replan-actions" flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+                <Button key="replan-apply" label={`Apply selected (${d.ticked})`} {...(d.ticked > 0 ? { variant: 'primary' as const } : { dimColor: true })} onPress={() => applySelected($)} />
+                <Button key="replan-dismiss" label="Dismiss selected" onPress={() => dismissSelected($)} />
+                <Text key="replan-hint" color={G.faint} size="footnote">
+                  Nothing is ticked until you tick it. Unticked items stay in the proposal.
+                </Text>
+              </Box>,
+            ]}
+    </Box>
+  )
+}
+
+export function replanView($: $, ui: UI, v: ReplanView): RenderChildren {
+  const { Box, Text, Button } = ui
+  const d = reviewData()
+  const b = replanBanner()
+  return (
+    <Box flexDirection="column" gap={1}>
+      {termHeader($, ui, `Replan review${d.lp === undefined ? '' : ` · ${d.lp.path} · ${d.applied} applied · ${d.dismissed} dismissed`}`, v.from)}
+      {termMessage(ui)}
+      {d.lp === undefined ? (
+        <Box key="replan-empty" flexDirection="column">
+          <Text dimColor>{'No replan proposal yet. Replan writes one to design/changes/<date>-replan.md.'}</Text>
+          {b?.start === undefined ? null : <Button key="replan-start" label="Replan" onPress={() => replan($)} />}
+        </Box>
+      ) : d.problem !== undefined ? (
+        <Box key="replan-problem" flexDirection="column">
+          <Text color="error">{`⚠ ${d.problem}`}</Text>
+          <Text dimColor>Fix the file (format in docs/STANDARD.md, section 8) or make a new proposal.</Text>
+          {b?.start === undefined ? null : <Button key="replan-start" label="↻ New proposal" onPress={() => replan($)} />}
+        </Box>
+      ) : (
+        <Box key="replan-groups" flexDirection="column" gap={1}>
+          {d.groups.map(g => (
+            <Box key={`rp-group-${g.id}`} flexDirection="column">
+              <Text bold>{`${g.title} (${g.items.length})`}</Text>
+              {g.items.length === 0 ? (
+                <Text key={`rp-none-${g.id}`} dimColor>
+                  {'  nothing to review'}
+                </Text>
+              ) : null}
+              {g.items.map(it => {
+                const note = builtNote(d.rm, it)
+                return (
+                  <Box key={`rp-item-${it.index}`} flexDirection="column" paddingLeft={2}>
+                    <Button key={`rp-tick-${it.index}`} label={`${S.replanTicks.has(it.index) ? '[x]' : '[ ]'} ${it.title}`} plain onPress={() => toggleTick($, it.index)} />
+                    <Text key={`rp-reason-${it.index}`} dimColor>{`    ${it.reason === '' ? 'No reason given.' : it.reason}`}</Text>
+                    {it.problem === '' ? null : <Text key={`rp-problem-${it.index}`} color="error">{`    ⚠ ${it.problem}`}</Text>}
+                    {note === '' ? null : <Text key={`rp-note-${it.index}`} color="warning">{`    ${note}`}</Text>}
+                  </Box>
+                )
+              })}
+            </Box>
+          ))}
+          <Box key="replan-actions" flexDirection="row" columnGap={1} flexWrap="wrap">
+            <Button key="replan-apply" label={`Apply selected (${d.ticked})`} {...(d.ticked > 0 ? {} : { dimColor: true })} onPress={() => applySelected($)} />
+            <Button key="replan-dismiss" label="Dismiss selected" onPress={() => dismissSelected($)} />
+          </Box>
         </Box>
       )}
     </Box>
