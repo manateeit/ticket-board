@@ -98,7 +98,10 @@ const PANE = {
 
 // `gate.wait`, while set, holds every fs.list: a refresh stays in flight until the test lets it go.
 // `manifest`, when set, is what the plugin reads as its own .claude-plugin/plugin.json; left out, that read fails.
-type BootOptions = { cwd?: string; blank?: boolean; store?: Map<string, unknown>; dirs?: string[]; gate?: { wait?: Promise<void> }; manifest?: string }
+// `theme` is the app's `theme` setting as `config.list` returns it: left out there is no theme row, `null` makes the read fail.
+type BootOptions = { cwd?: string; blank?: boolean; store?: Map<string, unknown>; dirs?: string[]; gate?: { wait?: Promise<void> }; manifest?: string; theme?: string | null }
+
+const themeRow = (value: string) => ({ key: 'theme', label: 'Theme', kind: 'choice', value, provider: { plugin: 'engine', tier: 'core' }, isLocked: false })
 
 async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | 'desktop', extra: Record<string, string> = {}, opts: BootOptions = {}) {
   const fs = fakeFs()
@@ -118,6 +121,8 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
     { id: 'a1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
     { id: 'a2', description: 'Check 0001', type: 'checker', status: 'completed' },
   ] }))
+  on('config.list', () => (opts.theme === null ? { deny: 'config is not readable here' } : { value: opts.theme === undefined ? [] : [themeRow(opts.theme)] }))
+  on('config.set', (_: unknown, e: { value: unknown }) => ({ value: e.value }))
   on('store.get', (_: unknown, e: { key: string }) => ({ value: store.get(e.key) }))
   on('store.set', (_: unknown, e: { key: string; value: unknown }) => (store.set(e.key, e.value), { value: undefined }))
   on('fs.list', async (_: unknown, e: { path: string }) => {
@@ -205,7 +210,7 @@ test('desktop draws a glass container with a sortable ticket table', async ($, o
   const { ui } = await boot($, on, 'desktop')
   await ui.find({ type: 'Text', text: /Dark mode/ })
   const drawn = JSON.stringify(await ui.drawn())
-  expect(drawn).not.toContain('#0A0F1E') // follows the app by default: no painted backdrop
+  expect(drawn).toContain('#0A0F1E') // follows the app by default: no theme row reads as dark, so dark glass
   expect(drawn).toContain('DEPENDS ON')
   expect(drawn).toContain('Need you')
   expect(drawn).not.toContain('isInteractive')
@@ -601,12 +606,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
 }
 
 test('colors follow the app by default; dark and light glass are one press away', async ($, on) => {
-  const { ui } = await boot($, on, 'desktop')
+  const { ui } = await boot($, on, 'desktop', {}, { theme: 'light' })
   await ui.find({ type: 'Text', text: /Dark mode/ })
-  // Default: no painted backdrop, text in the app's own theme colors.
+  // Default: the glass matches the app, here light.
   let drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('#F1F5F9')
   expect(drawn).not.toContain('#0A0F1E')
-  expect(drawn).not.toContain('#EEF2FF')
   await ui.press({ key: 'scheme' })
   await ui.find({ type: 'Text', text: /Colors: dark/ })
   drawn = JSON.stringify(await ui.drawn())
@@ -615,7 +620,7 @@ test('colors follow the app by default; dark and light glass are one press away'
   await ui.press({ key: 'scheme' })
   await ui.find({ type: 'Text', text: /Colors: light/ })
   drawn = JSON.stringify(await ui.drawn())
-  expect(drawn).toContain('#F8FAFC')
+  expect(drawn).toContain('#F1F5F9')
   expect(drawn).toContain('#0F172A')
   await ui.press({ key: 'scheme' })
   await ui.find({ type: 'Text', text: /Colors: app/ })
@@ -2223,22 +2228,27 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-// ---------- 0018: contrast in every color scheme ----------
+// ---------- 0018 / 0019: contrast in every color scheme and app mode ----------
 //
 // The model of what the desktop draws:
 // - Text in a raw color is drawn in that color over every backgroundColor above it (rgba composited).
 // - Text in a theme key, and every native control (a non-primary Button, whatever its children say;
-//   a Link), is drawn in the APP's colors. Those read only where the ground under them is the app's
-//   own (the app's backdrop with see-through washes, or a plate in `inverseText`, the app's opposite
-//   of its text color). On a painted glass backdrop they are unknown, so they fail.
+//   a Link, a Select, an Input with its submit button), is drawn in the APP's colors: the app's text
+//   color, made for the app's own ground. It reads where that color reaches its floor on the ground
+//   under it (the glass, a card, a plate), and fails on a ground the model cannot know.
 // - A primary Button is the host's filled button: its own fill and label, readable anywhere.
-// The app itself can be in light or dark mode: every pair is checked in both.
+// The app itself is in light or dark mode, read from its `theme` setting: every scheme is drawn and
+// checked in both.
 const APP = {
-  light: { ground: '#FFFFFF', inverseText: '#FFFFFF' },
-  dark: { ground: '#262624', inverseText: '#000000' },
+  light: { ground: '#FFFFFF', text: '#1F1E1D' },
+  dark: { ground: '#262624', text: '#F5F4EF' },
 } as const
-const SCHEME_BASE: Record<string, string> = { dark: '#0A0F1E', light: '#F8FAFC' }
+type AppMode = keyof typeof APP
+const GLASS_BASE = { dark: '#0A0F1E', light: '#F1F5F9' } as const
+/** The glass a scheme draws in an app mode: `auto` (shown as "app") follows the app. */
+const glassOf = (scheme: string, mode: AppMode) => GLASS_BASE[scheme === 'auto' ? mode : (scheme as AppMode)]
 const THEME_KEYS = new Set(['text', 'inverseText', 'inactive', 'subtle', 'suggestion', 'remember', 'success', 'error', 'warning', 'merged', 'claude', 'permission', 'planMode', 'autoAccept', 'promptBorder', 'bashBorder', 'ide'])
+const NATIVE = new Set(['Button', 'Link', 'Select', 'Input'])
 
 type Rgba = [number, number, number, number]
 function parseColor(c: string): Rgba | undefined {
@@ -2265,76 +2275,77 @@ const ratio = (a: Rgba, b: Rgba) => {
   return (x! + 0.05) / (y! + 0.05)
 }
 
-/** The ground under a node: its composited color, and whether it is still the app's own ground. */
-type Ground = { rgb: Rgba | undefined; isApp: boolean }
-function paint(g: Ground, bg: unknown, mode: keyof typeof APP): Ground {
+/** The ground under a node: its composited color, or undefined where a theme key or an unknown paint makes it unknowable. */
+function paint(g: Rgba | undefined, bg: unknown): Rgba | undefined {
   if (typeof bg !== 'string' || bg === '') return g
-  if (bg === 'inverseText') return { rgb: parseColor(APP[mode].inverseText), isApp: true }
-  if (THEME_KEYS.has(bg)) return { rgb: undefined, isApp: false }
+  if (THEME_KEYS.has(bg)) return undefined
   const c = parseColor(bg)
-  if (c === undefined || g.rgb === undefined) return { rgb: undefined, isApp: false }
-  // A see-through wash keeps the app's ground; a solid paint replaces it.
-  return { rgb: over(c, g.rgb), isApp: g.isApp && c[3] <= 0.2 }
+  return c === undefined || g === undefined ? undefined : over(c, g)
 }
 
-/** Every Text, Button and Link in a drawn tree that does not reach its contrast floor. */
-function contrastFailures(tree: unknown, scheme: string): string[] {
+/** Every Text and native control in a drawn tree (of one app mode) that does not reach its contrast floor. */
+function contrastFailures(tree: unknown, scheme: string, mode: AppMode): string[] {
   const out: string[] = []
-  for (const mode of ['light', 'dark'] as const) {
-    const base = SCHEME_BASE[scheme]
-    const start: Ground = base === undefined ? { rgb: parseColor(APP[mode].ground), isApp: true } : { rgb: parseColor(base), isApp: false }
-    type Style = { color?: string; size?: string; weight?: string; dim?: boolean }
-    const textOf = (n: any): string => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(textOf).join('') : n?.children ? textOf(n.children) : '')
-    const visit = (n: any, g: Ground, st: Style): void => {
-      if (n === null || n === undefined || typeof n === 'boolean') return
-      if (Array.isArray(n)) return n.forEach(c => visit(c, g, st))
-      if (typeof n === 'string') {
-        if (n.trim() === '') return
-        const where = `${scheme}/app-${mode}: "${n.slice(0, 40)}"`
-        const c = st.color
-        if (c === undefined || THEME_KEYS.has(c)) {
-          if (!g.isApp) out.push(`${where} in app color ${c ?? '(none)'} on painted glass`)
-          return
-        }
-        const fg = parseColor(c)
-        if (fg === undefined || g.rgb === undefined) return void out.push(`${where} color ${c} on an unknown background`)
-        const small = st.size === 'caption' || st.size === 'footnote'
-        const large = st.size === 'heading' || st.size === 'title'
-        const bold = st.weight === 'bold' || st.weight === 'semibold'
-        const floor = large || (bold && !small) || st.dim === true ? 3 : 4.5
-        const r = ratio(over(fg, g.rgb), g.rgb)
-        if (r < floor) out.push(`${where} ${c} is ${r.toFixed(2)}:1, needs ${floor}:1`)
-        return
-      }
-      const p = n.props ?? {}
-      if (n.type === 'Button' || n.type === 'Link') {
-        const isFilled = n.type === 'Button' && p.variant === 'primary' && p.plain !== true
-        if (!isFilled && !g.isApp) out.push(`${scheme}/app-${mode}: ${n.type} "${p.label ?? textOf(n)}" (key ${p.key ?? '-'}) is drawn in the app's colors on painted glass`)
-        return
-      }
-      if (n.type === 'Box') return visit(n.children, paint(g, p.backgroundColor, mode), st)
-      if (n.type === 'Text') {
-        const next: Style = {
-          color: p.color ?? st.color,
-          size: p.size ?? st.size,
-          weight: p.weight ?? (p.bold === true ? 'semibold' : st.weight),
-          dim: p.dimColor === true || st.dim,
-        }
-        return visit(n.children, paint(g, p.backgroundColor, mode), next)
-      }
-      // Svg, Input, Select: drawn by their own rules.
+  const at = `${scheme}/app-${mode}`
+  type Style = { color?: string; size?: string; weight?: string; dim?: boolean }
+  const textOf = (n: any): string => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(textOf).join('') : n?.children ? textOf(n.children) : '')
+  const appText = parseColor(APP[mode].text)!
+  const visit = (n: any, g: Rgba | undefined, st: Style): void => {
+    if (n === null || n === undefined || typeof n === 'boolean') return
+    if (Array.isArray(n)) return n.forEach(c => visit(c, g, st))
+    if (typeof n === 'string') {
+      if (n.trim() === '') return
+      const where = `${at}: "${n.slice(0, 40)}"`
+      const c = st.color
+      const fg = c === undefined || THEME_KEYS.has(c) ? appText : parseColor(c)
+      if (fg === undefined || g === undefined) return void out.push(`${where} color ${c ?? '(app)'} on an unknown background`)
+      const small = st.size === 'caption' || st.size === 'footnote'
+      const large = st.size === 'heading' || st.size === 'title'
+      const bold = st.weight === 'bold' || st.weight === 'semibold'
+      const floor = large || (bold && !small) || st.dim === true ? 3 : 4.5
+      const r = ratio(over(fg, g), g)
+      if (r < floor) out.push(`${where} ${c ?? '(app)'} is ${r.toFixed(2)}:1, needs ${floor}:1`)
+      return
     }
-    visit(tree, start, {})
+    const p = n.props ?? {}
+    if (NATIVE.has(n.type)) {
+      if (n.type === 'Button' && p.variant === 'primary' && p.plain !== true) return
+      const what = `${at}: ${n.type} "${p.label ?? p.placeholder ?? textOf(n)}" (key ${p.key ?? '-'})`
+      if (g === undefined) return void out.push(`${what} is drawn in the app's colors on an unknown background`)
+      const r = ratio(appText, g)
+      const floor = p.dimColor === true ? 3 : 4.5
+      if (r < floor) out.push(`${what} is drawn in the app's colors at ${r.toFixed(2)}:1, needs ${floor}:1`)
+      return
+    }
+    if (n.type === 'Box') return visit(n.children, paint(g, p.backgroundColor), st)
+    if (n.type === 'Text') {
+      const next: Style = {
+        color: p.color ?? st.color,
+        size: p.size ?? st.size,
+        weight: p.weight ?? (p.bold === true ? 'semibold' : st.weight),
+        dim: p.dimColor === true || st.dim,
+      }
+      return visit(n.children, paint(g, p.backgroundColor), next)
+    }
+    // Svg: drawn by its own rules.
   }
+  visit(tree, parseColor(glassOf(scheme, mode)), {})
   return [...new Set(out)]
 }
 
-test('contrast floor: the reproduction model catches app-colored controls on painted glass', () => {
-  const tree = { type: 'Box', props: {}, children: [{ type: 'Button', props: { key: 'x', label: 'Plan', variant: 'secondary' } }, { type: 'Text', props: { color: '#EEF2FF' }, children: ['pale'] }] }
-  expect(contrastFailures(tree, 'light').length).toBe(4)
-  const plated = { type: 'Box', props: { backgroundColor: 'inverseText' }, children: [{ type: 'Button', props: { key: 'x', label: 'Plan' } }] }
-  expect(contrastFailures(plated, 'light')).toEqual([])
-  expect(contrastFailures({ type: 'Button', props: { key: 'n', label: 'New', variant: 'primary' } }, 'light')).toEqual([])
+test('contrast floor: the model catches app-colored controls where glass and app disagree', () => {
+  const tree = { type: 'Box', props: {}, children: [{ type: 'Button', props: { key: 'x', label: 'Plan', variant: 'secondary' } }, { type: 'Select', props: { key: 'mode', label: 'Mode' } }, { type: 'Text', props: { color: '#EEF2FF' }, children: ['pale'] }] }
+  // Light glass in a dark app: the app's light labels vanish; a pale raw color too.
+  expect(contrastFailures(tree, 'light', 'dark').length).toBe(3)
+  // Light glass in a light app: the app's own controls read; the pale text still fails.
+  expect(contrastFailures(tree, 'light', 'light').length).toBe(1)
+  expect(contrastFailures(tree, 'auto', 'light').length).toBe(1)
+  // One slate-700 plate under the group: readable in a dark app.
+  const plated = { type: 'Box', props: { backgroundColor: '#334155' }, children: [{ type: 'Button', props: { key: 'x', label: 'Plan' } }, { type: 'Input', props: { key: 's', placeholder: 'Search' } }] }
+  expect(contrastFailures(plated, 'light', 'dark')).toEqual([])
+  // The 0018 per-button `inverseText` plate is an unknown ground.
+  expect(contrastFailures({ type: 'Box', props: { backgroundColor: 'inverseText' }, children: [{ type: 'Button', props: { key: 'x', label: 'Plan' } }] }, 'dark', 'light').length).toBe(1)
+  expect(contrastFailures({ type: 'Button', props: { key: 'n', label: 'New', variant: 'primary' } }, 'light', 'dark')).toEqual([])
 })
 
 /** A README with every markdown part the glass reader draws: code, a table, a quote, a callout, a list, `status` pills. */
@@ -2367,59 +2378,203 @@ Note: a lead line.
 `
 
 for (const scheme of ['auto', 'dark', 'light'] as const) {
-  const checker = () => {
-    const failures: string[] = []
-    const check = async (ui: any, view: string) => {
-      for (const f of contrastFailures(await ui.drawn(), scheme)) failures.push(`[${view}] ${f}`)
+  for (const mode of ['light', 'dark'] as const) {
+    const checker = () => {
+      const failures: string[] = []
+      const check = async (ui: any, view: string) => {
+        for (const f of contrastFailures(await ui.drawn(), scheme, mode)) failures.push(`[${view}] ${f}`)
+      }
+      return { failures, check }
     }
-    return { failures, check }
+    const opts = () => ({ store: new Map<string, unknown>([['colors', scheme]]), theme: mode })
+
+    test(`every Button, tab, chip and Text is readable in the ${scheme} scheme, app ${mode}: board, ticket, Plan, Design, new, README (desktop)`, async ($, on) => {
+      const { failures, check } = checker()
+      const { ui } = await boot($, on, 'desktop', { ...p7Files(), '/repo/README.md': CONTRAST_README }, { blank: true, ...opts() })
+      await ui.find({ key: 'tab-plan' })
+      const drawn = JSON.stringify(await ui.drawn())
+      expect(drawn).toContain(scheme === 'auto' ? 'Colors: app' : `Colors: ${scheme}`)
+      // The filter row after "Hide done": Mode and Phase pickers, the search field and its button.
+      for (const key of ['hide-done', 'mode', 'phase', 'search']) expect(drawn).toContain(`"key":"${key}"`)
+      await check(ui, 'board')
+      await ui.press({ key: 'open-0005' })
+      await ui.find({ key: 'back' })
+      await check(ui, 'ticket')
+      await ui.press({ key: 'back' })
+      await ui.press({ key: 'tab-plan' })
+      await ui.find({ key: 'phase-toggle-P1' })
+      await check(ui, 'plan')
+      await ui.press({ key: 'tab-design' })
+      await ui.find({ key: 'sec-D1' })
+      await check(ui, 'design')
+      await ui.press({ key: 'tab-board' })
+      await ui.press({ key: 'new' })
+      await ui.find({ type: 'Text', text: /What happens next/ })
+      await check(ui, 'new')
+      await ui.press({ key: 'back' })
+      await ui.press({ key: 'readme' })
+      await check(ui, 'readme')
+      await ui.unmount()
+      expect(failures).toEqual([])
+    })
+
+    test(`every Button and Text is readable in the ${scheme} scheme, app ${mode}: questions (desktop)`, async ($, on) => {
+      const { failures, check } = checker()
+      const { ui } = await boot($, on, 'desktop', {}, opts())
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      await check(ui, 'board')
+      await ui.press({ key: 'ans-0003' })
+      await check(ui, 'questions')
+      await ui.unmount()
+      expect(failures).toEqual([])
+    })
+
+    test(`every Button and Text is readable in the ${scheme} scheme, app ${mode}: Start (desktop)`, async ($, on) => {
+      const { failures, check } = checker()
+      const { ui } = await boot($, on, 'desktop', { '/repo/src/app.ts': 'export {}\n' }, { blank: true, ...opts() })
+      await ui.find({ type: 'Text', text: /Start a project/ })
+      await check(ui, 'start')
+      await ui.unmount()
+      expect(failures).toEqual([])
+    })
   }
-  const store = () => new Map<string, unknown>([['colors', scheme]])
+}
 
-  test(`every Button, tab, chip and Text is readable in the ${scheme} scheme: board, ticket, Plan, Design, new, README (desktop)`, async ($, on) => {
-    const { failures, check } = checker()
-    const { ui } = await boot($, on, 'desktop', { ...p7Files(), '/repo/README.md': CONTRAST_README }, { blank: true, store: store() })
-    await ui.find({ key: 'tab-plan' })
-    expect(JSON.stringify(await ui.drawn())).toContain(scheme === 'auto' ? 'Colors: app' : `Colors: ${scheme}`)
-    await check(ui, 'board')
-    await ui.press({ key: 'open-0005' })
-    await ui.find({ key: 'back' })
-    await check(ui, 'ticket')
-    await ui.press({ key: 'back' })
-    await ui.press({ key: 'tab-plan' })
-    await ui.find({ key: 'phase-toggle-P1' })
-    await check(ui, 'plan')
-    await ui.press({ key: 'tab-design' })
-    await ui.find({ key: 'sec-D1' })
-    await check(ui, 'design')
-    await ui.press({ key: 'tab-board' })
-    await ui.press({ key: 'new' })
-    await ui.find({ type: 'Text', text: /What happens next/ })
-    await check(ui, 'new')
-    await ui.press({ key: 'back' })
-    await ui.press({ key: 'readme' })
-    await check(ui, 'readme')
-    await ui.unmount()
-    expect(failures).toEqual([])
-  })
+// ---------- 0019: the glass follows the app; plates per group, only where glass and app disagree ----------
 
-  test(`every Button and Text is readable in the ${scheme} scheme: questions (desktop)`, async ($, on) => {
-    const { failures, check } = checker()
-    const { ui } = await boot($, on, 'desktop', {}, { store: store() })
+/** A plate (glass.tsx `Plate`): slate-700 under a dark app, white with a slate-300 border under a light one. */
+const isPlate = (n: any) => n?.type === 'Box' && (n.props?.backgroundColor === '#334155' || n.props?.borderColor === '#CBD5E1')
+
+/** Every plate in a tree, with the keys of the native controls it holds; and whether any plate holds another. */
+function platesOf(tree: unknown) {
+  const plates: { key: string; controls: string[] }[] = []
+  let isNested = false
+  const keys = (n: any): string[] => (Array.isArray(n) ? n.flatMap(keys) : n?.type !== undefined && NATIVE.has(n.type) ? [String(n.props?.key ?? n.props?.label ?? '-')] : n?.children !== undefined ? keys(n.children) : [])
+  const visit = (n: any, inside: boolean): void => {
+    if (Array.isArray(n)) return n.forEach(c => visit(c, inside))
+    if (n === null || typeof n !== 'object') return
+    const plate = isPlate(n)
+    if (plate) {
+      if (inside) isNested = true
+      plates.push({ key: String(n.props?.key ?? '-'), controls: keys(n.children) })
+    }
+    visit(n.children, inside || plate)
+  }
+  visit(tree, false)
+  return { plates, isNested }
+}
+
+/** The grounds (composited backgrounds) above the element with this key, from the glass down. */
+function groundsAbove(tree: unknown, key: string, base: string): Rgba[] | undefined {
+  const walk = (n: any, path: Rgba[]): Rgba[] | undefined => {
+    if (Array.isArray(n)) {
+      for (const c of n) {
+        const r = walk(c, path)
+        if (r !== undefined) return r
+      }
+      return undefined
+    }
+    if (n === null || typeof n !== 'object') return undefined
+    if (n.props?.key === key) return path
+    const bg = n.type === 'Box' ? paint(path[path.length - 1], n.props?.backgroundColor) : path[path.length - 1]
+    return walk(n.children, bg === undefined ? path : [...path, bg])
+  }
+  return walk(tree, [parseColor(base)!])
+}
+
+for (const [scheme, mode, glass] of [['auto', 'light', '#F1F5F9'], ['auto', 'dark', '#0A0F1E'], ['dark', 'light', '#0A0F1E'], ['light', 'dark', '#F1F5F9']] as const) {
+  test(`Colors ${scheme} in a ${mode} app draws the ${glass} glass, the theme read from config.list`, async ($, on) => {
+    const { ui } = await boot($, on, 'desktop', {}, { store: new Map<string, unknown>([['colors', scheme]]), theme: mode })
     await ui.find({ type: 'Text', text: /Dark mode/ })
-    await check(ui, 'board')
-    await ui.press({ key: 'ans-0003' })
-    await check(ui, 'questions')
+    const drawn = await ui.drawn()
+    expect((drawn as any).props.backgroundColor).toBe(glass)
     await ui.unmount()
-    expect(failures).toEqual([])
-  })
-
-  test(`every Button and Text is readable in the ${scheme} scheme: Start (desktop)`, async ($, on) => {
-    const { failures, check } = checker()
-    const { ui } = await boot($, on, 'desktop', { '/repo/src/app.ts': 'export {}\n' }, { blank: true, store: store() })
-    await ui.find({ type: 'Text', text: /Start a project/ })
-    await check(ui, 'start')
-    await ui.unmount()
-    expect(failures).toEqual([])
   })
 }
+
+test('Colors app follows the app when its theme changes (config.set redraws the pane)', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop', {}, { theme: 'dark' })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  expect(((await ui.drawn()) as any).props.backgroundColor).toBe('#0A0F1E')
+  const r = await $.config.set({ key: 'theme', value: 'light-daltonized' })
+  expect(r.deny).toBeUndefined()
+  await new Promise(res => setTimeout(res, 20))
+  expect(((await ui.drawn()) as any).props.backgroundColor).toBe('#F1F5F9')
+  expect(JSON.stringify(await ui.drawn())).toContain('#0F172A')
+  await $.config.set({ key: 'theme', value: 'dark' })
+  await new Promise(res => setTimeout(res, 20))
+  expect(((await ui.drawn()) as any).props.backgroundColor).toBe('#0A0F1E')
+  await ui.unmount()
+})
+
+test('an unreadable app theme falls back to dark, with no error', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop', {}, { theme: null })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect((JSON.parse(drawn) as any).props.backgroundColor).toBe('#0A0F1E')
+  expect(drawn).not.toContain('went wrong')
+  await ui.unmount()
+})
+
+test('light glass in a light app: the app\'s own controls with no plates; sort headers and row titles on the white card', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop', p7Files(), { blank: true, theme: 'light' })
+  await ui.find({ key: 'tab-plan' })
+  const tree = await ui.drawn()
+  expect(platesOf(tree).plates).toEqual([])
+  expect(JSON.stringify(tree)).not.toContain('inverseText')
+  for (const key of ['sort-num', 'sort-title', 'sort-status', 'open-0005', 'title-0005']) {
+    const grounds = groundsAbove(tree, key, '#F1F5F9')
+    expect(grounds).toBeDefined()
+    // Nothing dark above them: no black boxes.
+    for (const g of grounds!) expect(lum(g)).toBeGreaterThan(0.8)
+  }
+  await ui.unmount()
+})
+
+for (const [scheme, mode] of [['light', 'dark'], ['dark', 'light']] as const) {
+  test(`${scheme} glass in a ${mode} app: one plate per control group, none per button, none nested`, async ($, on) => {
+    const { ui } = await boot($, on, 'desktop', p7Files(), { blank: true, store: new Map<string, unknown>([['colors', scheme]]), theme: mode })
+    await ui.find({ key: 'tab-plan' })
+    const tree = await ui.drawn()
+    const { plates, isNested } = platesOf(tree)
+    expect(isNested).toBe(false)
+    expect(JSON.stringify(tree)).not.toContain('inverseText')
+    // The groups the ticket names, each whole on one plate: project header buttons, view tabs,
+    // title-bar actions, the status tabs, the type chips, the filter row after them, sort headers,
+    // a row's actions.
+    const groups = [
+      ['scheme', 'readme'],
+      ['tab-board', 'tab-plan', 'tab-design'],
+      ['runall', 'agents', 'refresh', 'new'],
+      ['show-all', 'show-needs-me', 'show-ready'],
+      ['kind-any', 'kind-feature', 'kind-bug'],
+      ['hide-done', 'mode', 'phase', 'search'],
+      ['sort-num', 'sort-title', 'sort-status', 'sort-updated'],
+      ['open-0003', 'run-0003'],
+    ]
+    for (const g of groups) {
+      const plate = plates.find(p => p.controls.includes(g[0]!))
+      expect(plate === undefined ? `no plate under ${g[0]}` : plate.controls.filter(k => g.includes(k)).sort()).toEqual([...g].sort())
+    }
+    // Fewer plates than controls: groups, not buttons.
+    expect(plates.length).toBeLessThan(plates.reduce((a, p) => a + p.controls.length, 0))
+    // Row ID and title are text on the card, not buttons on plates.
+    const drawn = JSON.stringify(tree)
+    expect(drawn).not.toContain('"key":"title-0005"')
+    expect(drawn).toContain('Receipts')
+    await ui.press({ key: 'open-0005' })
+    await ui.find({ key: 'back' })
+    await ui.unmount()
+  })
+}
+
+test('dark glass in a dark app: no plates, the dark palette as before', async ($, on) => {
+  const { ui } = await boot($, on, 'desktop', p7Files(), { blank: true, store: new Map<string, unknown>([['colors', 'dark']]), theme: 'dark' })
+  await ui.find({ key: 'tab-plan' })
+  const tree = await ui.drawn()
+  expect(platesOf(tree).plates).toEqual([])
+  const drawn = JSON.stringify(tree)
+  for (const hex of ['#0A0F1E', '#EEF2FF', '#A5B4CF', '#8A99B8', '#7DD3FC', 'rgba(255,255,255,0.055)']) expect(drawn).toContain(hex)
+  expect(drawn).not.toContain('#F1F5F9')
+  await ui.unmount()
+})

@@ -3,7 +3,7 @@ import type { AgentInfo, EngineInterface } from 'claude-code'
 
 import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
 import { DEFAULT_FILTERS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
-import type { Scheme } from './glass'
+import { isLightTheme, type Scheme } from './glass'
 import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
 import { allBuilds, bindFromBoard, roadmap, setPlanTicket, ticketRef, type Binding, type Roadmap, type TicketRef } from './core/roadmap'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
@@ -100,8 +100,10 @@ export const S = {
   hasRouter: false,
   /** The project and repo this session works in (shown at the top of the pane). */
   project: undefined as Project | undefined,
-  /** Desktop pane colors. The app's light/dark mode can't be read, so the person picks; remembered across sessions. */
+  /** Desktop pane colors: follow the app (`auto`), or dark or light glass always; remembered across sessions. */
   scheme: 'auto' as Scheme,
+  /** The Claude app is in light mode (its `theme` setting), read at session start and followed on change; dark until known. */
+  isAppLight: false,
   /** Start screen choices remembered per project: Skip on the GitHub line, the banner dismissed. */
   startFlags: { ...NO_START_FLAGS } as StartFlags,
   /** The person chose the board over the Start screen this session ("Set up board only", "Show the board"). */
@@ -768,8 +770,26 @@ export async function loadScheme($: $) {
     const saved = await $.store.get('colors')
     if (saved === 'auto' || saved === 'light' || saved === 'dark') S.scheme = saved
   } catch {
-    // default dark
+    // default: follow the app
   }
+}
+
+/** Reads the Claude app's light or dark mode from its `theme` setting; unreadable means dark. */
+export async function loadAppTheme($: $) {
+  try {
+    const rows = await $.config.list()
+    S.isAppLight = isLightTheme(rows.find(row => row.key === 'theme')?.value)
+  } catch {
+    S.isAppLight = false
+  }
+}
+
+/** The app's theme changed (`config.set` on `theme`): redraw when its light/dark mode did. */
+export function followAppTheme($: $, value: unknown) {
+  const isLight = isLightTheme(value)
+  if (isLight === S.isAppLight) return
+  S.isAppLight = isLight
+  redraw($)
 }
 
 export async function setSchemeChoice($: $, scheme: Scheme) {

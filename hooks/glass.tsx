@@ -5,32 +5,13 @@ import type { RenderChildren } from 'claude-code'
 
 import type { UI } from './views'
 
-/** Accent hues per scheme: pastel on the dark glass, deeper tones that keep 4.5:1 contrast on white. */
+/** Accent hues per glass: pastel on the dark glass, Tailwind 700-800 tones that keep 4.5:1 on white and on slate-100. */
 const HUES = {
-  /** Mid tones that read on the app's own light and dark backgrounds alike. */
-  auto: { amber: '#D97706', green: '#059669', blue: '#3B82F6', purple: '#A855F7', slate: '#64748B', red: '#EF4444', violet: '#8B5CF6', rose: '#F43F5E', orange: '#EA580C', teal: '#0D9488', sky: '#0EA5E9' },
   dark: { amber: '#FBBF24', green: '#34D399', blue: '#60A5FA', purple: '#C084FC', slate: '#94A3B8', red: '#F87171', violet: '#A78BFA', rose: '#FB7185', orange: '#FDBA74', teal: '#5EEAD4', sky: '#7DD3FC' },
-  light: { amber: '#7C3A0A', green: '#065F46', blue: '#1E40AF', purple: '#6B21A8', slate: '#475569', red: '#991B1B', violet: '#5B21B6', rose: '#9F1239', orange: '#9A3412', teal: '#115E59', sky: '#075985' },
+  light: { amber: '#92400E', green: '#166534', blue: '#4338CA', purple: '#7E22CE', slate: '#475569', red: '#B91C1C', violet: '#6D28D9', rose: '#BE123C', orange: '#9A3412', teal: '#115E59', sky: '#075985' },
 }
 
 const SURFACES = {
-  /**
-   * Follows the app: no painted backdrop, text in the app's own theme colors (theme keys), neutral
-   * see-through cards. The desktop draws its native buttons in the app's colors, so only a pane that
-   * sits on the app's own background keeps every label readable in both light and dark mode.
-   */
-  auto: {
-    base: '',
-    ink: 'text',
-    soft: 'subtle',
-    faint: 'inactive',
-    accent: '#0EA5E9',
-    card: 'rgba(128,128,128,0.07)',
-    cardHover: 'rgba(128,128,128,0.16)',
-    edge: 'rgba(128,128,128,0.32)',
-    edgeHover: 'rgba(14,165,233,0.6)',
-    wash: '128,128,128',
-  },
   dark: {
     /** The container's own backdrop, so the pane never depends on the app's theme. */
     base: '#0A0F1E',
@@ -44,33 +25,45 @@ const SURFACES = {
     edgeHover: 'rgba(125,211,252,0.55)',
     /** Overlay color for row stripes and inset panels. */
     wash: '255,255,255',
+    /** How strongly a status pill is tinted behind its label. */
+    chip: 0.16,
   },
+  /** The light glass (0019): slate-100 ground, white cards with slate-200 borders, slate-900 text, an indigo accent. */
   light: {
-    base: '#F8FAFC',
+    base: '#F1F5F9',
     ink: '#0F172A',
     soft: '#334155',
     faint: '#475569',
-    accent: '#075985',
+    accent: '#4F46E5',
     card: '#FFFFFF',
-    cardHover: '#EFF6FF',
-    edge: 'rgba(15,23,42,0.16)',
-    edgeHover: 'rgba(3,105,161,0.55)',
+    cardHover: '#EEF2FF',
+    edge: '#E2E8F0',
+    edgeHover: 'rgba(79,70,229,0.55)',
     wash: '15,23,42',
+    chip: 0.08,
   },
 }
 
+/** The Colors setting: `auto` (shown as "app") follows the Claude app's light or dark mode; `dark` and `light` fix the glass. */
 export type Scheme = 'auto' | 'dark' | 'light'
 export const SCHEMES: Scheme[] = ['auto', 'dark', 'light']
+/** The glass actually drawn. */
+export type Look = 'dark' | 'light'
 
-export const G = { ...SURFACES.auto, scheme: 'auto' as Scheme }
-export const HUE = { ...HUES.auto }
+/**
+ * The palette views read at draw time: the chosen scheme, the glass it draws (`look`) and the app's
+ * own mode (`isAppLight`, from the app's `theme` setting; dark until known).
+ */
+export const G = { ...SURFACES.dark, scheme: 'auto' as Scheme, look: 'dark' as Look, isAppLight: false }
+export const HUE = { ...HUES.dark }
 
 const statusHex = () => ({
   draft: HUE.amber,
   ready: HUE.green,
   'in-progress': HUE.blue,
   'in-check': HUE.purple,
-  done: HUE.slate,
+  // On the light glass Done is an emerald chip (emerald-800: the mockup's #047857 falls just under 4.5:1 on a striped row); on the dark glass a quiet slate.
+  done: G.look === 'light' ? '#065F46' : HUE.slate,
   blocked: HUE.red,
   unlisted: HUE.red,
 })
@@ -93,35 +86,63 @@ const keyHex = (): Record<string, string> => ({
 })
 let KEY_HEX = keyHex()
 
-/**
- * Following the app, colored text is drawn in the app's own theme key of the same meaning: no one
- * mid tone reaches 4.5:1 on both the app's light and dark backgrounds, the app's keys do (0018).
- * Tints, borders and drawings keep the hex.
- */
-const AUTO_KEY: Record<string, string> = {
-  [HUES.auto.amber]: 'warning',
-  [HUES.auto.green]: 'success',
-  [HUES.auto.blue]: 'suggestion',
-  [HUES.auto.purple]: 'merged',
-  [HUES.auto.slate]: 'inactive',
-  [HUES.auto.red]: 'error',
-  [HUES.auto.violet]: 'permission',
-  [HUES.auto.rose]: 'error',
-  [HUES.auto.orange]: 'claude',
-  [HUES.auto.teal]: 'planMode',
-  [HUES.auto.sky]: 'suggestion',
-}
+/** The app's theme setting names its mode: `light`, `light-daltonized`, … are light; anything else (or nothing) is dark. */
+export const isLightTheme = (value: unknown) => typeof value === 'string' && value.startsWith('light')
+
+/** The glass a scheme draws: `auto` follows the app. */
+export const lookOf = (scheme: Scheme, isAppLight: boolean): Look => (scheme === 'auto' ? (isAppLight ? 'light' : 'dark') : scheme)
 
 /** Switches every palette in place; views read G / HUE / STATUS_HEX at draw time. */
-export function setScheme(scheme: Scheme) {
-  Object.assign(G, SURFACES[scheme], { scheme })
-  Object.assign(HUE, HUES[scheme])
+export function setScheme(scheme: Scheme, isAppLight = false) {
+  const look = lookOf(scheme, isAppLight)
+  Object.assign(G, SURFACES[look], { scheme, look, isAppLight })
+  Object.assign(HUE, HUES[look])
   Object.assign(STATUS_HEX, statusHex())
   KEY_HEX = keyHex()
 }
 
+/**
+ * The desktop draws its own controls (Button, Link, Select, Input) in the app's colors, made for the
+ * app's own ground. They need a plate only where the glass and the app disagree: light glass in a
+ * dark app, or dark glass in a light app.
+ */
+export const needsPlate = () => (G.look === 'light') !== G.isAppLight
+
+/** A plate in the app's ground: slate-700 under a dark app, white with a slate-300 border under a light one. */
+const PLATE = {
+  dark: { backgroundColor: '#334155', borderColor: '#475569', ink: '#F1F5F9', soft: '#CBD5E1' },
+  light: { backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', ink: '#0F172A', soft: '#475569' },
+}
+const plateOf = () => PLATE[G.isAppLight ? 'light' : 'dark']
+
+/** Text color inside a control group: the plate's when there is one, else the glass's. */
+export const groupInk = (soft = false) => (needsPlate() ? (soft ? plateOf().soft : plateOf().ink) : soft ? G.faint : G.ink)
+
+const plateStyle = () => {
+  const p = plateOf()
+  return { backgroundColor: p.backgroundColor, borderStyle: 'round', borderColor: p.borderColor, paddingX: 1 }
+}
+
+/** The elements the desktop draws as its own controls, in the app's colors. */
+const CONTROLS = new Set(['Button', 'Link', 'Select', 'Input'])
+type El = { type?: unknown; props?: Record<string, unknown> }
+const isControl = (c: unknown): c is El => typeof c === 'object' && c !== null && CONTROLS.has((c as El).type as string)
+/** A primary Button is the host's filled button: its own fill and label, readable on any ground. */
+const isFilled = (c: El) => c.type === 'Button' && c.props?.variant === 'primary' && c.props?.plain !== true
+const flat = (c: unknown): unknown[] => (Array.isArray(c) ? c.flatMap(flat) : c === null || c === undefined || c === false || c === true || c === '' ? [] : [c])
+
+/**
+ * One group of the app's controls that spans table cells (the sort headers, a row's actions).
+ * Where glass and app disagree it sits on ONE rounded plate in the app's ground, its padding and
+ * gap inside; where they agree it is a plain Box with the same layout, no plate. Its key starts
+ * with `plate-`, so the glass Box leaves its insides alone.
+ */
+export function Plate(ui: UI, key: string, children: RenderChildren, layout: Record<string, unknown> = {}) {
+  return ui.Box({ key: `plate-${key}`, ...layout, ...(needsPlate() ? plateStyle() : {}), children } as never)
+}
+
 /** A see-through layer for stripes and insets: white on dark, ink on light. */
-export const wash = (alpha: number) => `rgba(${G.wash},${G.scheme === 'dark' ? alpha : Math.min(1, alpha * 1.6)})`
+export const wash = (alpha: number) => `rgba(${G.wash},${G.look === 'dark' ? alpha : Math.min(1, alpha * 1.6)})`
 
 export const tint = (hex: string, alpha: number) => {
   const n = parseInt(hex.slice(1), 16)
@@ -131,18 +152,65 @@ export const tint = (hex: string, alpha: number) => {
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /**
+ * Where glass and app disagree, the app's controls in a Box are grouped onto plates: a Box that
+ * holds only controls becomes one plate; in a Box that mixes them with text, each run of adjacent
+ * controls goes on one plate, laid out as the Box lays out its children. Never one plate per
+ * button of a group. A Box with a fixed `width` is a table cell (its row draws its own group, see
+ * `Plate`), and a `plate-` Box is already a plate: both are left alone.
+ */
+function plated(ui: UI, p: Record<string, unknown>): Record<string, unknown> {
+  if (!needsPlate() || p.width !== undefined || (typeof p.key === 'string' && p.key.startsWith('plate-'))) return p
+  const kids = flat(p.children)
+  const controls = kids.filter(isControl)
+  if (controls.length === 0 || controls.every(isFilled)) return p
+  if (controls.length === kids.length) return { ...p, ...plateStyle() }
+  const out: unknown[] = []
+  let run: El[] = []
+  const flush = () => {
+    if (run.length > 0 && !run.every(isFilled)) {
+      const first = run[0]!.props ?? {}
+      const name = String(first.key ?? first.label ?? out.length)
+      out.push(
+        ui.Box({
+          key: `plate-${name}`,
+          flexDirection: p.flexDirection ?? 'row',
+          ...(p.flexDirection === 'column' ? {} : { alignItems: 'center' }),
+          ...(p.flexWrap !== undefined ? { flexWrap: p.flexWrap } : {}),
+          gap: p.gap ?? 1,
+          flexShrink: 0,
+          ...plateStyle(),
+          children: run,
+        } as never),
+      )
+    } else out.push(...run)
+    run = []
+  }
+  for (const k of kids) {
+    if (isControl(k)) run.push(k)
+    else {
+      flush()
+      out.push(k)
+    }
+  }
+  flush()
+  return { ...p, children: out }
+}
+
+/**
  * Wraps the surface's elements so every Text is readable on the glass backdrop
  * (default ink color, theme keys mapped to the glass palette) and Markdown is
- * drawn as glass-colored text.
+ * drawn as glass-colored text. The app's own controls have no plate of their own
+ * (0019): only where glass and app disagree does each group of them get one (`plated`).
  */
 export function glassUI(ui: UI): UI {
-  const color = (c: unknown) => (typeof c !== 'string' ? G.ink : G.scheme === 'auto' ? (AUTO_KEY[c.toUpperCase()] ?? c) : (KEY_HEX[c] ?? c))
+  const color = (c: unknown) => (typeof c !== 'string' ? G.ink : (KEY_HEX[c] ?? c))
   const Text = ((p: Record<string, unknown>) => {
     const dim = p.dimColor === true
     const { dimColor: _d, ...rest } = p
     return ui.Text({ ...rest, color: dim && p.color === undefined ? G.soft : color(p.color) } as never)
   }) as unknown as UI['Text']
-  const Box = ((p: Record<string, unknown>) => {
+  const Box = ((given: Record<string, unknown>) => {
+    const p = plated(ui, given)
     const hover = p.hover as { backgroundColor?: string } | undefined
     const fix = (c: unknown) => (typeof c === 'string' && c in KEY_HEX ? (c === 'promptBorder' ? G.cardHover : KEY_HEX[c]) : c)
     return ui.Box({
@@ -153,16 +221,7 @@ export function glassUI(ui: UI): UI {
     } as never)
   }) as unknown as UI['Box']
   const Markdown = ((p: { key?: string; text: string }) => ui.Box({ flexDirection: 'column', gap: 1, children: markdown({ ...ui, Text, Box }, p.text) } as never)) as unknown as UI['Markdown']
-  // The desktop draws a native Button or Link in the app's own colors, whatever color its Text
-  // children ask for (0018: on the light glass, with the app's near-white labels, they vanished).
-  // On a painted glass backdrop each sits on a plate of the app's opposite ground (`inverseText`),
-  // so its label reads in either app mode. A primary Button is the host's filled button: its own
-  // fill and label, readable anywhere. Following the app, nothing is painted under them.
-  const plate = (el: unknown) => (G.scheme === 'auto' ? el : ui.Box({ backgroundColor: 'inverseText', children: el } as never))
-  const Button = ((p: Record<string, unknown>) =>
-    p.variant === 'primary' && p.plain !== true ? ui.Button(p as never) : plate(ui.Button(p as never))) as unknown as UI['Button']
-  const Link = ui.Link === undefined ? undefined : (((p: Record<string, unknown>) => plate(ui.Link!(p as never))) as unknown as UI['Link'])
-  return { ...ui, Text, Box, Markdown, Button, ...(Link === undefined ? {} : { Link }) }
+  return { ...ui, Text, Box, Markdown }
 }
 
 /** A small markdown reader for the glass look: headings, paragraphs (hard-wrapped lines joined), "Label: text" leads, decision callouts, lists, quotes, tables, code, inline `code` (status names as pills), **bold**, *italic* and [links](url). */
@@ -175,8 +234,8 @@ export function markdown(ui: UI, text: string): RenderChildren {
         const word = part.slice(1, -1)
         const hex = STATUS_HEX[word]
         return hex !== undefined
-          ? ui.Text({ color: hex, backgroundColor: tint(hex, 0.16), weight: 'semibold', children: ` ${word} ` } as never)
-          : ui.Text({ color: G.accent, mono: true, backgroundColor: 'rgba(125,211,252,0.08)', children: ` ${word} ` } as never)
+          ? ui.Text({ color: hex, backgroundColor: tint(hex, G.chip), weight: 'semibold', children: ` ${word} ` } as never)
+          : ui.Text({ color: G.accent, mono: true, backgroundColor: tint(G.accent, 0.08), children: ` ${word} ` } as never)
       }
       if (part.startsWith('**') && part.endsWith('**')) return ui.Text({ color: G.ink, weight: 'semibold', children: part.slice(2, -2) } as never)
       if (/^\[[^\]]+\]\([^)]+\)$/.test(part)) return ui.Text({ color: G.accent, underline: true, children: part.slice(1, part.indexOf(']')) } as never)
@@ -302,7 +361,7 @@ export function markdown(ui: UI, text: string): RenderChildren {
         code = []
       } else {
         out.push(
-          <Box flexDirection="column" backgroundColor={G.scheme === 'dark' ? 'rgba(0,0,0,0.3)' : wash(0.06)} borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
+          <Box flexDirection="column" backgroundColor={G.look === 'dark' ? 'rgba(0,0,0,0.3)' : wash(0.06)} borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
             {code.map(c => (
               <Text color={G.accent} mono size="footnote">
                 {c === '' ? ' ' : c}

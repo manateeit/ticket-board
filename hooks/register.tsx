@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { isInsideFolder, jobNote, pumpPlanQueue } from './ai'
 import { docsGaps } from './core/ticket'
-import { S, abs, isLive, dir, resetSession, editRow, loadAgents, loadFilters, loadJobs, loadScheme, loadPlanMode, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, abs, isLive, dir, resetSession, editRow, followAppTheme, loadAgents, loadAppTheme, loadFilters, loadJobs, loadScheme, loadPlanMode, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
 import { drawPane, go, type UI } from './views'
 
@@ -76,6 +76,7 @@ export const register: Register = (on, options) => {
     })
     await loadFilters($)
     await loadScheme($)
+    await loadAppTheme($)
     await loadJobs($)
     await loadStartFlags($)
     await loadPlanMode($)
@@ -92,6 +93,14 @@ export const register: Register = (on, options) => {
     })
     return next(e)
   })
+
+  // The app's light/dark mode as the settings writer wrote it: Colors "app" follows it, and the
+  // control plates are matched to it.
+  on('config.set', { key: 'theme' }, async ($, e, next) => {
+    const r = await next(e)
+    if (r.deny === undefined) followAppTheme($, r.value)
+    return r
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'board' }, async ($, e) => {
     if (S.cwd === '') S.cwd = await $.session.cwd()
@@ -138,11 +147,11 @@ export const register: Register = (on, options) => {
     const frame = { rows: e.viewport?.rows ?? 30, columns: e.props.bodyColumns }
     if (e.surface === 'desktop') {
       // One self-painted glass container: the pane never shows the app's own background through it.
-      setScheme(S.scheme)
+      setScheme(S.scheme, S.isAppLight)
       const base = $.ui.resolve(e)
       const ui = { ...glassUI(base as unknown as UI), Svg: base.Svg }
       return (
-        <base.Box flexDirection="column" flexGrow={1} {...(G.base !== '' ? { backgroundColor: G.base } : {})} borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
+        <base.Box flexDirection="column" flexGrow={1} backgroundColor={G.base} borderStyle="round" borderColor={G.edge} paddingX={2} paddingY={1}>
           {drawPane($, ui, { ...frame, glass: true })}
         </base.Box>
       )
