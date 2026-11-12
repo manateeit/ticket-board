@@ -30,6 +30,7 @@ import {
   roadmapView,
   rowOf,
   saveAnswer,
+  rdLock,
   saveFilters,
   say,
   setStartFlag,
@@ -807,6 +808,7 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
   const open = qs.filter(q => !q.isResolved)
   const answered = qs.filter(q => q.isResolved)
   const job = jobFor(number)
+  const lock = rdLock(number)
   return (
     <Box flexDirection="column" gap={1}>
       {Header(ui, `${number} — open questions`, $, { kind: 'ticket', number, tab: 'rd' })}
@@ -821,6 +823,9 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
               {n + 1}. {q.text}
             </Text>
             {q.detail !== '' && <Text dimColor>{q.detail}</Text>}
+            {lock !== undefined ? (
+              <Text key={`locked-${key}`} dimColor>{`🔒 ${lock}`}</Text>
+            ) : (
             <Input
               key={key}
               label="Answer"
@@ -840,6 +845,7 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
                   .catch(err => fail($, err))
               }}
             />
+            )}
             <Box flexDirection="row" gap={1}>
               <Button
                 key={`suggest-${key}`}

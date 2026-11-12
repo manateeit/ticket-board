@@ -230,6 +230,7 @@ The `/ticket` rules say a ticket cannot be **ready** while its *Open questions* 
 - **Suggest (AI)** drafts an answer from the ticket and its touchpoints for you to edit. Nothing is saved until you press Save.
 - **Discuss in chat** puts the question in your prompt box, so you can talk it through with the full session.
 - After answering, **✎ Fold answers into the ticket (AI)** has the ticket writer update *Behaviour*, *Scope* and *eval.md* to match your decisions. Answered questions stay in the file as a record.
+- **Locked while the AI writes.** While the AI writer (a draft, *Enhance*, *Fold* or a plan ticket) is writing a ticket, its answer boxes and its **Type** are locked: the pane shows *🔒 The AI is writing ticket 0007: answers and Type are locked until it finishes* in their place, and refuses any rd.md edit for that ticket, so your edit and the writer's never overwrite each other. They come back when the writer finishes. After any save (an answer, a Type change, a status move) the pane redraws from the file it just wrote, even if a refresh was already running.
 
 ## Draft → ready (and the ready check)
 

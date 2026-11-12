@@ -10,6 +10,7 @@ import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } f
 import { headFieldLine, isReadyable, setHeadField } from './core/ticket'
 import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
 import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
+import { editRd, rdLock } from './store'
 import { openAdopt } from './adopt'
 import {
   ADOPT_LABEL,
@@ -857,13 +858,8 @@ export function docSections(text: string): { title?: string; body: string }[] {
 }
 
 async function setKind($: $, number: string, kind: Kind) {
-  const f = S.snap?.files.get(number)
-  if (f === undefined) return say($, `Ticket ${number} has no folder`, 'error')
-  const path = `${dir()}/${f.folder}/rd.md`
   try {
-    const rd = await $.fs.read(abs(path))
-    await $.fs.write(abs(path), setHeadField(rd, 'Type', kind))
-    await refresh($, true)
+    await editRd($, number, rd => setHeadField(rd, 'Type', kind))
     say($, `${number} is now a ${KIND[kind].label.toLowerCase()}`)
   } catch (err) {
     fail($, err)
@@ -913,6 +909,7 @@ function QuestionsCard($: $, ui: UI, number: string, focus: boolean): RenderChil
   const open = qs.filter(q => !q.isResolved)
   const answered = qs.filter(q => q.isResolved)
   const job = jobFor(number)
+  const lock = rdLock(number)
   const hex = open.length > 0 ? STATUS_HEX.draft! : STATUS_HEX.ready!
   return Card(
     ui,
@@ -935,6 +932,11 @@ function QuestionsCard($: $, ui: UI, number: string, focus: boolean): RenderChil
                 {q.detail}
               </Text>
             )}
+            {lock !== undefined ? (
+              <Text key={`locked-${key}`} color={G.soft} size="footnote">
+                {`🔒 ${lock}`}
+              </Text>
+            ) : (
             <Input
               key={key}
               value={draft}
@@ -952,6 +954,7 @@ function QuestionsCard($: $, ui: UI, number: string, focus: boolean): RenderChil
                   .catch(err => fail($, err))
               }}
             />
+            )}
             <Box flexDirection="row" gap={1}>
               <Button
                 key={`suggest-${key}`}
@@ -1182,13 +1185,22 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
             ui,
             [
               Prop(ui, 'Status', StatusPill(ui, status)),
-              <Select
-                key={`kind-${number}`}
-                label="Type"
-                value={kind}
-                options={KINDS.map(k => ({ value: k, label: `${KIND[k].icon} ${KIND[k].label}` }))}
-                onSelect={v => void setKind($, number, v as Kind)}
-              />,
+              rdLock(number) !== undefined ? (
+                <Box key={`kind-locked-${number}`} flexDirection="column">
+                  {Prop(ui, 'Type', `${KIND[kind].icon} ${KIND[kind].label}`)}
+                  <Text color={G.faint} size="footnote">
+                    {`🔒 ${rdLock(number)}`}
+                  </Text>
+                </Box>
+              ) : (
+                <Select
+                  key={`kind-${number}`}
+                  label="Type"
+                  value={kind}
+                  options={KINDS.map(k => ({ value: k, label: `${KIND[k].icon} ${KIND[k].label}` }))}
+                  onSelect={v => void setKind($, number, v as Kind)}
+                />
+              ),
               row === undefined ? null : hasColumn('mode') ? (
                 <Select
                   key={`mode-${number}`}

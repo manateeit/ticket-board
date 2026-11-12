@@ -7,6 +7,7 @@ import { railSvg } from '../hooks/glass'
 import { runLine, today } from '../hooks/core/query'
 import { PLAN_COLS } from '../hooks/plan'
 import { bindFromBoard } from '../hooks/core/roadmap'
+import { S, editRd, saveAnswer } from '../hooks/store'
 import { DEMO_ROADMAP } from './demo-roadmap'
 import { ADOPT_NOTES, adoptProposal } from './adopt-fixture'
 
@@ -3778,6 +3779,97 @@ test('rows per page: every row when they fit, else 20, fewer for very large rows
   expect(rowsPerPage(Array(120).fill(2800))).toBe(20)
   expect(rowsPerPage(Array(120).fill(5000))).toBe(12)
   expect(rowsPerPage(Array(120).fill(50_000))).toBe(5)
+})
+
+// ---------- 0041: store writes redraw fresh, and no rd.md edits under an AI job ----------
+
+/**
+ * A gate for boot's fs.list: once armed, it holds the first list after the 0003 folder was listed, so a
+ * plain refresh that has already read 0003 stays in flight until `release`.
+ */
+function holdAfter0003() {
+  const at = { calls: [] as string[], from: 0, armed: false, held: undefined as Promise<void> | undefined, release: () => undefined as void }
+  const gate = {
+    get wait() {
+      if (!at.armed || !at.calls.slice(at.from).some(c => /tickets\/0003-dark-mode-for-settings-page -> /.test(c))) return undefined
+      at.held ??= new Promise<void>(r => (at.release = r))
+      return at.held
+    },
+  } as { wait?: Promise<void> }
+  return { at, gate }
+}
+
+const FOLDER_0004 = {
+  'tickets/0004-later-folder/rd.md': rd('0004', 'Later folder', '- none'),
+  'tickets/0004-later-folder/eval.md': EVAL,
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`an answer saved while a plain refresh is mid-read shows as resolved right away (${surface})`, async ($, on) => {
+    on('tool.call', () => ({ result: 'ok' }) as any)
+    const { at, gate } = holdAfter0003()
+    const { ui, fs, calls } = await boot($, on, surface, FOLDER_0004, { gate })
+    at.calls = calls
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    if (surface === 'terminal') await ui.press({ key: 'questions' })
+    // A plain refresh reads 0003 as it is, then stops before the next folder.
+    at.from = calls.length
+    at.armed = true
+    await writeTool($, '/repo/tickets/0003-dark-mode-for-settings-page/a.txt')
+    await until(() => at.held !== undefined, 'the plain refresh to stop after reading 0003')
+    await ui.input({ key: 'q-0003-0', text: 'Teal', kind: 'submit' } as any)
+    await until(() => fs.files.get('tickets/0003-dark-mode-for-settings-page/rd.md')!.includes('(human): Teal**'), 'the answer to be written')
+    at.armed = false
+    at.release()
+    await until(async () => (await drawnText(ui)).includes('Saved answer to question 1'), 'the save to finish')
+    expect(await drawnText(ui)).toContain(surface === 'desktop' ? 'Every question is answered' : 'No open questions left')
+    await ui.unmount()
+  })
+
+  test(`while a writer job holds a ticket, answers and Type are locked and the store refuses rd.md writes (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs, writes } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    const rdPath = 'tickets/0003-dark-mode-for-settings-page/rd.md'
+    const before = fs.files.get(rdPath)!
+    if (surface === 'terminal') await ui.press({ key: 'questions' })
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('The AI is writing ticket 0003: answers and Type are locked until it finishes')
+    expect(drawn).not.toContain('"key":"q-0003-0"')
+    expect(drawn).not.toContain('"key":"kind-0003"')
+    let refused = ''
+    await Promise.resolve(ui.input({ key: 'q-0003-0', text: 'Teal', kind: 'submit' } as any)).catch((e: unknown) => (refused = String(e)))
+    if (surface === 'desktop') await Promise.resolve(ui.select({ key: 'kind-0003', value: 'chore' })).catch((e: unknown) => (refused += String(e)))
+    expect(refused).not.toBe('')
+    expect(fs.files.get(rdPath)).toBe(before)
+    expect(writes.filter(p => p === rdPath)).toEqual([])
+    w.done()
+    await ui.unmount()
+  })
+}
+
+test('the store refuses rd.md writes for a ticket an AI job holds, whatever view calls it', async ($, on) => {
+  // This file's own copy of the store, given the state the pane has while a writer holds 0003.
+  const writes: string[] = []
+  on('fs.read', () => ({ value: rd('0003', 'Dark mode for settings page', '- Which accent colour in dark mode?') }))
+  on('fs.write', (_: unknown, e: { path: string }) => (writes.push(e.path), { value: undefined }))
+  const question = { index: 0, text: 'Which accent colour in dark mode?', detail: '', isResolved: false }
+  S.snap = { files: new Map([['0003', { number: '0003', folder: '0003-dark-mode-for-settings-page', questions: [question] }]]) } as any
+  S.jobs.set('w9', { agentId: 'w9', number: '0003', kind: 'enhance', startedAt: Date.now() })
+  const refused: string[] = []
+  await saveAnswer($ as any, '0003', question as any, 'Teal').catch((e: Error) => refused.push(e.message))
+  await editRd($ as any, '0003', text => text.replace('Type: feature', 'Type: chore')).catch((e: Error) => refused.push(e.message))
+  S.jobs.clear()
+  S.snap = undefined
+  expect(refused).toEqual([
+    'The AI is writing ticket 0003: answers and Type are locked until it finishes',
+    'The AI is writing ticket 0003: answers and Type are locked until it finishes',
+  ])
+  expect(writes).toEqual([])
 })
 
 // ---------- 0021: activity wording ----------
