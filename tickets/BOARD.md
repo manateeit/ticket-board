@@ -36,14 +36,14 @@ the checker fails the ticket if they are stale.
 | 0020 | Pane goes blank: README view too large | done | solo | — | — | merged 09f0086, all 6 checks PASS, 299/299 · real README = 8 parts, max 57.6K chars · guard checks characters only (nodes/depth not checked, low risk) · follow-ups: board paging at ~26 visible tickets, per-project Colors, remaining explicit-undefined props |
 | 0021 | Activity strip says "waiting for you" while agents work | done | solo | — | — | merged 587be8b, all 3 checks PASS, 309/309 |
 | 0022 | Large plans and boards shown in pages | done | solo | 0020 | — | merged dd26d38, all 5 checks PASS, 329/329 · heavy 56-build plan max page 51.6K; worst board page 83.7K · follow-up: one phase with ~30+ (or ~17+ heavy) builds still hits the notice on desktop |
-| 0023 | Board cell edits never silently dropped | ready | solo | — | — | leak audit L1, L9 (bug) |
-| 0024 | One rule for resolved questions | ready | solo | — | — | leak audit L3 (bug) |
-| 0025 | Tickets folder setting works everywhere | ready | solo | — | — | leak audit L2 (bug) |
-| 0026 | A half binding line keeps the other default | ready | solo | — | — | leak audit L4 (bug) |
-| 0027 | Forced refresh waits for fresh data | ready | solo | — | — | leak audit L5 (bug) |
-| 0028 | Plan batch errors not read from the banner | ready | solo | — | — | leak audit L6 (bug) |
-| 0029 | Watch buttons handle the host's refusal | ready | solo | — | — | leak audit L7 (bug) |
-| 0030 | One parser for rd.md head fields | ready | solo | — | — | leak audit L8 (bug) |
+| 0023 | Board cell edits never silently dropped | done | solo | — | — | merged dfd5a95, all 5 checks PASS · leak audit L1, L9 · follow-up: AI note writes (ai.ts:103, register.tsx:251) still drop notes silently on a board with no Notes column |
+| 0024 | One rule for resolved questions | done | solo | — | — | merged bc53923, all 5 checks PASS, 338/338 · leak audit L3 |
+| 0025 | Tickets folder setting works everywhere | done | solo | — | — | merged 69bcef7, all 5 checks PASS, 347/347 on main · leak audit L2 |
+| 0026 | A half binding line keeps the other default | done | solo | — | — | merged 3dfa045, all 5 checks PASS, 336/336 · leak audit L4 |
+| 0027 | Forced refresh waits for fresh data | done | solo | — | — | merged 619e285, all 5 checks PASS, 358/358 on main · leak audit L5 |
+| 0028 | Plan batch errors not read from the banner | done | solo | — | — | merged 3522eda, all 5 checks PASS, 333/333 · leak audit L6 |
+| 0029 | Watch buttons handle the host's refusal | done | solo | — | — | merged d042905, all 4 checks PASS, round 2 resolved a test-file conflict, 353/353 on main · leak audit L7 |
+| 0030 | One parser for rd.md head fields | done | solo | — | — | merged d4493ca, all 6 checks PASS, 355/355 on main · leak audit L8 |
 | 0031 | Glass palette and plates made explicit | draft | solo | — | — | leak audit L10, L11 (risk) |
 | 0032 | Notes prefixes written down | draft | solo | — | — | leak audit L12 (risk) |
 
