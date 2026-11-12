@@ -58,7 +58,7 @@ the checker fails the ticket if they are stale.
 | 0042 | Untracked writer spawns count and show | done | solo | — | — | merged 4789abb, all checks PASS, round 2 resolved merge conflict (render timeouts from load only) · round 2: ai.ts conflict with main · leak audit 2 L12 (risk) |
 | 0043 | Agent handoff contracts match the pipeline | done | solo | — | — | merged 33d255e, all 5 checks PASS (2 render timeouts from machine load, Markdown-only diff) · leak audit 2 L16, L18, L19 |
 | 0044 | Every eval.md has Result and Evidence fields | done | solo | — | — | merged 282a45b, all 4 checks PASS (round 2 fixed README), 409/409 on main · round 2: README line 281 stale (checker FAIL on docs) · leak audit 2 L17 (risk) |
-| 0045 | Held agents are not counted as running | draft | solo | — | — | seen 2026-11-12: finished Worker 0040 and Checker 0041 shown as 2 running until stopped |
+| 0045 | Held agents are not counted as running | in-progress | solo | — | worker, dispatched 2026-11-12 16:00 | seen 2026-11-12: finished Worker 0040 and Checker 0041 shown as 2 running until stopped |
 
 How to read this board:
 
