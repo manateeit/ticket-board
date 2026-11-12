@@ -2104,6 +2104,45 @@ for (const surface of ['terminal', 'desktop'] as const) {
     w.done()
     await ui.unmount()
   })
+
+  // 0028: the batch reads its own results, not the banner.
+  test(`an old error banner does not hide the batch summary (${surface})`, async ($, on) => {
+    const w = fakeWriter(on, /P1\.3/)
+    const files = { ...t8Files(), '/repo/design/PLAN.md': T8_PLAN.replace(/^\| P1\.5 .*\n/m, '') }
+    const { ui } = await boot($, on, surface, files, { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'build-create-P1.3' })
+    await ui.press({ key: 'build-create-P1.3' })
+    await ui.find({ key: 'build-retry-P1.3' })
+    // Create again fails too and leaves its error on the banner.
+    await ui.press({ key: 'build-retry-P1.3' })
+    await until(async () => (await drawnText(ui)).includes('Could not start the ticket writer'), 'the start error banner')
+    await ui.press({ key: 'phase-create-P1' })
+    await until(async () => (await drawnText(ui)).includes('Created 2 draft tickets from P1'), 'the batch summary')
+    expect(await drawnText(ui)).not.toContain('Could not start the ticket writer')
+    expect(w.spawned.map(s => s.description)).toEqual(['Write ticket 0003 (P1.4)', 'Write ticket 0004 (P1.2)'])
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`one of two builds fails to start: the failure shows and the count is right (${surface})`, async ($, on) => {
+    const w = fakeWriter(on, /P1\.4/)
+    const files = { ...t8Files(), '/repo/design/PLAN.md': T8_PLAN.replace(/^\| P1\.[35] .*\n/gm, '') }
+    const { ui, fs } = await boot($, on, surface, files, { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.press({ key: 'phase-create-P1' })
+    await until(async () => (await drawnText(ui)).includes('Created 2 draft tickets from P1'), 'the batch summary')
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('1 failed to start')
+    expect(drawn).toContain('failed: no agents left today')
+    await ui.find({ key: 'build-retry-P1.4' })
+    expect(rowsOf(fs).filter(r => r.status === 'draft').length).toBe(2)
+    expect(w.spawned.map(s => s.description)).toEqual(['Write ticket 0003 (P1.2)'])
+    w.done()
+    await ui.unmount()
+  })
 }
 
 test('the plan queue survives a redraw and a trip to the board and back (desktop)', async ($, on) => {
@@ -3182,6 +3221,45 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'back' })
     await ui.find({ type: 'Text', text: /Start a project/ })
     expect(await drawnText(ui)).toMatch(/● Tickets/)
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`adopt with a design only, then design/PLAN.md added: the plan is bound and a build's ticket is created (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const full = adoptProposal(ADOPT_DATE())
+    const designOnly = full.replace(/\n## PLAN\.md\n[\s\S]*$/, '\n')
+    const planText = /\n## PLAN\.md\n~~~~markdown\n([\s\S]*?)~~~~\n/.exec(full)![1]!
+    const { ui, fs } = await boot($, on, surface, adoptFiles(), { blank: true })
+    await openAdoptView(ui)
+    await ui.input({ key: 'adopt-paths', text: 'notes/salon.md', kind: 'submit' } as any)
+    await until(() => w.spawned.length === 1, 'the adopt agent to start')
+    fs.files.set(ADOPT_PATH(), designOnly)
+    await w.finish($, w.spawned[0]!.agentId)
+    await ui.find({ key: 'ad-tick-D2' })
+    await ui.press({ key: 'adopt-apply' })
+    await until(() => fs.files.has('/repo/design/DESIGN.md'), 'the apply')
+    // Adopt wrote a design-only binding line; no plan yet.
+    const board = fs.files.get('tickets/BOARD.md')!
+    expect(board).toContain('Design: design/DESIGN.md\n')
+    expect(board).not.toContain('Plan:')
+    expect(fs.files.has('/repo/design/PLAN.md')).toBe(false)
+    // The plan is written later, by hand; a refresh binds it through the default path.
+    fs.files.set('/repo/design/PLAN.md', planText)
+    await ui.press({ key: 'tab-board' })
+    await ui.press({ key: 'refresh' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    expect(await drawnText(ui)).toContain('Magic link sign-in')
+    await ui.find({ key: 'build-create-P1.1' })
+    await ui.press({ key: 'build-create-P1.1' })
+    await until(() => w.spawned.length === 2, 'the ticket writer to start')
+    const drawn = await drawnText(ui)
+    expect(drawn).not.toContain('No PLAN.md is bound')
+    const row = rowsOf(fs).find(r => r.title === 'Magic link sign-in')!
+    expect(row.status).toBe('draft')
+    const line = fs.files.get('/repo/design/PLAN.md')!.split('\n').find(l => l.startsWith('| P1.1 |'))!
+    expect(line.trim().endsWith(`| ${row.number} |`)).toBe(true)
     w.done()
     await ui.unmount()
   })

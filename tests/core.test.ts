@@ -44,7 +44,7 @@ import {
   withNoteFollowUp,
 } from '../hooks/core/roadmap'
 import { historyOf } from '../hooks/core/designfile'
-import { answerQuestion, docsGaps, headField, headFieldLine, isReadyable, parseQuestions, readiness, setHeadField } from '../hooks/core/ticket'
+import { answerQuestion, docsGaps, headField, headFieldLine, isReadyable, isResolved, parseQuestions, readiness, setHeadField } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
 import { adoptLeftOut, adoptPaths, adoptResult, bindFromBoard, parseAdopt, setBindingLine } from '../hooks/core/roadmap'
 import { DEMO_ROADMAP } from './demo-roadmap'
@@ -154,6 +154,39 @@ test('finds open questions and records an answer under the right one', () => {
 test('placeholder questions do not count', () => {
   expect(parseQuestions(RD.replace(/## Open questions[\s\S]*/, '## Open questions\n\n- none\n')).length).toBe(0)
   expect(parseQuestions(RD.replace(/## Open questions[\s\S]*/, '## Open questions\n\n- <Must be empty before this ticket can be marked ready>\n')).length).toBe(0)
+})
+
+test('a detail line mentioning "agent)" or "(human" does not resolve a question (0024)', () => {
+  const rd = RD.replace(/## Open questions[\s\S]*/, '## Open questions\n\n- Which colour?\n  ask the router (or the agent)\n  then check with (human review\n')
+  const qs = parseQuestions(rd)
+  expect(qs.length).toBe(1)
+  expect(qs[0]!.isResolved).toBe(false)
+  expect(isResolved('Which colour?', 'ask the router (or the agent)')).toBe(false)
+  expect(isResolved('Which colour?', 'resolved later (human')).toBe(false)
+  const check = readiness({ rd, ev: EVAL, blockedBy: [], statusOf: () => 'done' }).find(c => c.id === 'questions')
+  expect(check?.isOk).toBe(false)
+  expect(check?.label).toContain('1 open question')
+})
+
+test('every accepted resolved form counts as answered (0024)', () => {
+  const with_ = (body: string) => RD.replace(/## Open questions[\s\S]*/, `## Open questions\n\n${body}\n`)
+  const forms = [
+    '- Which colour?\n  **Resolved 2026-11-11 (human): teal**',
+    '- Which colour?\n  **Resolved 2026-11-11 (agent, from code: x.ts): teal**',
+    '- Which colour?\n  **Resolved 2026-11-11 (agent, from code: x.ts)**: teal',
+    '- [x] Which colour?',
+    '- ~~Which colour?~~',
+  ]
+  for (const f of forms) {
+    const qs = parseQuestions(with_(f))
+    expect(qs.length).toBe(1)
+    expect(qs[0]!.isResolved).toBe(true)
+  }
+  expect(parseQuestions(with_('- none')).length).toBe(0)
+  expect(parseQuestions(with_('- none (resolved 2026-11-11; answers folded into the ticket)')).length).toBe(0)
+  const statusOf = () => 'done'
+  for (const f of [...forms, '- none', '- none (resolved 2026-11-11; answers folded into the ticket)'])
+    expect(readiness({ rd: with_(f), ev: EVAL, blockedBy: [], statusOf }).find(c => c.id === 'questions')?.isOk).toBe(true)
 })
 
 test('ready check blocks on open questions and passes once answered', () => {
@@ -955,6 +988,25 @@ test('adopt: the binding line goes under the BOARD.md title, or replaces the one
   expect(setBindingLine(bound, 'design/DESIGN-adopted.md', 'design/PLAN.md')).toBe(bound.replace('design/DESIGN.md', 'design/DESIGN-adopted.md'))
   expect(setBindingLine('# T\nIntro\n', 'd.md', undefined)).toBe('# T\n\nDesign: d.md\n\nIntro\n')
   expect(setBindingLine(board, undefined, undefined)).toBe(board)
+})
+
+test('binding: a half binding line keeps the default for the other half', () => {
+  const files = (map: Record<string, string>) => (p: string) => map[p]
+  const both = { 'design/DESIGN.md': '# D\n', 'design/PLAN.md': '# P\n' }
+  // Design-only line (what adopt writes with no plan draft), then design/PLAN.md appears.
+  const designOnly = setBindingLine('# Ticket board\n', 'design/DESIGN.md', undefined)
+  const b1 = bindFromBoard(designOnly, files(both))
+  expect(b1).toEqual(expect.objectContaining({ designPath: 'design/DESIGN.md', planPath: 'design/PLAN.md', plan: '# P\n', isBound: true, warnings: [] }))
+  // Plan-only line: design/DESIGN.md is bound when it exists, unbound (no warning) when it does not.
+  const planOnly = '# Ticket board\n\nPlan: design/factory/plan.md\n'
+  const b2 = bindFromBoard(planOnly, files({ 'design/factory/plan.md': '# F\n', 'design/design.md': '# D\n' }))
+  expect(b2).toEqual(expect.objectContaining({ designPath: 'design/design.md', planPath: 'design/factory/plan.md', warnings: [] }))
+  const b3 = bindFromBoard(planOnly, files({ 'design/factory/plan.md': '# F\n' }))
+  expect(b3).toEqual(expect.objectContaining({ designPath: undefined, design: undefined, planPath: 'design/factory/plan.md', warnings: [] }))
+  // Both halves named: the defaults are never used, and a missing named file is still a warning.
+  const b4 = bindFromBoard('# B\n\nDesign: x/d.md · Plan: x/p.md\n', files(both))
+  expect(b4).toEqual(expect.objectContaining({ designPath: undefined, planPath: undefined, isBlank: true }))
+  expect(b4.warnings.length).toBe(2)
 })
 
 test('adopt: paths must be inside the project; empty input is an error', () => {

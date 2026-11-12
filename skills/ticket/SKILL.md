@@ -118,7 +118,9 @@ the question and put the answer under it:
   **Resolved 2026-11-08 (human): no, active rows only**
 ```
 
-A question is open until it has a `**Resolved …**` line. When the answers have
+A question is open until it has a line starting `**Resolved` under it (or its
+bullet is ticked `[x]` or struck `~~…~~`); nothing else counts — the full rule
+is in `docs/STANDARD.md` section 4, "Open questions". When the answers have
 been worked into What/Behaviour/Scope, the list may be collapsed to
 `- none (resolved <date>; answers folded into the ticket)`.
 

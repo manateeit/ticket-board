@@ -356,7 +356,7 @@ function caseVariants(path: string): string[] {
   return [...new Set([path, dir + file.toLowerCase(), dir + stem.toUpperCase() + ext.toLowerCase(), dir + stem.toUpperCase() + ext])]
 }
 
-/** The `Design: <path> · Plan: <path>` line under the BOARD.md title (either half may be missing). */
+/** The `Design: <path> · Plan: <path>` line under the BOARD.md title (either half may be missing; `bindFromBoard` then uses its default). */
 export function parseBindingLine(boardText: string | undefined): { design?: string; plan?: string } | undefined {
   if (boardText === undefined) return undefined
   for (const line of boardText.split(/\r?\n/)) {
@@ -375,7 +375,8 @@ export function parseBindingLine(boardText: string | undefined): { design?: stri
 }
 
 /**
- * Which design and plan files the board is bound to. `readFile` gets a path relative to the
+ * Which design and plan files the board is bound to: each half named on the BOARD.md binding line,
+ * else `design/DESIGN.md` / `design/PLAN.md` (in any case) when that file exists. `readFile` gets a path relative to the
  * project root and returns the text, or `undefined` when there is no such file.
  */
 export function bindFromBoard(boardText: string | undefined, readFile: (path: string) => string | undefined): Binding {
@@ -397,8 +398,9 @@ export function bindFromBoard(boardText: string | undefined, readFile: (path: st
     return { path: undefined, text: undefined }
   }
   const line = parseBindingLine(boardText)
-  const d = line === undefined ? resolve(DEFAULT_DESIGN, 'design', false) : resolve(line.design, 'design', true)
-  const p = line === undefined ? resolve(DEFAULT_PLAN, 'plan', false) : resolve(line.plan, 'plan', true)
+  // The line overrides only the halves it names; a missing half falls back to its default file.
+  const d = line?.design === undefined ? resolve(DEFAULT_DESIGN, 'design', false) : resolve(line.design, 'design', true)
+  const p = line?.plan === undefined ? resolve(DEFAULT_PLAN, 'plan', false) : resolve(line.plan, 'plan', true)
   return {
     designPath: d.path,
     planPath: p.path,

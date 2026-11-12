@@ -115,6 +115,16 @@ export type Question = {
 
 const PLACEHOLDER = /^(none\b|\(none|<.*>$|n\/a$|-+$)/i
 
+/**
+ * The one rule for an answered question (docs/STANDARD.md section 4, "Open questions"): a line
+ * under it that starts `**Resolved` (written `**Resolved <date> (<who>): <answer>**`), a ticked
+ * box `[x] …`, or a struck-through `~~…~~` bullet. Nothing else counts, so a detail line that
+ * merely mentions "(human" or "agent)" leaves the question open.
+ */
+export function isResolved(text: string, detail: string): boolean {
+  return detail.split('\n').some(l => /^\*\*\s*resolved\b/i.test(l.trim())) || /^~~/.test(text) || /^\[x\]/i.test(text)
+}
+
 /** Open-question bullets of rd.md. Placeholders such as `- none` are not questions. */
 export function parseQuestions(rd: string): Question[] {
   const sec = findSection(rd, 'Open questions')
@@ -132,7 +142,7 @@ export function parseQuestions(rd: string): Question[] {
       .map(l => l.trim())
       .filter(Boolean)
       .join('\n')
-    cur.isResolved = /\*\*\s*resolved\b/i.test(cur.detail) || /\bresolved\b.*\(human|agent\)/i.test(cur.detail) || /^~~/.test(cur.text) || /^\[x\]/i.test(cur.text)
+    cur.isResolved = isResolved(cur.text, cur.detail)
     if (!PLACEHOLDER.test(cur.text)) items.push(cur)
     cur = undefined
   }
