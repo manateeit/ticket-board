@@ -20,6 +20,7 @@ import {
   editRow,
   fullRoadmap,
   hasColumn,
+  isHeld,
   isLive,
   items,
   jobFor,
@@ -302,13 +303,16 @@ function Message(ui: UI): RenderChildren {
 function agentsPanel($: $, ui: UI, all: ReturnType<typeof items>): RenderChildren {
   const { Box, Text, Button } = ui
   const live = S.agents.filter(isLive)
-  const past = S.agents.filter(a => !isLive(a)).slice(-5).reverse()
+  const held = S.agents.filter(isHeld)
+  const past = S.agents.filter(a => !isLive(a) && !isHeld(a)).slice(-5).reverse()
   const flight = all.filter(i => i.status === 'in-progress' || i.status === 'in-check')
   const line = (a: (typeof S.agents)[number], dim: boolean) => {
     const t = ticketOfAgent(a)
+    // A held agent whose ticket is already done is most likely left over from finished work.
+    const leftover = isHeld(a) && t !== undefined && all.find(i => i.number === t)?.status === 'done'
     return (
       <Text key={`agent-${a.id}`} dimColor={dim} wrap="truncate">
-        {`● ${a.status}  ${a.name ?? (a.description || a.type)}  · ${a.type}${t === undefined ? '' : ` · ${t}`}`}
+        {`● ${a.status}  ${a.name ?? (a.description || a.type)}  · ${a.type}${t === undefined ? '' : ` · ${t}`}${leftover ? ' · ticket done: probably leftover' : ''}`}
       </Text>
     )
   }
@@ -319,6 +323,8 @@ function agentsPanel($: $, ui: UI, all: ReturnType<typeof items>): RenderChildre
         <Button key="agents-hide" label="Hide" plain onPress={() => ((S.showAgents = false), redraw($))} />
       </Box>
       {live.length === 0 ? <Text key="agents-none" dimColor>No agents running in this session right now.</Text> : live.map(a => line(a, false))}
+      {held.length > 0 && <Text key="agents-held" dimColor>Held</Text>}
+      {held.map(a => line(a, true))}
       {flight.length > 0 && <Text key="agents-flight" dimColor>{`In flight on the board (${flight.length}): ${flight.map(i => `${i.number} ${i.title}`).join(', ')}`}</Text>}
       {past.length > 0 && <Text key="agents-past" dimColor>Recently finished</Text>}
       {past.map(a => line(a, true))}

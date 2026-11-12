@@ -31,7 +31,7 @@ import {
   type Roadmap,
 } from './core/roadmap'
 import type { Question } from './core/ticket'
-import { S, abs, addPlanTicket, boardPath, changesFolder, createBoardFiles, createSkeleton, dir, editRow, folderOf, fullRoadmap, isLive, latestProposal, proposalKey, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
+import { S, abs, addPlanTicket, boardPath, changesFolder, createBoardFiles, createSkeleton, dir, editRow, folderOf, fullRoadmap, isHeld, isLive, latestProposal, proposalKey, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
 
 type $ = EngineInterface
 
@@ -136,7 +136,7 @@ async function matchUntracked($: $): Promise<void> {
     return
   }
   for (const u of [...S.untracked.values()]) {
-    const a = listed.filter(x => x.description === u.description && isLive(x) && !S.jobs.has(x.id)).at(-1)
+    const a = listed.filter(x => x.description === u.description && (isLive(x) || isHeld(x)) && !S.jobs.has(x.id)).at(-1)
     if (a === undefined) continue
     S.untracked.delete(u.number)
     const { description: _d, label, ...job } = u

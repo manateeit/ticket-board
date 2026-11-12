@@ -9,7 +9,7 @@ import { STATUSES, parseBlockedBy } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { findSection, headFieldLine, isReadyable, setHeadField } from './core/ticket'
 import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, statusHexOf, tint, wash, workingSvg } from './glass'
-import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
+import { S, setSchemeChoice, setStartFlag, isHeld, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
 import { editRd, rdLock } from './store'
 import { openAdopt } from './adopt'
 import {
@@ -227,12 +227,16 @@ function AgentActivity(ui: UI, id: string, name: string): RenderChildren {
 function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
   const { Box, Text, Button } = ui
   const live = S.agents.filter(isLive)
-  const past = S.agents.filter(a => !isLive(a)).slice(-5).reverse()
+  const held = S.agents.filter(isHeld)
+  const past = S.agents.filter(a => !isLive(a) && !isHeld(a)).slice(-5).reverse()
   const flight = all.filter(i => i.status === 'in-progress' || i.status === 'in-check')
   const agentRow = (a: (typeof S.agents)[number], dim: boolean) => {
     const hex = AGENT_HEX[a.status] ?? G.soft
     const t = ticketOfAgent(a)
-    const title = t === undefined ? undefined : all.find(i => i.number === t)?.title
+    const row = t === undefined ? undefined : all.find(i => i.number === t)
+    const title = row?.title
+    // A held agent whose ticket is already done is most likely left over from finished work.
+    const leftover = isHeld(a) && row?.status === 'done'
     return (
       <Box key={`agent-${a.id}`} flexDirection="row" alignItems="center" gap={1} paddingX={1} paddingY={dim ? 0 : 1} backgroundColor={dim ? undefined : wash(0.03)}>
         <Box width="12%" flexShrink={0}>
@@ -245,6 +249,11 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
           <Text color={G.faint} size="footnote" wrap="truncate">
             {[a.type, a.name !== undefined && a.description !== '' ? a.description : undefined, a.spawnedBy === 'ticket-board' ? 'ticket writer' : undefined].filter(Boolean).join(' · ')}
           </Text>
+          {leftover && (
+            <Text key={`agent-left-${a.id}`} color={STATUS_HEX.blocked!} size="footnote">
+              ticket done: probably leftover
+            </Text>
+          )}
         </Box>
         <Box flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
         {t !== undefined && (
@@ -261,7 +270,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
             redraw($)
           }}
         />
-        {a.teammateId === undefined && isLive(a) && (
+        {a.teammateId === undefined && (isLive(a) || isHeld(a)) && (
           <Button key={`agent-v-${a.id}`} label="Open transcript ↗" plain onPress={() => void openTranscript($, a.id)} />
         )}
         </Box>
@@ -295,6 +304,14 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
               {i.owner !== '' && i.owner !== '—' && <Text color={G.faint} size="footnote">{i.owner}</Text>}
             </Box>
           ))}
+        </Box>
+      ) : null,
+      held.length > 0 ? (
+        <Box key="agents-held" flexDirection="column" gap={0}>
+          <Text color={G.faint} size="caption" weight="bold">
+            HELD
+          </Text>
+          {held.map(a => [agentRow(a, true), S.watching === a.id ? activity(a) : null])}
         </Box>
       ) : null,
       past.length > 0 ? (
@@ -332,15 +349,18 @@ const TOOL_WORDS: [RegExp, string][] = [
 const toolWords = (t: string) => TOOL_WORDS.find(([re]) => re.test(t))?.[1] ?? (t === '' ? 'Thinking' : `Using ${t}`)
 const clockOf = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
-/** The strip at the top of every desktop view: animated while the session or its agents work ("Claude is working", or "Waiting on N agents" once the main turn ended), a quiet "Idle" otherwise. */
+/** The strip at the top of every desktop view: animated while the session or its agents work ("Claude is working", or "Waiting on N agents" once the main turn ended), still "N agents held · nothing running" when only held agents are left, a quiet "Idle" otherwise. */
 export function ActivityBar($: $, ui: UI): RenderChildren {
   const { Box, Text, Button } = ui
   const live = S.agents.filter(isLive)
+  const held = S.agents.filter(isHeld).length
   const writing = S.jobs.size
   const adopting = S.adoptJob !== undefined
   const isBusy = S.busySince !== 0
-  const hex = isBusy ? G.accent : HUE.violet
-  if (!isBusy && live.length === 0 && writing === 0 && !adopting) {
+  // Held agents keep the strip up (they exist) but nothing moves when they are all that is left.
+  const isMoving = isBusy || live.length > 0 || writing > 0 || adopting
+  const hex = isBusy ? G.accent : isMoving ? HUE.violet : HUE.slate
+  if (!isMoving && held === 0) {
     return (
       <Box key="activity" flexDirection="row" gap={1} alignItems="center">
         <Text color={G.faint} size="footnote">
@@ -351,23 +371,28 @@ export function ActivityBar($: $, ui: UI): RenderChildren {
   }
   // The main turn has ended but work goes on in the background: the session waits on its agents, not on the person.
   const agents = `${live.length} agent${live.length === 1 ? '' : 's'}`
+  const heldWords = `${held} agent${held === 1 ? '' : 's'} held`
   const parts: string[] = []
-  if (isBusy) parts.push(`Claude is working · ${toolWords(S.busyTool)} · since ${clockOf(S.busySince)}`)
-  else parts.push(live.length > 0 ? `Waiting on ${agents}` : 'Waiting on the AI')
-  if (isBusy && live.length > 0) parts.push(`${agents} running`)
-  if (writing > 0) parts.push(`AI writing ${writing} ticket${writing === 1 ? '' : 's'}`)
-  if (adopting) parts.push('AI converting your docs')
-  if (!isBusy) parts.push(live.length > 0 ? `Claude continues when ${live.length === 1 ? 'it reports' : 'they report'}` : 'the board updates when it is done')
+  if (!isMoving) parts.push(`${heldWords} · nothing running`)
+  else {
+    if (isBusy) parts.push(`Claude is working · ${toolWords(S.busyTool)} · since ${clockOf(S.busySince)}`)
+    else parts.push(live.length > 0 ? `Waiting on ${agents}` : 'Waiting on the AI')
+    if (isBusy && live.length > 0) parts.push(`${agents} running`)
+    if (held > 0) parts.push(heldWords)
+    if (writing > 0) parts.push(`AI writing ${writing} ticket${writing === 1 ? '' : 's'}`)
+    if (adopting) parts.push('AI converting your docs')
+    if (!isBusy) parts.push(live.length > 0 ? `Claude continues when ${live.length === 1 ? 'it reports' : 'they report'}` : 'the board updates when it is done')
+  }
   return (
     <Box key="activity" flexDirection="column" gap={0} backgroundColor={tint(hex, 0.08)} borderStyle="round" borderColor={tint(hex, 0.4)} paddingX={1}>
       <Box flexDirection="row" gap={1} alignItems="center" justifyContent="space-between">
         <Box flexDirection="row" gap={1} alignItems="center" flexShrink={1} minWidth={0}>
-          {ui.Svg !== undefined && <ui.Svg key="spinner" source={spinnerSvg(hex)} alt="working" width={18} height={18} />}
+          {isMoving && ui.Svg !== undefined && <ui.Svg key="spinner" source={spinnerSvg(hex)} alt="working" width={18} height={18} />}
           <Text color={G.ink} weight="medium" size="footnote">
             {parts.join('  ·  ')}
           </Text>
         </Box>
-        {live.length > 0 && !S.showAgents && (
+        {live.length + held > 0 && !S.showAgents && (
           <Box key="activity-agents-box" flexShrink={0}>
           <Button
             key="activity-agents"
@@ -383,7 +408,7 @@ export function ActivityBar($: $, ui: UI): RenderChildren {
           </Box>
         )}
       </Box>
-      {ui.Svg !== undefined && <ui.Svg key="sweep" source={workingSvg(hex)} alt="" height={3} />}
+      {isMoving && ui.Svg !== undefined && <ui.Svg key="sweep" source={workingSvg(hex)} alt="" height={3} />}
     </Box>
   )
 }
