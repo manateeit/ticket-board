@@ -7,7 +7,7 @@ import type { EngineInterface, RenderChildren } from 'claude-code'
 import { startJob, suggestAnswer } from './ai'
 import { STATUSES, parseBlockedBy } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
-import { headFieldLine, isReadyable, setHeadField } from './core/ticket'
+import { findSection, headFieldLine, isReadyable, setHeadField } from './core/ticket'
 import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
 import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
 import { openAdopt } from './adopt'
@@ -840,18 +840,20 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
 
 /** Splits rd.md / eval.md into one card per "## " section. Drops the H1 (the page shows the title), the head's Type line
  * (a `type:` line in a section or code block stays),
- * and the Open questions section (the questions card above handles those; a done ticket doesn't need them). */
+ * and the section core reads the open questions from (the questions card above handles those; a done ticket doesn't need them).
+ * A heading core does not recognise stays visible, so the page and the ready check agree. */
 export function docSections(text: string): { title?: string; body: string }[] {
-  const out: { title?: string; body: string[] }[] = [{ body: [] }]
+  const out: { title?: string; body: string[]; at?: number }[] = [{ body: [] }]
   const typeAt = headFieldLine(text, 'type')
+  const questionsAt = findSection(text, 'Open questions')?.start
   for (const [n, line] of text.split(/\r?\n/).entries()) {
     if (/^#\s/.test(line) || n === typeAt) continue
     const h = /^##\s+(.*)$/.exec(line)
-    if (h) out.push({ title: h[1]!.replace(/[`*]/g, '').trim(), body: [] })
+    if (h) out.push({ title: h[1]!.replace(/[`*]/g, '').trim(), body: [], at: n })
     else out[out.length - 1]!.body.push(line)
   }
   return out
-    .filter(sec => !/^open questions?\b/i.test(sec.title ?? ''))
+    .filter(sec => questionsAt === undefined || sec.at !== questionsAt)
     .map(sec => ({ title: sec.title, body: sec.body.join('\n').trim() }))
     .filter(sec => sec.title !== undefined || sec.body !== '')
 }
