@@ -226,7 +226,7 @@ The `/ticket` rules say a ticket cannot be **ready** while its *Open questions* 
     **Resolved 2026-11-09 (human): Yes, per device, in localStorage.**
   ```
 
-  A question with a `**Resolved …**` line counts as answered. The rest of the file is not touched.
+  A question counts as answered only when a line under it starts with `**Resolved` (`**Resolved <date> (human): …**`, or `(agent, from code: <path>)` from the ticket writer), or its bullet is ticked `[x]` or struck `~~…~~`. A detail line that merely mentions "(human" or "agent)" leaves it open, so **Mark ready** is not offered early. `- none` and `- none (resolved <date>; …)` mean no open questions. The router reads the same rule from `docs/STANDARD.md` section 4. The rest of the file is not touched.
 - **Suggest (AI)** drafts an answer from the ticket and its touchpoints for you to edit. Nothing is saved until you press Save.
 - **Discuss in chat** puts the question in your prompt box, so you can talk it through with the full session.
 - After answering, **✎ Fold answers into the ticket (AI)** has the ticket writer update *Behaviour*, *Scope* and *eval.md* to match your decisions. Answered questions stay in the file as a record.

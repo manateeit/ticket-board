@@ -118,8 +118,8 @@ dot `·`, a space, the title). Each has these lines, in this order:
 | `Done when:` | a bullet list of observable conditions. EARS form `WHEN … THE SYSTEM SHALL …` is optional; plain statements are fine. These become the starting point of each ticket's `eval.md`. |
 | `### Open questions` | questions in the same format as rd.md (below). Optional. |
 
-**Open questions** use the rd.md format. A question is open while it has no `**Resolved …**`
-line, and is written `- [ ]`. Answering it means ticking it (`- [x]`) and adding, indented under
+**Open questions** use the rd.md format and the resolved rule in section 4. A question is
+written `- [ ]` and stays open until it is resolved. Answering it means ticking it (`- [x]`) and adding, indented under
 it, `**Resolved <date> (<who>): <answer>**`. A section with any open question blocks approval of
 the design.
 
@@ -217,6 +217,24 @@ Design: D1@2, D3@1
   nothing rewrites them.
 - A ticket with no `Plan:` line is **off-plan**. That is fine for bugs and chores; it is shown,
   not punished.
+
+### Open questions (the resolved rule)
+
+Each `- ` (or numbered) bullet under `## Open questions` in rd.md, and under `### Open questions`
+in a DESIGN.md section, is one question. Placeholders are not questions: `- none`, the collapsed
+`- none (resolved <date>; answers folded into the ticket)`, `- n/a`, `- —` and the template's
+`<…>` line. A question is **resolved** only when one of these holds:
+
+1. a line under it starts with `**Resolved`, written
+   `**Resolved <date> (<who>): <answer>**`, where `<who>` is `human` or `agent, from code: <path>`
+   (the ticket writer's `**Resolved <date> (agent, from code: <path>)**: <decision>` also counts);
+2. its box is ticked: `- [x] …`;
+3. it is struck through: `- ~~…~~`.
+
+Nothing else counts. Words such as "resolved", "(human" or "agent)" anywhere else in a detail
+line leave the question open. A ticket with any open question cannot be marked ready, and the
+router refuses it. The pane implements this rule in one function, `isResolved` in
+`hooks/core/ticket.ts`.
 
 ## 5. BOARD.md binding line
 
