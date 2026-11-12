@@ -3677,3 +3677,79 @@ for (const surface of ['desktop', 'terminal'] as const)
         AGENTS_OVERRIDE = undefined
       }
     })
+
+// ---------- The Tickets folder setting everywhere (0025) ----------
+
+/** The same project with its board and ticket folders in `work/` instead of `tickets/`. */
+const inWork = (files: Iterable<[string, string]>): Record<string, string> =>
+  Object.fromEntries([...files].map(([k, v]) => [k.startsWith('tickets/') ? `/repo/work/${k.slice('tickets/'.length)}` : k, v]))
+
+test('Tickets folder "work": the Run line and the writer brief name work/ paths only', { options: { ticketsDir: 'work' } }, async ($, on) => {
+  const w = fakeWriter(on)
+  try {
+    const { ui, fs, filled } = await boot($, on, 'terminal', inWork(fakeFs().files), { blank: true })
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    await ui.select({ key: 'show', value: 'all' })
+    await ui.press({ key: 'open-0002' })
+    await ui.press({ key: 'run' })
+    expect(filled).toEqual(['Run ticket 0002 (board: work/BOARD.md).'])
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'new' })
+    await ui.input({ key: 'new-idea', text: 'Export button does nothing', kind: 'submit' } as any)
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    expect(fs.files.has('/repo/work/0004-export-button-does-nothing/rd.md')).toBe(true)
+    const brief = w.spawned[0]!.prompt
+    expect(brief).toContain('Ticket folder: work/0004-export-button-does-nothing/')
+    expect(brief).toContain('Board: work/BOARD.md')
+    expect(brief).not.toContain('tickets/')
+    await ui.unmount()
+  } finally {
+    w.done()
+  }
+})
+
+test('Tickets folder "work": a linked worktree session still reads the main checkout\'s board', { options: { ticketsDir: 'work' } }, async ($, on) => {
+  const main = Object.fromEntries(Object.entries(inWork(fakeFs().files)).map(([k, v]) => [k.replace(/^\/repo\//, '/main/'), v]))
+  const { ui, calls } = await boot($, on, 'terminal', {
+    ...main,
+    '/repo/.git': 'gitdir: /main/.git/worktrees/w1\n',
+    '/main/.git/worktrees/w1/HEAD': 'ref: refs/heads/ticket/0016\n',
+    '/main/.git/worktrees/w1/commondir': '../..\n',
+  }, { blank: true })
+  await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+  expect(calls.some(c => c.startsWith('list /main/work'))).toBe(true)
+  await ui.unmount()
+})
+
+test('Tickets folder "work": the replan planner brief names work/BOARD.md only', { options: { ticketsDir: 'work' } }, async ($, on) => {
+  const w = fakeWriter(on)
+  try {
+    const { ui } = await boot($, on, 'terminal', inWork(Object.entries(t16Files(null))), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'replan-start' })
+    await ui.press({ key: 'replan-start' })
+    await until(() => w.spawned.length === 1, 'the planner to start')
+    expect(w.spawned[0]!.prompt).toContain('Board: work/BOARD.md')
+    expect(w.spawned[0]!.prompt).not.toContain('tickets/')
+    await ui.unmount()
+  } finally {
+    w.done()
+  }
+})
+
+test('Tickets folder "work": the adopt brief names work/BOARD.md only', { options: { ticketsDir: 'work' } }, async ($, on) => {
+  const w = fakeWriter(on)
+  try {
+    const { ui } = await boot($, on, 'terminal', adoptFiles(), { blank: true })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await openAdoptView(ui)
+    await ui.input({ key: 'adopt-paths', text: 'notes/salon.md', kind: 'submit' } as any)
+    await until(() => w.spawned.length === 1, 'the adopt agent to start')
+    expect(w.spawned[0]!.prompt).toContain('Board: work/BOARD.md')
+    expect(w.spawned[0]!.prompt).not.toContain('tickets/')
+    await ui.unmount()
+  } finally {
+    w.done()
+  }
+})

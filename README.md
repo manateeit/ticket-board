@@ -347,6 +347,8 @@ Run ticket 0014 as the router. If this session is not already the router, first 
 
 A real router session reads that as itself and carries on. Any other session takes on the router's job from the file and starts the `worker` and `checker` agents itself.
 
+With the default *Tickets folder* the lines read exactly as above. With another folder, say `work`, they name that board, so the router updates the board the pane shows: `Run ticket 0014 (board: work/BOARD.md).`, or with a router `… update work/BOARD.md, and never write the code yourself. The board is work/BOARD.md and the ticket folders are in work/. …`
+
 - If a *blocked by* ticket is not done yet, the line adds `— but only once 0008 is done.`, and the ticket view says what it is waiting for.
 - On the board, **▶ Run ready (N)** counts the ready tickets whose blockers are all done and fills one line for all of them (`Run tickets 0011, 0013 and 0014 …`).
 - In the [Plan view](#the-pane-view-by-view), each phase has the same **▶ Run ready (N)** for its own builds, and each build with a ready ticket has **▶ Run**. Same rule (status `ready`, every blocker done, also blockers outside the phase) and the same line, router tail included. Nothing is ever sent. With nothing ready the button is dim, pressing it fills nothing, and the reason is shown beside it (*No tickets in P3 yet*, *Nothing in P2 can run yet: 0012 waits on 0009*).
@@ -424,7 +426,7 @@ Change these in `/plugin` → ticket-board → configure:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Tickets folder | `tickets` | Folder, relative to the project, that holds `BOARD.md` and the ticket folders |
+| Tickets folder | `tickets` | Folder, relative to the project, that holds `BOARD.md` and the ticket folders. Everything follows it: the pane, the Run lines (they name `<folder>/BOARD.md`), and every agent the pane starts (ticket writer, planner for replan and adopt), whose briefs name the real board path and ticket folder. The skills, the planner, the router and the worker work on "the board path you were given", `tickets/BOARD.md` by default |
 | Refresh every (seconds) | `3` | How often the open pane re-reads the board |
 | Open at start | on | Open the pane automatically when a session starts in a project that has a `tickets/` folder: on the board, or on the Start screen when there is no `BOARD.md` yet or no design, plan or tickets. Projects without `tickets/` never open it on their own; run `/board` there to see Start |
 | Ticket writer model | *(session's)* | Model for the AI writer, e.g. `opus` or `sonnet` |

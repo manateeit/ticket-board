@@ -213,8 +213,9 @@ export const abs = (rel: string) => (rel.startsWith('/') ? rel : `${S.root || S.
 
 /**
  * A worktree holds the board as it was when its branch was cut, so tickets added since are missing
- * there. The router keeps tickets/BOARD.md in the main checkout: when the session runs in a linked
- * worktree whose main checkout has a board, read and write that one.
+ * there. The router keeps the board (<ticketsDir>/BOARD.md, default tickets/BOARD.md) in the main
+ * checkout: when the session runs in a linked worktree whose main checkout has a board at that
+ * path, read and write that one.
  */
 export async function resolveRoot($: $): Promise<void> {
   const cwd = S.cwd || '.'
@@ -781,7 +782,7 @@ export async function createSkeleton(
   return { number, folder }
 }
 
-/** Writes `tickets/BOARD.md` from the plugin's template (and `TEMPLATE/rd.md`, `eval.md` when missing). Throws on a failed write. */
+/** Writes the board (`<ticketsDir>/BOARD.md`, default `tickets/BOARD.md`) from the plugin's template (and `TEMPLATE/rd.md`, `eval.md` when missing). Throws on a failed write. */
 export async function createBoardFiles($: $): Promise<void> {
   const root = $.plugin.root
   await $.fs.write(abs(boardPath()), await $.fs.read(abs(`${root}/templates/BOARD.md`)))

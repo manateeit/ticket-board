@@ -13,10 +13,10 @@ design section covered by a build. The format is `${CLAUDE_PLUGIN_ROOT}/docs/STA
 ## 1. Find the files and choose the mode
 
 `$ARGUMENTS` takes nothing. If anything is given, reply with one line and stop:
-`/ticket-board:planning takes no arguments; it plans the design bound in tickets/BOARD.md.`
+`/ticket-board:planning takes no arguments; it plans the design bound in the board.`
 
-The design and plan paths come from the binding line under the title of `tickets/BOARD.md`
-(`Design: <path> · Plan: <path>`); without it, `design/DESIGN.md` and `design/PLAN.md` (any
+The board is the board path you were given (default `tickets/BOARD.md`). The design and plan
+paths come from the binding line under its title (`Design: <path> · Plan: <path>`); without it, `design/DESIGN.md` and `design/PLAN.md` (any
 case).
 
 - No design file: say `No design yet: run /ticket-board:design first.` and stop.
@@ -29,7 +29,7 @@ case).
 
 ## 2. Mode: plan
 
-Read the design, skim the code and `tickets/BOARD.md` yourself so you can judge the result. Start
+Read the design, skim the code and the board yourself so you can judge the result. Start
 one `ticket-board:planner` agent with: mode `plan`, the design, plan and board paths, today's
 date, and anything the person said about order, appetite or phases. It writes PLAN.md: front
 matter (`plan`, `design-version` = the design's version, `updated`), phases `## P<n> · Title`
@@ -89,7 +89,7 @@ Plan view (or `/ticket` with the build id, which writes the `Plan:` and `Design:
 
 - Plan mode writes only PLAN.md. Replan mode writes only the replan proposal (and, from the CLI,
   the docs follow-up line in the change note).
-- Never edit `DESIGN.md`, `tickets/BOARD.md` or any ticket; never rewrite a done ticket.
+- Never edit `DESIGN.md`, the board or any ticket; never rewrite a done ticket.
 - Never set the design's status; never write code.
 - In the build table never write done or in-progress state; the optional `Status` column holds
   only `deferred` or `dropped`.

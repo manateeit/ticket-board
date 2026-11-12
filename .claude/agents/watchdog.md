@@ -11,7 +11,7 @@ You check whether the machine is still moving. You change nothing; you report.
 
 ## Inspect
 
-1. Read `tickets/BOARD.md`. Note every ticket in `in-progress` or `in-check`
+1. Read the board (the board path you were given, default `tickets/BOARD.md`). Note every ticket in `in-progress` or `in-check`
    and how long it has been there (board notes / ticket folder timestamps).
 2. For each in-flight ticket, check its worktree/branch:
    - `git worktree list` and `git log --oneline -3 <branch>` — has anything
