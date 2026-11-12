@@ -799,9 +799,13 @@ export async function createSkeleton(
     '',
     '## Checks',
     ...(checks.length === 0
-      ? ['1. <how to run it — pass criterion>']
-      : checks.flatMap((c, i) => [`${i + 1}. ${c}`, '   - Run: <command — the ticket writer fills this in>', `   - Pass: ${c}`])),
-    `${Math.max(checks.length, 1) + 1}. Docs and README updated — read the files under ## Docs in rd.md and README.md; pass when they describe the change as built.`,
+      ? ['1. <Check name>', '   - Run: <command, URL, or steps>', '   - Pass: <objective pass condition>', '   - Result:', '   - Evidence:', '']
+      : checks.flatMap((c, i) => [`${i + 1}. ${c}`, '   - Run: <command — the ticket writer fills this in>', `   - Pass: ${c}`, '   - Result:', '   - Evidence:', ''])),
+    `${Math.max(checks.length, 1) + 1}. Docs and README updated`,
+    '   - Run: read the files listed under `## Docs` in rd.md, and README.md',
+    '   - Pass: each listed doc describes the change as built; README.md is current, or rd.md says why it needs no change',
+    '   - Result:',
+    '   - Evidence:',
     '',
     '## Not checked by automation',
     '- <...>',

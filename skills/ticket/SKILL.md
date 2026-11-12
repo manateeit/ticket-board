@@ -66,16 +66,18 @@ sit next to the board.
    - `# Eval — <number> — <Title>`
    - `## Checks` — a numbered list of checks a checker agent can run and
      pass/fail objectively. Each check names: how to run it (command, URL,
-     or steps), and what result counts as a pass. Prefer checks that use the
+     or steps), and what result counts as a pass, as the template's `Run:`,
+     `Pass:`, `Result:` and `Evidence:` lines (Result and Evidence left empty
+     for the checker). Prefer checks that use the
      project's own test/build commands, plus at least one check that exercises
      the new behaviour end-to-end (browser check for UI work).
    - One check is always **Docs and README updated**: the docs listed in
      rd.md's `## Docs` and README.md describe the change as built. A ticket
      is not done while its docs are stale.
    - `## Not checked by automation` — anything a human still has to eyeball.
-   - The checker marks each check PASS/FAIL in this file and appends evidence
-     (command output summaries, screenshot paths). It never edits the checks
-     themselves.
+   - The checker fills in each check's `Result:` (PASS/FAIL) and `Evidence:`
+     (command output summaries, screenshot paths) lines. It never edits the
+     checks themselves.
 
 5. **Classify the ticket:**
    - **Mode `solo`** — one worker, one worktree, no coordination needed.
@@ -100,7 +102,8 @@ the pane itself makes the skeleton, so the writer starts from:
 - `rd.md` with `Type: feature`, `Plan: <build id>` and `Design: D1@2, D3@1` (each covered
   section at its current `Rev`) under the title, and a `## Docs` section naming README.md;
 - `eval.md` with one check per `Done when` line of the covered sections (`Run:` and `Pass:`
-  lines to fill in) and the **Docs and README updated** check;
+  lines to fill in, empty `Result:` and `Evidence:` lines for the checker) and the **Docs and
+  README updated** check with the same four lines;
 - a `draft` row (mode `solo`) whose Blocked by maps the build's `Needs` to ticket numbers. A
   needed build with no ticket that is not in the same batch is left out of Blocked by and named
   in the row's Notes instead;

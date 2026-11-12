@@ -71,7 +71,7 @@ function brief($: $, number: string, folder: string, kind: Job['kind'], idea?: s
       `Write ticket ${number} from the plan build below. The folder already holds placeholder rd.md and eval.md and the board row exists as a draft with its Blocked by filled in from the build's Needs.`,
       'Explore the codebase first so Touchpoints name real files and the eval checks use the project\'s real test and build commands. Replace both files completely, in the exact section order of the template; drop the "Original request" section once its content is in the ticket.',
       'Keep the Type:, Plan: and Design: lines under the title exactly as given below (Design: is each covered section at its current Rev). Use the phase Goal and Exit to set the scope.',
-      'In eval.md, turn every "Done when" line of the covered sections into its own check, each with a Run line (a real command or steps) and a Pass line (the observable result). Add at least one end-to-end check.',
+      'In eval.md, turn every "Done when" line of the covered sections into its own check, each with a Run line (a real command or steps), a Pass line (the observable result) and empty Result: and Evidence: lines for the checker, as in the template. Add at least one end-to-end check.',
       'Always fill ## Docs naming README.md (the section to add or change, or "README.md — no change: <why>") and keep the "Docs and README updated" check in eval.md. The pane checks both when you finish.',
       'Never edit the plan or the design: the pane writes the ticket number into PLAN.md itself.',
       ...common,

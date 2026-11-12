@@ -2068,8 +2068,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(ev).toContain('2. a taken slot cannot be booked twice')
     expect(ev).toContain('3. a reminder mail goes out a day before')
     expect(ev).toContain('4. Docs and README updated')
-    expect(ev.match(/- Run: /g)?.length).toBe(3)
-    expect(ev.match(/- Pass: /g)?.length).toBe(3)
+    expect(ev.match(/- Run: /g)?.length).toBe(4)
+    expect(ev.match(/- Pass: /g)?.length).toBe(4)
     // The writer drops ## Docs and the docs check: the pane reports both in the row Notes and the toast.
     fs.files.set(`${folder}/rd.md`, rd.replace(/## Docs\n[^#]*/, ''))
     fs.files.set(`${folder}/eval.md`, '# Eval — 0002 — Calendar\n\n## Checks\n1. a free slot can be booked\n   - Run: `npm test`\n   - Pass: exit 0\n')
@@ -2188,6 +2188,31 @@ test('the plan queue survives a redraw and a trip to the board and back (desktop
   await ui.find({ key: 'build-queued-P1.5' })
   await w.finish($, 'w2')
   await until(() => w.spawned.length === 4, 'the queued writer to start')
+  w.done()
+  await ui.unmount()
+})
+
+// ---------- Eval skeleton fields match the template (0044) ----------
+
+test('a plan ticket skeleton gives every check, docs check included, Run, Pass, Result and Evidence lines (desktop)', async ($, on) => {
+  const w = fakeWriter(on)
+  const { ui, fs } = await boot($, on, 'desktop', t8Files(), { blank: true })
+  await ui.find({ key: 'tab-plan' })
+  await ui.press({ key: 'tab-plan' })
+  await ui.find({ key: 'build-create-P1.3' })
+  await ui.press({ key: 'build-create-P1.3' })
+  await until(() => w.spawned.length === 1, 'the writer to start')
+  const ev = fs.files.get(`${t8Folder(fs, '0002')}/eval.md`)!
+  const body = ev.split('## Checks\n')[1]!.split('\n## ')[0]!
+  const checks = body.split(/\n(?=\d+\. )/).map(s => s.trim()).filter(s => /^\d+\. /.test(s))
+  expect(checks.length).toBe(4)
+  expect(checks[3]).toMatch(/^4\. Docs and README updated/)
+  for (const c of checks) {
+    const fields = c.split('\n').slice(1).map(l => l.trim().match(/^- (\w+):/)?.[1])
+    expect(fields).toEqual(['Run', 'Pass', 'Result', 'Evidence'])
+  }
+  expect(w.spawned[0]!.prompt).toContain('Result')
+  expect(w.spawned[0]!.prompt).toContain('Evidence')
   w.done()
   await ui.unmount()
 })

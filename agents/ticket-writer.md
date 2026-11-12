@@ -44,7 +44,8 @@ Hard limits:
   - keep the `Type:`, `Plan:` and `Design:` lines as given;
   - use the phase Goal and Exit to set Scope;
   - make every covered `Done when` line its own check in `eval.md`, each with a **Run** line (a
-    real command or steps) and a **Pass** line (the observable result), plus an end-to-end check;
+    real command or steps), a **Pass** line (the observable result) and empty **Result:** and
+    **Evidence:** lines the checker fills in (the template's fields), plus an end-to-end check;
   - fill `## Docs` naming README.md and keep the "Docs and README updated" check. The pane checks
     both when you finish and reports a ticket missing either in its board row and a toast;
   - never edit PLAN.md or DESIGN.md: the pane writes the ticket number into the plan's Ticket
