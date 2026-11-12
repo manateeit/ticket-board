@@ -230,6 +230,7 @@ The `/ticket` rules say a ticket cannot be **ready** while its *Open questions* 
 - **Suggest (AI)** drafts an answer from the ticket and its touchpoints for you to edit. Nothing is saved until you press Save.
 - **Discuss in chat** puts the question in your prompt box, so you can talk it through with the full session.
 - After answering, **✎ Fold answers into the ticket (AI)** has the ticket writer update *Behaviour*, *Scope* and *eval.md* to match your decisions. Answered questions stay in the file as a record.
+- **Locked while the AI writes.** While the AI writer (a draft, *Enhance*, *Fold* or a plan ticket) is writing a ticket, its answer boxes and its **Type** are locked: the pane shows *🔒 The AI is writing ticket 0007: answers and Type are locked until it finishes* in their place, and refuses any rd.md edit for that ticket, so your edit and the writer's never overwrite each other. They come back when the writer finishes. After any save (an answer, a Type change, a status move) the pane redraws from the file it just wrote, even if a refresh was already running.
 
 ## Draft → ready (and the ready check)
 
@@ -302,14 +303,14 @@ After a redesign (DESIGN.md `version` bumped, a change note in `design/changes/`
    - **Change** rewrites the build row's cells (Build to Done when) and keeps its Ticket and Status: no ticket is edited;
    - **Drop** sets the row's `Status` to `dropped` (adding the Status column to that table when it has none); the row is never deleted;
    - **Follow-up** creates a new draft ticket (on the build it names, with the number added to that build's Ticket cell, or off-plan);
-   - PLAN.md's `design-version` becomes the design's version (and `updated` today);
+   - PLAN.md's `design-version` becomes the proposal's `design-version` (and `updated` today);
    - the applied items are ticked `[x]` in the proposal. Unticked items stay as they are and the banner stays (*Replan for design v3 · 1 replan item to review*) until every item is applied or dismissed (**Dismiss selected** marks items `[-]` and changes nothing else).
 
 **Done tickets are never rewritten**: no step edits a done (or in-progress) ticket's files or board row. A change to finished work is a new draft Follow-up ticket; in-progress tickets just show their [stale chip](#board). Nothing becomes `ready`.
 
 **Docs follow-up.** When README mentions a design section the redesign changed, added or dropped (its title appears in README), the proposal gets one Follow-up item *Update README/docs for design v3: Reminders*, and the redesign's change note lists the same line under `## Follow-ups`. The pane adds it after the planner ends if the planner left it out, and never twice.
 
-**Safety.** The proposal's front matter records `plan-hash`, a fingerprint of PLAN.md when the proposal was made. If PLAN.md changed on disk since, **Apply selected** stops with *plan changed; regenerate the proposal* and writes nothing: press **↻ New proposal** on the banner. Applying with nothing ticked is a no-op. A proposal that cannot be read (or has none of the four headings) shows its file path on the banner and the review screen.
+**Safety.** The proposal's front matter records `plan-hash`, a fingerprint of PLAN.md when the proposal was made. If PLAN.md changed on disk since, **Apply selected** stops with *plan changed; regenerate the proposal* and writes nothing: press **↻ New proposal** on the banner. Applying with nothing ticked is a no-op. A proposal made for an older design (its `design-version` is not the design's current version, or it has none) is refused the same way: *This replan proposal is for design v3, the design is v4: make a new proposal; nothing applied*. Ticks belong to one proposal (its path and content): when the proposal file changes, for example a new same-day replan rewrites it, the ticks are cleared and the review shows the new items unticked; if it changed after you ticked but before the pane noticed, **Apply selected** and **Dismiss selected** stop with *The replan proposal changed since you ticked: tick the items again* and write nothing. A proposal that cannot be read (or has none of the four headings) shows its file path on the banner and the review screen.
 
 ## Adopting existing docs
 
@@ -349,7 +350,7 @@ A real router session reads that as itself and carries on. Any other session tak
 
 With the default *Tickets folder* the lines read exactly as above. With another folder, say `work`, they name that board, so the router updates the board the pane shows: `Run ticket 0014 (board: work/BOARD.md).`, or with a router `… update work/BOARD.md, and never write the code yourself. The board is work/BOARD.md and the ticket folders are in work/. …`
 
-- If a *blocked by* ticket is not done yet, the line adds `— but only once 0008 is done.`, and the ticket view says what it is waiting for.
+- If a *blocked by* ticket is not done yet, the line adds the wait right after the run sentence, before any router tail: `Run ticket 0014 — but only once 0008 is done.`, or with a router `Run ticket 0014 — but only once 0008 is done — as the router. If this session is not already the router, …`. The ticket view says what it is waiting for.
 - On the board, **▶ Run ready (N)** counts the ready tickets whose blockers are all done and fills one line for all of them (`Run tickets 0011, 0013 and 0014 …`).
 - In the [Plan view](#the-pane-view-by-view), each phase has the same **▶ Run ready (N)** for its own builds, and each build with a ready ticket has **▶ Run**. Same rule (status `ready`, every blocker done, also blockers outside the phase) and the same line, router tail included. Nothing is ever sent. With nothing ready the button is dim, pressing it fills nothing, and the reason is shown beside it (*No tickets in P3 yet*, *Nothing in P2 can run yet: 0012 waits on 0009*).
 - To make *every* new session in a project the router, desktop included, put `{ "agent": "router" }` in that project's `.claude/settings.local.json`.
@@ -363,6 +364,8 @@ This mod was built for the router/worker/checker workflow, where:
 - you (and `/ticket`) write tickets as drafts,
 - you flip them to ready,
 - the **router** session picks ready tickets, starts a **worker** for each in its own worktree, sends finished work to a **checker** that runs `eval.md`, and updates `BOARD.md`.
+- the checker writes its results into `eval.md` and leaves them uncommitted; the **merger** commits them on the ticket's branch (`Ticket NNNN: checker results`), rebases onto `main`, compares the plugin's checks with `main`'s result measured at merge time, and lands the branch with a merge commit.
+- each time the router marks a ticket `in-progress` or `in-check` it writes the dispatch time into the Owner cell (`worker, dispatched 2026-11-12 14:05`), which the **watchdog** reads to tell a stuck ticket from a new one.
 
 The best setup is to **run the pane in the router session**:
 
@@ -452,7 +455,7 @@ In every scheme and app mode, text keeps at least 4.5:1 contrast against what it
 - **rd.md:** an answer is inserted as one `**Resolved <date> (human): …**` line under its question. Nothing else changes.
 - **Conflicts:** each edit reads the file again first. If the row's status is not what you were looking at, the edit is refused and the pane refreshes.
 - **AI writes** go only into the one ticket folder, enforced by a tool guard in the mod. The replan planner may write only its proposal file, and the adopt agent only `design/changes/<date>-adopt.md`.
-- **DESIGN.md, PLAN.md and the binding line (adopting docs):** **Apply selected** in [Adopting existing docs](#adopting-existing-docs) writes new `DESIGN.md` and `PLAN.md` files (never over existing ones), sets the `Design: … · Plan: …` line under the BOARD.md title (replacing the one there, or adding it under the title), creates `tickets/BOARD.md` from the template when there is none, and adds `applied: <date>` to the proposal's front matter. Your source files are never written.
+- **DESIGN.md, PLAN.md and the binding line (adopting docs):** **Apply selected** in [Adopting existing docs](#adopting-existing-docs) writes new `DESIGN.md` and `PLAN.md` files (never over existing ones), sets the `Design: … · Plan: …` line under the BOARD.md title (replacing the one there, keeping the half it did not write, or adding it under the title), creates `tickets/BOARD.md` from the template when there is none, and adds `applied: <date>` to the proposal's front matter. Your source files are never written.
 - **PLAN.md:** Create tickets adds a number to one build's Ticket cell; Apply selected on a replan proposal edits only the rows of the ticked items, the Status column of a dropped build's table and the `design-version` / `updated` front matter keys. Every other line stays as it was.
 - **What it remembers:** your Show/Sort/Mode/Phase choices, the list of AI jobs that are still running, and per project whether you skipped GitHub on the Start screen or dismissed the *No design or plan yet* banner. These live in the pane's own store, never in your project's files. Nothing leaves your machine except the model calls for the AI writer and *Suggest*.
 

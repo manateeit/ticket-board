@@ -5,7 +5,7 @@ import { addRow, parseBoard, setCells, type Board, type BoardRow, type CellChang
 import { DEFAULT_FILTERS, KIND_OPTIONS, MODE_OPTIONS, SHOW_OPTIONS, SORT_OPTIONS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import { isLightTheme, type Scheme } from './glass'
 import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
-import { allBuilds, bindFromBoard, parseProposal, roadmap, setPlanTicket, ticketRef, type Binding, type Proposal, type Roadmap, type TicketRef } from './core/roadmap'
+import { allBuilds, bindFromBoard, parseProposal, planHash, roadmap, setPlanTicket, ticketRef, type Binding, type Proposal, type Roadmap, type TicketRef } from './core/roadmap'
 import { answerQuestion, parseQuestions, parseTitle, type Question } from './core/ticket'
 import { answerDesignQuestion, approveDesignText } from './core/designfile'
 
@@ -131,6 +131,8 @@ export const S = {
   replanJob: undefined as { agentId: string; path: string; hash: string } | undefined,
   /** Replan review: the item indexes ticked this session. Nothing is ticked by default. */
   replanTicks: new Set<number>(),
+  /** The proposal the ticks belong to: its path and content hash (proposalKey). Another file or changed text clears the ticks. */
+  replanTicksOf: '',
   /** An Apply or Dismiss on the replan review is running. */
   isApplying: false,
   /** The agent converting existing docs (0009): its agent, the proposal it may write and the source paths. */
@@ -187,6 +189,7 @@ export function resetSession(cwd: string) {
   })
   S.adoptOff.clear()
   S.replanTicks.clear()
+  S.replanTicksOf = ''
   S.planOpen.clear()
   S.planFailed.clear()
   S.jobs.clear()
@@ -461,6 +464,7 @@ async function readTickets($: $, force: boolean): Promise<boolean> {
     }
     if (prev !== undefined && prev.files.size !== files.size) changed = true
     S.snap = { hasBoard: boardEntry !== undefined, boardText, board, boardMtime, files, loadedAt: Date.now(), binding, changes, ...(changeNotes === undefined ? {} : { changeNotes }) }
+    if (syncReplanTicks()) changed = true
     if (changed) redraw($)
     return changed
   }
@@ -505,6 +509,23 @@ export function latestProposal(): LatestProposal | undefined {
   const path = `${changesFolder(designPath)}/${name}`
   const text = snap.changeNotes?.[name]
   return text === undefined ? { name, path } : { name, path, text, proposal: parseProposal(text, name) }
+}
+
+/** Which proposal replan ticks belong to: its path and the hash of its text. */
+export const proposalKey = (path: string, text: string) => `${path}#${planHash(text)}`
+
+/**
+ * Ticks belong to one proposal (0038): when the newest proposal is another file or its text changed,
+ * the ticks are cleared and the review shows its items unticked. Returns whether ticks were cleared.
+ */
+function syncReplanTicks(): boolean {
+  const lp = latestProposal()
+  const key = lp?.text === undefined ? '' : proposalKey(lp.path, lp.text)
+  if (key === S.replanTicksOf) return false
+  S.replanTicksOf = key
+  if (S.replanTicks.size === 0) return false
+  S.replanTicks.clear()
+  return true
 }
 
 export function rows(): BoardRow[] {
@@ -657,7 +678,8 @@ export async function editRow($: $, number: string, changes: CellChanges, expect
   const text = await $.fs.read(abs(boardPath()))
   const { text: next, skipped } = setCells(text, number, changes, expectStatus)
   if (next !== text) await $.fs.write(abs(boardPath()), next)
-  await refresh($)
+  // Forced: a plain refresh already running read the board before this write (0041).
+  await refresh($, true)
   return skipped
 }
 
@@ -666,13 +688,28 @@ export function hasColumn(col: Column): boolean {
   return S.snap?.board?.columns[col] !== undefined
 }
 
-export async function saveAnswer($: $, number: string, q: Question, answer: string) {
+/** Why a person can't edit this ticket's rd.md now (an AI job is writing it), or undefined when they can (0041). */
+export function rdLock(number: string): string | undefined {
+  return jobFor(number) === undefined ? undefined : `The AI is writing ticket ${number}: answers and Type are locked until it finishes`
+}
+
+/**
+ * Applies one edit to a ticket's rd.md and redraws from the written file. Refuses (throws, nothing written)
+ * while an AI job holds the ticket, so a person's edit and the agent's never overwrite each other.
+ */
+export async function editRd($: $, number: string, edit: (text: string) => string) {
+  const locked = rdLock(number)
+  if (locked !== undefined) throw new Error(locked)
   const f = S.snap?.files.get(number)
   if (f === undefined) throw new Error(`Ticket ${number} has no folder`)
   const path = `${dir()}/${f.folder}/rd.md`
   const text = await $.fs.read(abs(path))
-  await $.fs.write(abs(path), answerQuestion(text, q.index, q.text, answer, today(Date.now())))
-  await refresh($)
+  await $.fs.write(abs(path), edit(text))
+  await refresh($, true)
+}
+
+export async function saveAnswer($: $, number: string, q: Question, answer: string) {
+  await editRd($, number, text => answerQuestion(text, q.index, q.text, answer, today(Date.now())))
 }
 
 /** Answers one open question of a design section in DESIGN.md (the only file written). */

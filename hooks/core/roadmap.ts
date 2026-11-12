@@ -1532,9 +1532,16 @@ export function adoptResult(p: AdoptProposal, off: ReadonlySet<string>, date: st
   return res
 }
 
-/** Sets the `Design: … · Plan: …` binding line under the BOARD.md title (replacing the one there). Other lines are kept. */
+/**
+ * Sets the `Design: … · Plan: …` binding line under the BOARD.md title (replacing the one there). A half
+ * not given (`undefined`) keeps the path the existing line names for it. Other lines are kept.
+ */
 export function setBindingLine(board: string, design: string | undefined, plan: string | undefined): string {
-  const text = [design === undefined ? '' : `Design: ${design}`, plan === undefined ? '' : `Plan: ${plan}`].filter(Boolean).join(' · ')
+  if (design === undefined && plan === undefined) return board
+  const kept = parseBindingLine(board)
+  const d = design ?? kept?.design
+  const p = plan ?? kept?.plan
+  const text = [d === undefined ? '' : `Design: ${d}`, p === undefined ? '' : `Plan: ${p}`].filter(Boolean).join(' · ')
   if (text === '') return board
   const eol = board.includes('\r\n') ? '\r\n' : '\n'
   const lines = board.split(/\r?\n/)
