@@ -1,7 +1,7 @@
 // The pane's in-memory state and everything that reads or writes the tickets folder.
 import type { AgentInfo, EngineInterface } from 'claude-code'
 
-import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
+import { addRow, parseBoard, setCells, type Board, type BoardRow, type CellChanges, type Column } from './core/board'
 import { DEFAULT_FILTERS, KIND_OPTIONS, MODE_OPTIONS, SHOW_OPTIONS, SORT_OPTIONS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import { isLightTheme, type Scheme } from './glass'
 import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
@@ -621,12 +621,21 @@ export function items(): (Item & { isUnlisted: boolean; blockedBy: string[] })[]
   return out
 }
 
-/** Re-reads BOARD.md, applies one row edit and writes it back. Throws with a person-readable message. */
-export async function editRow($: $, number: string, changes: Partial<Record<Column, string>>, expectStatus?: string) {
+/**
+ * Re-reads BOARD.md, applies one row edit and writes it back. Throws with a person-readable message.
+ * Returns the columns it could not write because BOARD.md has no such column.
+ */
+export async function editRow($: $, number: string, changes: CellChanges, expectStatus?: string): Promise<Column[]> {
   const text = await $.fs.read(abs(boardPath()))
-  const next = setCells(text, number, changes, expectStatus)
+  const { text: next, skipped } = setCells(text, number, changes, expectStatus)
   if (next !== text) await $.fs.write(abs(boardPath()), next)
   await refresh($)
+  return skipped
+}
+
+/** Whether the board as last read has this column (Mode, Blocked by and Notes are optional). */
+export function hasColumn(col: Column): boolean {
+  return S.snap?.board?.columns[col] !== undefined
 }
 
 export async function saveAnswer($: $, number: string, q: Question, answer: string) {

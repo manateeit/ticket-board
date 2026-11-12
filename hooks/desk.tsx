@@ -5,11 +5,11 @@
 import type { EngineInterface, RenderChildren } from 'claude-code'
 
 import { startJob, suggestAnswer } from './ai'
-import { STATUSES } from './core/board'
+import { STATUSES, parseBlockedBy } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
 import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
-import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
+import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
 import { openAdopt } from './adopt'
 import {
   ADOPT_LABEL,
@@ -25,6 +25,8 @@ import {
   drawnSize,
   fail,
   fill,
+  noColumn,
+  saveCell,
   fillWithIdea,
   phaseOptions,
   planSummary,
@@ -1188,28 +1190,29 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
                 options={KINDS.map(k => ({ value: k, label: `${KIND[k].icon} ${KIND[k].label}` }))}
                 onSelect={v => void setKind($, number, v as Kind)}
               />,
-              row !== undefined ? (
+              row === undefined ? null : hasColumn('mode') ? (
                 <Select
                   key={`mode-${number}`}
                   label="Mode"
                   value={row.mode === 'team' ? 'team' : 'solo'}
                   options={[{ value: 'solo', label: 'Solo' }, { value: 'team', label: 'Team' }]}
-                  onSelect={v => void editRow($, number, { mode: v }).then(() => say($, `Mode → ${v}`), err => fail($, err))}
+                  onSelect={v => saveCell($, number, { mode: v }, `Mode → ${v}`)}
                 />
-              ) : null,
-              row !== undefined ? (
+              ) : (
+                <Text key={`mode-${number}`} color={G.faint} size="footnote">{noColumn('mode')}</Text>
+              ),
+              row === undefined ? null : hasColumn('blockedBy') ? (
                 <Input
                   key={`blockedby-${number}`}
                   label="Depends on"
                   value={row.blockedBy.join(', ')}
                   placeholder="e.g. 0003, 0007"
                   submitLabel="Save"
-                  onSubmit={v => {
-                    const nums = (v.match(/\d{1,4}/g) ?? []).map(n => n.padStart(4, '0')).filter(n => n !== number)
-                    void editRow($, number, { blockedBy: nums.length === 0 ? '—' : nums.join(', ') }).then(() => say($, 'Dependencies saved'), err => fail($, err))
-                  }}
+                  onSubmit={v => saveCell($, number, { blockedBy: parseBlockedBy(v).filter(n => n !== number) }, 'Dependencies saved')}
                 />
-              ) : null,
+              ) : (
+                <Text key={`blockedby-${number}`} color={G.faint} size="footnote">{noColumn('blockedBy')}</Text>
+              ),
               waiting.length > 0 ? (
                 <Text key="waiting" color={STATUS_HEX.blocked!} size="footnote">
                   {`⛔ Waiting on ${waiting.join(', ')}`}
@@ -1271,7 +1274,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
                 isConfirming('block') ? (
                   <Input
                     key={`block-${number}`}
-                    label="Why is it blocked?"
+                    label={hasColumn('notes') ? 'Why is it blocked?' : 'Why is it blocked? (not saved: BOARD.md has no Notes column)'}
                     submitLabel="Mark blocked"
                     onSubmit={reason => {
                       S.confirm = undefined

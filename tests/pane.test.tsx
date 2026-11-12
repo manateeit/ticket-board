@@ -1250,6 +1250,36 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// 0023: a board without Mode and Notes columns; edits to them are never reported as saved.
+const LEAN_BOARD = `# Ticket board
+
+| #    | Ticket                      | Status | Blocked by |
+|------|-----------------------------|--------|------------|
+| 0003 | Dark mode for settings page | draft  | —          |
+`
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`a board without Mode and Notes: no Mode control, a status move says its note was not saved (${surface})`, async ($, on) => {
+    const { ui, fs } = await boot($, on, surface, { 'tickets/BOARD.md': LEAN_BOARD })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.find({ type: 'Text', text: /BOARD\.md has no Mode column/ })
+    let drawn = await drawnText(ui)
+    expect(drawn).not.toContain('Mode →')
+    await ui.press({ key: 'block' })
+    // The reason box says up front that the reason has nowhere to go.
+    await ui.find({ type: 'Input', label: /no Notes column/ } as any)
+    await ui.input({ key: 'block-0003', text: 'waiting on design', kind: 'submit' } as any)
+    const board = fs.files.get('tickets/BOARD.md')!
+    expect(parseBoard(board)!.rows[0]!.status).toBe('blocked')
+    expect(board).not.toContain('waiting on design')
+    await ui.find({ type: 'Text', text: /note not saved/ })
+    drawn = await drawnText(ui)
+    expect(drawn).not.toContain('0003 → blocked"')
+    await ui.unmount()
+  })
+}
+
 test('an empty desktop board: + Create the first ticket opens the form', async ($, on) => {
   const { ui } = await boot($, on, 'desktop', { ...GIT_READY, 'tickets/BOARD.md': BLANK_BOARD, '/repo/design/DESIGN.md': RM_DESIGN, '/repo/design/PLAN.md': RM_PLAN }, { blank: true })
   await ui.find({ type: 'Text', text: /No tickets yet/ })
