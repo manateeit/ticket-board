@@ -1,7 +1,7 @@
 // Handing ticket writing to a background agent, and one-shot answer suggestions.
 import type { EngineInterface } from 'claude-code'
 
-import { today } from './core/query'
+import { isPaneNote, paneNote, today } from './core/query'
 import {
   DEFAULT_DESIGN,
   DEFAULT_PLAN,
@@ -97,16 +97,19 @@ export function jobNote(label: string, extra: string | undefined): string {
   return extra === undefined || extra === '' ? label : `${label} · ${extra}`
 }
 
-/** Only notes the pane wrote itself (empty, or starting with `AI `) are replaced. */
-async function setAiNote($: $, number: string, note: string) {
+/**
+ * The one writer of pane notes: the note gets the pane's prefix (PANE_NOTE_PREFIX), and it replaces
+ * only a note the pane owns (isPaneNote), so a router's or a person's note is never overwritten.
+ */
+export async function setPaneNote($: $, number: string, note: string) {
   const row = rowOf(number)
-  if (row !== undefined && (row.notes === '' || row.notes.startsWith('AI '))) await editRow($, number, { notes: note }).catch(() => undefined)
+  if (row !== undefined && isPaneNote(row.notes)) await editRow($, number, { notes: paneNote(note) }).catch(() => undefined)
 }
 
 /** Records a failed plan ticket: the Plan view shows the reason and offers Create again. */
 export async function failPlan($: $, build: string, number: string, reason: string, extra?: string) {
   S.planFailed.set(build, { number, reason })
-  await setAiNote($, number, jobNote(`AI plan ticket failed (${reason})`, extra))
+  await setPaneNote($, number, jobNote(`AI plan ticket failed (${reason})`, extra))
   redraw($)
 }
 
@@ -170,7 +173,7 @@ export async function startJob(
     ...(plan === undefined ? {} : { build: plan.build, extra: plan.extra }),
   })
   await saveJobs($)
-  await setAiNote($, number, jobNote(label, plan?.extra))
+  await setPaneNote($, number, jobNote(label, plan?.extra))
   if (plan === undefined) say($, `${label.replace('…', '')} ticket ${number} in the background`)
   return true
 }
@@ -314,7 +317,7 @@ export async function retryPlanBuild($: $, buildId: string): Promise<void> {
   S.planFailed.delete(buildId)
   const extra = missingNote(blockedByFor(b, rm.links, new Map()).missing)
   S.planQueue.push({ number: f.number, folder, build: buildId, brief: planBrief(rm.design, rm.plan, b), extra })
-  await setAiNote($, f.number, jobNote('AI queued', extra))
+  await setPaneNote($, f.number, jobNote('AI queued', extra))
   await pumpPlanQueue($)
   if (!S.planFailed.has(buildId)) say($, `Writing ticket ${f.number} for ${buildId} again`)
 }

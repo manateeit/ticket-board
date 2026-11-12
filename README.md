@@ -107,7 +107,17 @@ It re-reads the board every few seconds while it is open, and right after any to
 
 **Agents.** The **Agents** button in the title bar (key `a`) shows a count of running agents and opens a panel just below the summary tiles: every subagent or teammate this session is running (with its ticket, when it names one, and a Watch button), the tickets the board says are in flight, and the last few agents that finished. Press it again, or **Hide** in the panel, to close it; **Show agents** in the activity strip opens it from any view. A router running in a different session shows up through the In flight tickets. If this Claude Code cannot list agents, the panel opens empty with *No agents running in this session right now.* In the terminal the same button (*Agents ● N*, key `a`) sits beside **Refresh** and shows the panel as plain lines under the buttons.
 
-Tickets are a **table** — ID, Type, Title, Phase (when there is a plan), Status, Result (a one-word tag from the board's notes: Merged, Decided, From GitHub, Failing…), Depends on, Questions, Updated and one next-step button per row (*Answer 2*, *✓ Ready*, *▶ Run*, *Unblock*). Click any column header to sort, again to reverse; sorting by Status groups the rows. The text around the table on BOARD.md is shown below it as *Board notes*.
+Tickets are a **table** — ID, Type, Title, Phase (when there is a plan), Status, Result (a one-word tag from the prefix the board note starts with — see *Notes prefixes* below), Depends on, Questions, Updated and one next-step button per row (*Answer 2*, *✓ Ready*, *▶ Run*, *Unblock*). Click any column header to sort, again to reverse; sorting by Status groups the rows. The text around the table on BOARD.md is shown below it as *Board notes*.
+
+**Notes prefixes.** The Result tag comes only from the prefix a row's Notes starts with, never from a word further in ("done after red tests in round 2" gets no tag). The same list is in `templates/BOARD.md` and `.claude/agents/router.md`:
+
+- `merged <sha>` → **Merged**
+- `failed: …` → **Failing**
+- `blocked: …` → **Blocked**
+- `dropped: …` → **Dropped**
+- `decided: …` → **Decided**
+- `moved from GitHub issue …` → **From GitHub**
+- `AI …` — the pane's own notes (*AI drafting…*, *AI enhancing…*, *AI draft done · 2 open questions*, *AI answers folded in · 0 open questions*, *AI skeleton — fill in rd.md and eval.md*). The pane replaces only a note that is empty or starts with `AI ` (capital AI and a space); a router's or a person's note is never overwritten.
 
 The other views:
 

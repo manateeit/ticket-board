@@ -18,7 +18,7 @@ import {
   startStep,
   type StartFacts,
 } from '../hooks/core/project'
-import { DEFAULT_FILTERS, OFF_PLAN, comparePhase, kindOf, nextNumber, resultOf, query, runLine, slugify, sortItems, titleFromIdea, type Filters, type Item, type Sort } from '../hooks/core/query'
+import { DEFAULT_FILTERS, NOTE_PREFIXES, OFF_PLAN, PANE_NOTE_PREFIX, comparePhase, isPaneNote, kindOf, nextNumber, paneNote, resultOf, query, runLine, slugify, sortItems, titleFromIdea, type Filters, type Item, type Sort } from '../hooks/core/query'
 import {
   applyProposal,
   blockedByFor,
@@ -333,6 +333,58 @@ test('result tags from board notes', () => {
   expect(resultOf('merged f681c3c (merge commit, local, no push); 3 worker rounds')?.label).toBe('Merged')
   expect(resultOf('moved from GitHub issue #2 2026-11-09')?.label).toBe('From GitHub')
   expect(resultOf('—')).toBeUndefined()
+})
+
+// 0032: badges come only from the Notes prefix at the start; the pane owns only "AI " notes.
+test('0032: result tags only from the note prefix, never from words further in', () => {
+  expect(resultOf('merged 1a2b3c')?.label).toBe('Merged')
+  expect(resultOf('Merged 1a2b3c, all 5 checks PASS')?.label).toBe('Merged')
+  expect(resultOf('failed: check 3')?.label).toBe('Failing')
+  expect(resultOf('blocked: waiting on 0007')?.label).toBe('Blocked')
+  expect(resultOf('dropped: superseded by 0012')?.label).toBe('Dropped')
+  expect(resultOf('decided: keep the old flow')?.label).toBe('Decided')
+  expect(resultOf('done after red tests in round 2')).toBeUndefined()
+  expect(resultOf('fixed the failing test, now merged into main')).toBeUndefined()
+  expect(resultOf('scope narrowed, blocked earlier')).toBeUndefined()
+  expect(resultOf('')).toBeUndefined()
+})
+
+test('0032: merged notes as written on this repo\'s board keep their Merged badge', () => {
+  // Copied from tickets/BOARD.md (tests cannot read the repo's files).
+  for (const n of [
+    'merged 33a3b72 (no rebase), all 6 checks PASS, 36/36 tests',
+    'merged 405f6f0 (3 rounds), all 8 checks PASS, 86/86 tests',
+    'merged 33b4229, checks 1-4,6 PASS, 139/139 · check 5 (live click) waived by human 2026-11-10, to test after release · terminal `o` fix; desktop not reproduced (likely 0013)',
+    'merged 9ff6f75, all 5 checks PASS, 213/213 · cause: desktop native buttons draw labels in app colors on painted glass; fix: inverseText plates + darker palette · needs a person to look in each Colors setting (plate width in column cells unverified)',
+    'merged dfd5a95, all 5 checks PASS · leak audit L1, L9 · follow-up: AI note writes (ai.ts:103, register.tsx:251) still drop notes silently on a board with no Notes column',
+    'merged d042905, all 4 checks PASS, round 2 resolved a test-file conflict, 353/353 on main · leak audit L7',
+  ])
+    expect(resultOf(n)?.label).toBe('Merged')
+  // Notes that only mention a keyword further in get no badge now.
+  expect(resultOf('AI draft done · all 4 questions answered (no retry button; blocked-ticket explain is a separate ticket)')).toBeUndefined()
+  expect(resultOf('leak audit L12 (risk) + audit 2 L6 (bug)')).toBeUndefined()
+})
+
+test('0032: the pane owns empty notes and notes with its exact prefix only', () => {
+  expect(isPaneNote('')).toBe(true)
+  expect(isPaneNote('AI draft done · 1 open question')).toBe(true)
+  expect(isPaneNote('AI-reviewed by router')).toBe(false)
+  expect(isPaneNote('Answers folded in · 0 open questions')).toBe(false)
+  expect(isPaneNote('merged 1a2b3c')).toBe(false)
+  expect(paneNote('answers folded in')).toBe(`${PANE_NOTE_PREFIX}answers folded in`)
+  expect(paneNote('AI drafting…')).toBe('AI drafting…')
+})
+
+test('0032: the prefix table is the one templates/BOARD.md and router.md list', () => {
+  expect(NOTE_PREFIXES.map(p => `${p.prefix.trim()} → ${p.label}`)).toEqual([
+    'merged → Merged',
+    'failed: → Failing',
+    'blocked: → Blocked',
+    'dropped: → Dropped',
+    'decided: → Decided',
+    'moved from GitHub issue → From GitHub',
+  ])
+  expect(PANE_NOTE_PREFIX).toBe('AI ')
 })
 
 test('hide done works across tabs but not on the Done tab', () => {

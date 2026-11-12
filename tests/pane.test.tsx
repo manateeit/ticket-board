@@ -3965,6 +3965,71 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// ---------- Notes prefixes: the pane owns only its own "AI " notes (0032) ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`0032: after a fold, Enhance's running and done notes replace the fold note (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.press({ key: 'questions' })
+    await ui.input({ key: 'q-0003-0', text: 'Teal', kind: 'submit' } as any)
+    await ui.find({ key: 'fold' })
+    await ui.press({ key: 'fold' })
+    await until(() => w.spawned.length === 1, 'the fold writer to start')
+    expect(t8Row(fs, '0003').notes).toBe('AI folding answers in…')
+    await w.finish($, 'w1')
+    expect(t8Row(fs, '0003').notes).toBe('AI answers folded in · 0 open questions')
+    await ui.press({ key: 'back' })
+    await ui.find({ key: 'enhance' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 2, 'the enhance writer to start')
+    expect(t8Row(fs, '0003').notes).toBe('AI enhancing…')
+    await w.finish($, 'w2')
+    expect(t8Row(fs, '0003').notes).toBe('AI draft done · 0 open questions')
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`0032: a router note that does not carry the pane's exact prefix is never replaced (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const note = 'AI-reviewed by router: keep the accent teal'
+    const { ui, fs } = await boot($, on, surface, { 'tickets/BOARD.md': BOARD.replace('AI draft done · 1 open question', note) })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.find({ key: 'enhance' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    expect(t8Row(fs, '0003').notes).toBe(note)
+    await w.finish($, 'w1')
+    expect(t8Row(fs, '0003').notes).toBe(note)
+    w.done()
+    await ui.unmount()
+  })
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`0032: a skeleton ticket carries the pane prefix, so Enhance replaces its note (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    // /board new fills the idea without submitting it (submitting would start Create + AI).
+    await $.command.run({ command: 'board', args: 'new Export button does nothing' } as any)
+    await ui.find({ key: 'create-plain' })
+    await ui.press({ key: 'create-plain' })
+    expect(t8Row(fs, '0004').notes).toBe('AI skeleton — fill in rd.md and eval.md')
+    await ui.find({ key: 'enhance' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    expect(t8Row(fs, '0004').notes).toBe('AI enhancing…')
+    await w.finish($, 'w1')
+    expect(t8Row(fs, '0004').notes).toMatch(/^AI draft done · \d+ open questions?$/)
+    w.done()
+    await ui.unmount()
+  })
+}
+
 // ---------- The Tickets folder setting everywhere (0025) ----------
 
 /** The same project with its board and ticket folders in `work/` instead of `tickets/`. */

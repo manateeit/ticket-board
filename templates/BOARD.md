@@ -21,3 +21,14 @@ How to read this board:
 - **Blocked by** — ticket numbers that must be `done` first.
 - **Owner** — the worker/session currently on it, once in-progress.
 - **Notes** — last meaningful event: merged commit, check result, blocker.
+  Start the note with one of these prefixes; the pane's Result badge comes
+  only from the prefix at the very start, never from words further in:
+  - `merged <sha>` → Merged (e.g. `merged 1a2b3c, all 5 checks PASS`)
+  - `failed: …` → Failing (e.g. `failed: check 3, round 2`)
+  - `blocked: …` → Blocked (e.g. `blocked: waiting on 0007`)
+  - `dropped: …` → Dropped
+  - `decided: …` → Decided
+  - `moved from GitHub issue …` → From GitHub
+  - `AI …` — written by the ticket-board pane, which replaces only notes that
+    are empty or start with `AI ` (capital AI and a space). Never start your
+    own note with `AI `; the pane never replaces any other note.

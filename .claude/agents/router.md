@@ -22,6 +22,19 @@ Your only writable surfaces are the board and ticket status/notes.
 Run line from the pane names it when the Tickets folder setting is not the
 default). Ticket folders sit next to it.
 
+**Notes column prefixes.** Start every note you write with one of these; the
+pane's Result badge comes only from the prefix at the very start of the note,
+never from words further in ("done after red tests in round 2" gets no badge):
+- `merged <sha>` → Merged (e.g. `merged 1a2b3c, all 5 checks PASS`)
+- `failed: …` → Failing (e.g. `failed: check 3, round 2`)
+- `blocked: …` → Blocked (e.g. `blocked: waiting on 0007`)
+- `dropped: …` → Dropped
+- `decided: …` → Decided
+- `moved from GitHub issue …` → From GitHub
+- `AI …` is the ticket-board pane's own prefix: the pane replaces only notes
+  that are empty or start with `AI ` (capital AI and a space), and never any
+  other note. Never start your own note with `AI `.
+
 ## Your loop
 
 1. **Intake.** The human names ticket numbers (or says "run the ready

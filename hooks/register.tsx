@@ -1,9 +1,9 @@
 // ticket-board: the board (<ticketsDir>/BOARD.md, default tickets/BOARD.md) and its tickets in a side pane.
 import type { EngineInterface, Register } from 'claude-code'
 
-import { finishAdopt, finishReplan, isAdoptFile, isInsideFolder, isReplanFile, jobNote, pumpPlanQueue } from './ai'
+import { finishAdopt, finishReplan, isAdoptFile, isInsideFolder, isReplanFile, jobNote, pumpPlanQueue, setPaneNote } from './ai'
 import { docsGaps } from './core/ticket'
-import { S, abs, isLive, dir, resetSession, editRow, followAppTheme, loadAgents, loadAppTheme, loadFilters, loadJobs, loadScheme, loadPlanMode, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
+import { S, abs, isLive, dir, resetSession, followAppTheme, loadAgents, loadAppTheme, loadFilters, loadJobs, loadScheme, loadPlanMode, loadStartFlags, loadVersion, logAgentTool, redraw, refresh, rowOf, saveJobs, say, type Options } from './store'
 import { G, glassUI, setScheme } from './glass'
 import { drawPane, fitDrawing, go, type UI } from './views'
 
@@ -244,11 +244,10 @@ export const register: Register = (on, options) => {
       const base = failed
         ? `AI ${job.kind} stopped (${e.reason}) — see the agent transcript`
         : job.kind === 'fold'
-          ? `Answers folded in · ${open} open question${open === 1 ? '' : 's'}`
+          ? `AI answers folded in · ${open} open question${open === 1 ? '' : 's'}`
           : `AI draft done · ${open} open question${open === 1 ? '' : 's'}`
       const note = jobNote(gaps.length === 0 ? base : `${base} · missing ${gaps.join(' and ')}`, job.extra)
-      const row = rowOf(job.number)
-      if (row !== undefined && (row.notes === '' || row.notes.startsWith('AI '))) await editRow($, job.number, { notes: note }).catch(() => undefined)
+      await setPaneNote($, job.number, note)
       if (failed && job.kind === 'plan' && job.build !== undefined) S.planFailed.set(job.build, { number: job.number, reason: String(e.reason) })
       $.ui.toast(`Ticket ${job.number}: ${note}`)
       say($, `Ticket ${job.number}: ${note}`, failed ? 'error' : gaps.length > 0 ? 'warning' : 'success')
