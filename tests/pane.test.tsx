@@ -7,6 +7,7 @@ import { railSvg } from '../hooks/glass'
 import { runLine, today } from '../hooks/core/query'
 import { PLAN_COLS } from '../hooks/plan'
 import { bindFromBoard } from '../hooks/core/roadmap'
+import { S, editRd, saveAnswer } from '../hooks/store'
 import { DEMO_ROADMAP } from './demo-roadmap'
 import { ADOPT_NOTES, adoptProposal } from './adopt-fixture'
 
@@ -308,6 +309,20 @@ test('ticket page: only the head Type line is hidden; setting Type edits the hea
   expect(fs.files.get(path)).toBe(headless.replace('page\n', 'page\n\nType: chore\n'))
   drawn = JSON.stringify(await ui.drawn())
   expect(drawn).toContain('written in the body')
+  await ui.unmount()
+})
+
+// ---------- 0040: the questions section is hidden only when core finds it ----------
+
+test('ticket page: a singular "## Open question" stays visible and the ready check says why (0040, desktop)', async ($, on) => {
+  const path = 'tickets/0003-dark-mode-for-settings-page/rd.md'
+  const singular = rd('0003', 'Dark mode for settings page', '- Which accent colour in dark mode?').replace('## Open questions', '## Open question')
+  const { ui } = await boot($, on, 'desktop', { [path]: singular })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  await ui.press({ key: 'open-0003' })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('Which accent colour in dark mode?')
+  expect(drawn).toContain('missing or template: Open questions')
   await ui.unmount()
 })
 
@@ -1911,6 +1926,27 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// ---------- A ### subsection after a section's Open questions (0039) ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Design tab: bullets under a later ### are not questions; the real one answers (${surface})`, async ($, on) => {
+    const design = P7_DESIGN.replace('- [ ] Stripe or Adyen? [Stripe · Adyen]\n', '- [ ] Stripe or Adyen? [Stripe · Adyen]\n\n### Notes\n- Adyen has a sandbox\n- Ask about fees\n')
+    const { ui, fs } = await boot($, on, surface, p7Files({ design }), { blank: true })
+    await ui.find({ key: 'tab-design' })
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D1' })
+    expect(await drawnText(ui)).toContain('Answer the 2 open questions first (D3, D4)')
+    await ui.press({ key: 'sec-D3' })
+    await ui.find({ key: 'dq-D3-0' })
+    expect(await drawnText(ui)).not.toContain('dq-D3-1')
+    await ui.input({ key: 'dq-D3-0', text: 'Stripe', kind: 'submit' } as any)
+    const md = fs.files.get('/repo/design/DESIGN.md')!
+    expect(md).toMatch(/- \[x\] Stripe or Adyen\? \[Stripe · Adyen\]\n {2}\*\*Resolved \d{4}-\d{2}-\d{2} \(human\): Stripe\*\*\n\n### Notes\n- Adyen has a sandbox/)
+    expect(await drawnText(ui)).not.toContain('That question changed')
+    await ui.unmount()
+  })
+}
+
 // ---------- Tickets from the plan (0008) ----------
 
 const T8_DESIGN = `---
@@ -2055,6 +2091,57 @@ test('0036: Create tickets for a phase on a board without Blocked by says which 
   }
 })
 
+// ---------- 0042: writers that start without an agent id ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`untracked writers hold a slot, show it in the row and the summary, and give it back on Refresh (0042, ${surface})`, async ($, on) => {
+    const spawned: string[] = []
+    // The host hands back no agent id and agent.list does not show the writers.
+    const listed: any[] = []
+    AGENTS_OVERRIDE = listed
+    on('agent.spawn', (_: unknown, e: { description: string }) => (spawned.push(e.description), { model: 'sonnet' }))
+    const files = t8Files()
+    files['/repo/design/PLAN.md'] = T8_PLAN.replace('| P1.5 | Reminders | S | P1.4 | D3 | reminder sent | — |', '| P1.5 | Reminders | S | P1.4 | D3 | reminder sent | — |\n| P1.6 | Export | S | — | D1 | export works | — |')
+    const { ui, fs } = await boot($, on, surface, files, { blank: true })
+    try {
+      await ui.find({ key: 'tab-plan' })
+      await ui.press({ key: 'tab-plan' })
+      await ui.find({ key: 'phase-create-P1' })
+      await ui.press({ key: 'phase-create-P1' })
+      await until(async () => (await drawnText(ui)).includes('Created 5 draft tickets'), 'the batch summary')
+      await new Promise(r => setTimeout(r, 50))
+      // At most 3 writers start; the other 2 stay queued.
+      expect(spawned.length).toBe(3)
+      const made = ['0002', '0003', '0004', '0005', '0006']
+      const started = made.filter(n => spawned.some(d => d.startsWith(`Write ticket ${n} `)))
+      const waiting = made.filter(n => !started.includes(n))
+      expect(started.length).toBe(3)
+      for (const n of started) {
+        expect(t8Row(fs, n).notes).not.toContain('AI queued')
+        expect(t8Row(fs, n).notes).toContain('started without an agent id')
+      }
+      for (const n of waiting) expect(t8Row(fs, n).notes).toContain('AI queued')
+      const drawn = await drawnText(ui)
+      expect(drawn).toContain('2 queued')
+      expect(drawn).toContain('3 started without an agent id')
+      expect(drawn.match(/build-queued-/g)?.length).toBe(2)
+      expect(drawn.match(/build-writing-/g)?.length).toBe(3)
+
+      // One of them shows up live in agent.list: Refresh tracks it; the other two give their slots back.
+      listed.push({ id: 'x1', description: spawned[0]!, type: 'ticket-board:ticket-writer', status: 'running' })
+      await ui.press({ key: 'tab-board' })
+      await ui.find({ key: 'refresh' })
+      await ui.press({ key: 'refresh' })
+      await until(() => spawned.length === 5, 'the 2 queued writers to start')
+      expect(t8Row(fs, started[0]!).notes).toContain('AI drafting')
+      for (const n of waiting) expect(t8Row(fs, n).notes).toContain('started without an agent id')
+    } finally {
+      AGENTS_OVERRIDE = undefined
+      await ui.unmount()
+    }
+  })
+}
+
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`Create tickets for a phase: 4 skeletons, Blocked by from Needs, Plan cells, 3 writers at a time (${surface})`, async ($, on) => {
     const w = fakeWriter(on)
@@ -2146,8 +2233,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(ev).toContain('2. a taken slot cannot be booked twice')
     expect(ev).toContain('3. a reminder mail goes out a day before')
     expect(ev).toContain('4. Docs and README updated')
-    expect(ev.match(/- Run: /g)?.length).toBe(3)
-    expect(ev.match(/- Pass: /g)?.length).toBe(3)
+    expect(ev.match(/- Run: /g)?.length).toBe(4)
+    expect(ev.match(/- Pass: /g)?.length).toBe(4)
     // The writer drops ## Docs and the docs check: the pane reports both in the row Notes and the toast.
     fs.files.set(`${folder}/rd.md`, rd.replace(/## Docs\n[^#]*/, ''))
     fs.files.set(`${folder}/eval.md`, '# Eval — 0002 — Calendar\n\n## Checks\n1. a free slot can be booked\n   - Run: `npm test`\n   - Pass: exit 0\n')
@@ -2266,6 +2353,31 @@ test('the plan queue survives a redraw and a trip to the board and back (desktop
   await ui.find({ key: 'build-queued-P1.5' })
   await w.finish($, 'w2')
   await until(() => w.spawned.length === 4, 'the queued writer to start')
+  w.done()
+  await ui.unmount()
+})
+
+// ---------- Eval skeleton fields match the template (0044) ----------
+
+test('a plan ticket skeleton gives every check, docs check included, Run, Pass, Result and Evidence lines (desktop)', async ($, on) => {
+  const w = fakeWriter(on)
+  const { ui, fs } = await boot($, on, 'desktop', t8Files(), { blank: true })
+  await ui.find({ key: 'tab-plan' })
+  await ui.press({ key: 'tab-plan' })
+  await ui.find({ key: 'build-create-P1.3' })
+  await ui.press({ key: 'build-create-P1.3' })
+  await until(() => w.spawned.length === 1, 'the writer to start')
+  const ev = fs.files.get(`${t8Folder(fs, '0002')}/eval.md`)!
+  const body = ev.split('## Checks\n')[1]!.split('\n## ')[0]!
+  const checks = body.split(/\n(?=\d+\. )/).map(s => s.trim()).filter(s => /^\d+\. /.test(s))
+  expect(checks.length).toBe(4)
+  expect(checks[3]).toMatch(/^4\. Docs and README updated/)
+  for (const c of checks) {
+    const fields = c.split('\n').slice(1).map(l => l.trim().match(/^- (\w+):/)?.[1])
+    expect(fields).toEqual(['Run', 'Pass', 'Result', 'Evidence'])
+  }
+  expect(w.spawned[0]!.prompt).toContain('Result')
+  expect(w.spawned[0]!.prompt).toContain('Evidence')
   w.done()
   await ui.unmount()
 })
@@ -3132,6 +3244,137 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// ---------- Replan Apply safety (0038) ----------
+
+/** The proposal rewritten by a new same-day replan: other items, in another order. */
+const T38_REWRITE = (hash: string) => `---
+change: replan
+date: 2026-11-12
+design-version: 3
+plan-hash: ${hash}
+---
+# Replan for design v3
+
+## Why
+Second pass.
+
+## Add
+- none
+
+## Change
+- none
+
+## Drop
+- [ ] P1.3 · Reminders
+  Nobody wants reminders.
+- [ ] P1.2 · Booking
+  Booking moves elsewhere.
+
+## Follow-up
+- [ ] P1.1 · Sign in with a passkey
+  Passkeys instead.
+`
+
+/** A Bash call in the session: the pane starts a plain refresh for it. */
+const bashTool = ($: any) => $.tool.call({ tool: 'Bash', command: 'true' })
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`replan apply refuses a proposal for an older design version; PLAN.md unchanged (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs, writes } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-0' })
+    await ui.press({ key: 'rp-tick-2' })
+    // A redesign lands while the review is open: DESIGN.md is v4, the proposal is for v3.
+    fs.files.set('/repo/design/DESIGN.md', T16_DESIGN.replace('version: 3', 'version: 4'))
+    fs.mtimes.set('/repo/design/DESIGN.md', 999)
+    const before = new Map(fs.files)
+    const n0 = writes.length
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('make a new proposal'), 'the stale-proposal refusal')
+    expect(await drawnText(ui)).toContain('This replan proposal is for design v3, the design is v4: make a new proposal; nothing applied')
+    expect(writes.length).toBe(n0)
+    expect([...fs.files]).toEqual([...before])
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    expect(w.spawned).toEqual([])
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan apply refuses a proposal with no design-version (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t16Files(t16Proposal(planHash(T16_PLAN)).replace('design-version: 3\n', '')), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-0' })
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('make a new proposal'), 'the refusal')
+    expect(await drawnText(ui)).toContain('This replan proposal is for an unknown design version, the design is v3')
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan apply stamps the proposal's design version (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-2' })
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('Applied 1 item'), 'the apply')
+    const pv = parseProposal(fs.files.get(T16_PROPOSAL_PATH)!).designVersion
+    expect(pv).toBe(3)
+    expect(fs.files.get(T16_PLAN_PATH)).toContain(`design-version: ${pv}\n`)
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan ticks clear when the proposal file is rewritten; Apply needs new ticks (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    on('tool.call', () => ({ result: 'ok' }) as any)
+    const { ui, fs, writes } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-1' })
+    await ui.press({ key: 'rp-tick-3' })
+    expect(await drawnText(ui)).toContain('Apply selected (2)')
+    // The planner rewrites the same-day proposal; a refresh reads it.
+    fs.files.set(T16_PROPOSAL_PATH, T38_REWRITE(planHash(T16_PLAN)))
+    fs.mtimes.set(T16_PROPOSAL_PATH, 999)
+    await bashTool($)
+    await until(async () => (await drawnText(ui)).includes('Sign in with a passkey'), 'the new items')
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('Apply selected (0)')
+    expect(drawn).not.toContain(surface === 'desktop' ? '☑' : '[x]')
+    const n0 = writes.length
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('Nothing ticked: nothing applied'), 'Apply to need new ticks')
+    expect(writes.length).toBe(n0)
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan apply refuses ticks made on a proposal that changed before the refresh (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs, writes } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-1' })
+    await ui.press({ key: 'rp-tick-3' })
+    // Rewritten on disk; Apply is the first to read it.
+    const rewritten = T38_REWRITE(planHash(T16_PLAN))
+    fs.files.set(T16_PROPOSAL_PATH, rewritten)
+    fs.mtimes.set(T16_PROPOSAL_PATH, 999)
+    const n0 = writes.length
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('tick the items again'), 'the changed-proposal refusal')
+    expect(writes.length).toBe(n0)
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    expect(fs.files.get(T16_PROPOSAL_PATH)).toBe(rewritten)
+    expect(await drawnText(ui)).toContain('Apply selected (0)')
+    w.done()
+    await ui.unmount()
+  })
+}
+
 test('dark glass in a dark app: no plates, the dark palette as before', async ($, on) => {
   const { ui } = await boot($, on, 'desktop', p7Files(), { blank: true, store: new Map<string, unknown>([['colors', 'dark']]), theme: 'dark' })
   await ui.find({ key: 'tab-plan' })
@@ -3426,6 +3669,36 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 }
+
+// 0037: a one-sided adopt keeps the other half of a custom binding line.
+for (const surface of ['terminal', 'desktop'] as const)
+  test(`adopt a plan-only proposal on a board bound to custom paths keeps the custom design (${surface})`, async ($, on) => {
+    const full = adoptProposal(ADOPT_DATE())
+    const planOnly = full.replace(/\n## DESIGN\.md\n~~~~markdown\n[\s\S]*?~~~~\n/, '\n')
+    const arch = /\n## DESIGN\.md\n~~~~markdown\n([\s\S]*?)~~~~\n/.exec(full)![1]!.replace('# Salon: design', '# Arch doc').replace('## D1 · Accounts', '## D1 · Arch accounts')
+    const board = BLANK_BOARD.replace('# Ticket board\n', '# Ticket board\n\nDesign: docs/arch.md · Plan: docs/roadmap.md\n')
+    const files = adoptFiles({ 'tickets/BOARD.md': board, '/repo/docs/arch.md': arch, [ADOPT_PATH()]: planOnly })
+    const { ui, fs } = await boot($, on, surface, files, { blank: true })
+    // The custom plan file is not written yet: the banner offers Set up, where the proposal on disk is offered.
+    await ui.find({ key: 'banner-setup' })
+    await ui.press({ key: 'banner-setup' })
+    await openAdoptView(ui)
+    await ui.find({ key: 'ad-tick-P1' })
+    await ui.press({ key: 'adopt-apply' })
+    await until(() => fs.files.has('/repo/design/PLAN.md'), 'the apply')
+    expect(fs.files.get('tickets/BOARD.md')).toContain('Design: docs/arch.md · Plan: design/PLAN.md\n')
+    expect(fs.files.get('/repo/docs/arch.md')).toBe(arch)
+    // Plan tab shows the new plan; Design tab still shows docs/arch.md.
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    expect(await drawnText(ui)).toContain('Magic link sign-in')
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D1' })
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('Arch accounts')
+    expect(drawn).not.toContain('No design')
+    await ui.unmount()
+  })
 
 for (const surface of ['terminal', 'desktop'] as const)
   test(`the Start screen gives "I already have docs…" one button and the h key (${surface})`, async ($, on) => {
@@ -3858,6 +4131,97 @@ test('rows per page: every row when they fit, else 20, fewer for very large rows
   expect(rowsPerPage(Array(120).fill(50_000))).toBe(5)
 })
 
+// ---------- 0041: store writes redraw fresh, and no rd.md edits under an AI job ----------
+
+/**
+ * A gate for boot's fs.list: once armed, it holds the first list after the 0003 folder was listed, so a
+ * plain refresh that has already read 0003 stays in flight until `release`.
+ */
+function holdAfter0003() {
+  const at = { calls: [] as string[], from: 0, armed: false, held: undefined as Promise<void> | undefined, release: () => undefined as void }
+  const gate = {
+    get wait() {
+      if (!at.armed || !at.calls.slice(at.from).some(c => /tickets\/0003-dark-mode-for-settings-page -> /.test(c))) return undefined
+      at.held ??= new Promise<void>(r => (at.release = r))
+      return at.held
+    },
+  } as { wait?: Promise<void> }
+  return { at, gate }
+}
+
+const FOLDER_0004 = {
+  'tickets/0004-later-folder/rd.md': rd('0004', 'Later folder', '- none'),
+  'tickets/0004-later-folder/eval.md': EVAL,
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`an answer saved while a plain refresh is mid-read shows as resolved right away (${surface})`, async ($, on) => {
+    on('tool.call', () => ({ result: 'ok' }) as any)
+    const { at, gate } = holdAfter0003()
+    const { ui, fs, calls } = await boot($, on, surface, FOLDER_0004, { gate })
+    at.calls = calls
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    if (surface === 'terminal') await ui.press({ key: 'questions' })
+    // A plain refresh reads 0003 as it is, then stops before the next folder.
+    at.from = calls.length
+    at.armed = true
+    await writeTool($, '/repo/tickets/0003-dark-mode-for-settings-page/a.txt')
+    await until(() => at.held !== undefined, 'the plain refresh to stop after reading 0003')
+    await ui.input({ key: 'q-0003-0', text: 'Teal', kind: 'submit' } as any)
+    await until(() => fs.files.get('tickets/0003-dark-mode-for-settings-page/rd.md')!.includes('(human): Teal**'), 'the answer to be written')
+    at.armed = false
+    at.release()
+    await until(async () => (await drawnText(ui)).includes('Saved answer to question 1'), 'the save to finish')
+    expect(await drawnText(ui)).toContain(surface === 'desktop' ? 'Every question is answered' : 'No open questions left')
+    await ui.unmount()
+  })
+
+  test(`while a writer job holds a ticket, answers and Type are locked and the store refuses rd.md writes (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs, writes } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    const rdPath = 'tickets/0003-dark-mode-for-settings-page/rd.md'
+    const before = fs.files.get(rdPath)!
+    if (surface === 'terminal') await ui.press({ key: 'questions' })
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('The AI is writing ticket 0003: answers and Type are locked until it finishes')
+    expect(drawn).not.toContain('"key":"q-0003-0"')
+    expect(drawn).not.toContain('"key":"kind-0003"')
+    let refused = ''
+    await Promise.resolve(ui.input({ key: 'q-0003-0', text: 'Teal', kind: 'submit' } as any)).catch((e: unknown) => (refused = String(e)))
+    if (surface === 'desktop') await Promise.resolve(ui.select({ key: 'kind-0003', value: 'chore' })).catch((e: unknown) => (refused += String(e)))
+    expect(refused).not.toBe('')
+    expect(fs.files.get(rdPath)).toBe(before)
+    expect(writes.filter(p => p === rdPath)).toEqual([])
+    w.done()
+    await ui.unmount()
+  })
+}
+
+test('the store refuses rd.md writes for a ticket an AI job holds, whatever view calls it', async ($, on) => {
+  // This file's own copy of the store, given the state the pane has while a writer holds 0003.
+  const writes: string[] = []
+  on('fs.read', () => ({ value: rd('0003', 'Dark mode for settings page', '- Which accent colour in dark mode?') }))
+  on('fs.write', (_: unknown, e: { path: string }) => (writes.push(e.path), { value: undefined }))
+  const question = { index: 0, text: 'Which accent colour in dark mode?', detail: '', isResolved: false }
+  S.snap = { files: new Map([['0003', { number: '0003', folder: '0003-dark-mode-for-settings-page', questions: [question] }]]) } as any
+  S.jobs.set('w9', { agentId: 'w9', number: '0003', kind: 'enhance', startedAt: Date.now() })
+  const refused: string[] = []
+  await saveAnswer($ as any, '0003', question as any, 'Teal').catch((e: Error) => refused.push(e.message))
+  await editRd($ as any, '0003', text => text.replace('Type: feature', 'Type: chore')).catch((e: Error) => refused.push(e.message))
+  S.jobs.clear()
+  S.snap = undefined
+  expect(refused).toEqual([
+    'The AI is writing ticket 0003: answers and Type are locked until it finishes',
+    'The AI is writing ticket 0003: answers and Type are locked until it finishes',
+  ])
+  expect(writes).toEqual([])
+})
+
 // ---------- 0021: activity wording ----------
 
 const ACTIVITY_STATES = [
@@ -4039,6 +4403,165 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(drawn).not.toContain('agent-log-w1')
     expect(drawn).not.toContain('watch-log')
     w.done()
+    await ui.unmount()
+  })
+}
+
+// ---------- Tickets folder setting: slash-command prompts (0035) ----------
+
+/** The 0035 fixtures with the board and ticket folders moved to `work/`. */
+const toWork = (files: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(files).map(([k, v]) => [k.startsWith('tickets/') ? `/repo/work/${k.slice('tickets/'.length)}` : k, v]))
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Tickets folder "work": Brainstorm, Redesign and Write it in chat name work/BOARD.md (${surface})`, { options: { ticketsDir: 'work' } }, async ($, on) => {
+    const { ui, filled, writes } = await boot($, on, surface, toWork(p7Files()), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.press({ key: 'pill-P1.2-0007' })
+    await ui.press({ key: 'brainstorm' })
+    expect(filled).toEqual(['/ticket-board:brainstorm 0007 (board: work/BOARD.md)'])
+    await ui.press({ key: 'chip-D3' })
+    await ui.press({ key: 'brainstorm-section' })
+    await ui.press({ key: 'redesign-section' })
+    expect(filled.slice(1)).toEqual(['/ticket-board:brainstorm D3 (board: work/BOARD.md)', '/ticket-board:design D3 (board: work/BOARD.md)'])
+    await $.command.run({ command: 'board', args: 'new Export button does nothing' } as any)
+    await ui.find({ key: 'create-chat' })
+    await ui.press({ key: 'create-chat' })
+    expect(filled[3]).toBe('/ticket-board:ticket Export button does nothing (board: work/BOARD.md)')
+    expect(writes).toEqual([])
+    await ui.unmount()
+  })
+
+  test(`Tickets folder default: Write it in chat reads as before (${surface})`, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    await $.command.run({ command: 'board', args: 'new Export button does nothing' } as any)
+    await ui.find({ key: 'create-chat' })
+    await ui.press({ key: 'create-chat' })
+    expect(filled).toEqual(['/ticket-board:ticket Export button does nothing'])
+    await ui.unmount()
+  })
+
+  test(`Tickets folder "work": Start-screen prompts name work/BOARD.md (${surface})`, { options: { ticketsDir: 'work' } }, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface, { '/repo/src/app.ts': 'export {}\n' }, { blank: true })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await ui.press({ key: 'start-code' })
+    await ui.input({ key: 'start-idea', text: 'A booking app for small salons', kind: 'submit' } as any)
+    await ui.press({ key: 'start-brainstorm' })
+    await ui.press({ key: 'start-design' })
+    expect(filled).toEqual([
+      '/ticket-board:design Draft a design from the existing code in this repository. (board: work/BOARD.md)',
+      '/ticket-board:brainstorm whole A booking app for small salons (board: work/BOARD.md)',
+      '/ticket-board:design A booking app for small salons (board: work/BOARD.md)',
+    ])
+    await ui.unmount()
+  })
+
+  test(`Tickets folder "work": Start-screen design-from-brief and plan prompts name work/BOARD.md (${surface})`, { options: { ticketsDir: 'work' } }, async ($, on) => {
+    const brief = await boot($, on, surface, { ...GIT_READY, '/repo/work/BOARD.md': BLANK_BOARD, '/repo/design/brief.md': '# Brief\n' }, { blank: true })
+    await brief.ui.find({ type: 'Text', text: /Start a project/ })
+    await brief.ui.press({ key: 'start-from-idea' })
+    expect(brief.filled).toEqual(['/ticket-board:design design/brief.md (board: work/BOARD.md)'])
+    await brief.ui.unmount()
+  })
+
+  test(`Tickets folder "work": the Plan step prompt names work/BOARD.md (${surface})`, { options: { ticketsDir: 'work' } }, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface, { ...GIT_READY, '/repo/work/BOARD.md': BLANK_BOARD, '/repo/design/DESIGN.md': '# D\n\n## D1 · X\n' }, { blank: true })
+    await ui.find({ type: 'Text', text: /No plan yet/ })
+    await ui.press({ key: 'banner-setup' })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await ui.press({ key: 'start-plan' })
+    expect(filled).toEqual(['/ticket-board:planning (board: work/BOARD.md)'])
+    await ui.unmount()
+  })
+}
+
+test('Tickets folder "planning/tickets": an empty project is not treated as having code', { options: { ticketsDir: 'planning/tickets' } }, async ($, on) => {
+  const { ui } = await boot($, on, 'terminal', { ...GIT_READY, '/repo/planning/tickets/BOARD.md': BLANK_BOARD, '/repo/README.md': '# Salon\n' }, { blank: true })
+  await ui.find({ type: 'Text', text: /Start a project/ })
+  await ui.find({ key: 'start-idea' } as any)
+  expect(await drawnText(ui)).not.toContain('start-code')
+  await ui.unmount()
+})
+
+// ---------- Notes prefixes: the pane owns only its own "AI " notes (0032) ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`0032: after a fold, Enhance's running and done notes replace the fold note (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.press({ key: 'questions' })
+    await ui.input({ key: 'q-0003-0', text: 'Teal', kind: 'submit' } as any)
+    await ui.find({ key: 'fold' })
+    await ui.press({ key: 'fold' })
+    await until(() => w.spawned.length === 1, 'the fold writer to start')
+    expect(t8Row(fs, '0003').notes).toBe('AI folding answers in…')
+    await w.finish($, 'w1')
+    expect(t8Row(fs, '0003').notes).toBe('AI answers folded in · 0 open questions')
+    await ui.press({ key: 'back' })
+    await ui.find({ key: 'enhance' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 2, 'the enhance writer to start')
+    expect(t8Row(fs, '0003').notes).toBe('AI enhancing…')
+    await w.finish($, 'w2')
+    expect(t8Row(fs, '0003').notes).toBe('AI draft done · 0 open questions')
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`0032: a router note that does not carry the pane's exact prefix is never replaced (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const note = 'AI-reviewed by router: keep the accent teal'
+    const { ui, fs } = await boot($, on, surface, { 'tickets/BOARD.md': BOARD.replace('AI draft done · 1 open question', note) })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.find({ key: 'enhance' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    expect(t8Row(fs, '0003').notes).toBe(note)
+    await w.finish($, 'w1')
+    expect(t8Row(fs, '0003').notes).toBe(note)
+    w.done()
+    await ui.unmount()
+  })
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`0032: a skeleton ticket carries the pane prefix, so Enhance replaces its note (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    // /board new fills the idea without submitting it (submitting would start Create + AI).
+    await $.command.run({ command: 'board', args: 'new Export button does nothing' } as any)
+    await ui.find({ key: 'create-plain' })
+    await ui.press({ key: 'create-plain' })
+    expect(t8Row(fs, '0004').notes).toBe('AI skeleton — fill in rd.md and eval.md')
+    await ui.find({ key: 'enhance' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    expect(t8Row(fs, '0004').notes).toBe('AI enhancing…')
+    await w.finish($, 'w1')
+    expect(t8Row(fs, '0004').notes).toMatch(/^AI draft done · \d+ open questions?$/)
+    w.done()
+    await ui.unmount()
+  })
+}
+
+// ---------- The Run line places the wait-for-blockers clause itself (0034) ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Run on a ready ticket with an open blocker waits before the router tail (${surface})`, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface, p7Files({ router: true }), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'open-0004' })
+    await ui.press({ key: 'run' })
+    expect(filled).toEqual([runLine(['0004'], true, 'tickets/BOARD.md', ['0005'])])
+    expect(filled[0]).toStartWith('Run ticket 0004 — but only once 0005 is done — as the router. If this session')
+    expect(filled[0]).toEndWith('and the docs listed under ## Docs in its rd.md.')
+    expect(filled[0]).not.toContain('rd. — but only once')
     await ui.unmount()
   })
 }

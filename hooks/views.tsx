@@ -3,11 +3,11 @@ import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, des
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { COLUMN_LABEL, STATUSES, parseBlockedBy, type CellChanges, type Column } from './core/board'
-import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, titleFromIdea, type Filters } from './core/query'
+import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, paneNote, query, runLine, titleFromIdea, withBoard, type Filters } from './core/query'
 import { allBuilds, staleOf, staleText, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
-import { startJob, suggestAnswer } from './ai'
+import { releaseUntracked, startJob, suggestAnswer } from './ai'
 import { adoptView, deskAdopt, openAdopt } from './adopt'
 import { Tabs, TermReplanBanner, brainstorm, deskDesign, deskPlan, deskReplan, designView, openDesign, openPlan, planView, replanView, viewName } from './plan'
 import { G, STATUS_HEX, barSvg, heroSvg, tint } from './glass'
@@ -30,6 +30,7 @@ import {
   roadmapView,
   rowOf,
   saveAnswer,
+  rdLock,
   saveFilters,
   say,
   setStartFlag,
@@ -111,9 +112,7 @@ export function runnable(): string[] {
 
 export function runTicket($: $, number: string) {
   const open = blockersOpen(rowOf(number)?.blockedBy ?? [])
-  const base = runLine([number], S.hasRouter, boardPath())
-  const text = open.length === 0 ? base : `${base.replace(/\.$/, '')} — but only once ${open.join(', ')} ${open.length === 1 ? 'is' : 'are'} done.`
-  void fill($, text, 'In your prompt box — press Enter to send it')
+  void fill($, runLine([number], S.hasRouter, boardPath(), open), 'In your prompt box — press Enter to send it')
 }
 
 export function setFilters($: $, change: Partial<Filters>) {
@@ -401,7 +400,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
         {run.length > 0 && (
           <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter, boardPath()), 'In your prompt box — press Enter to send it to the router')} />
         )}
-        <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'), () => undefined)} />
+        <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void releaseUntracked($).then(() => refresh($, true)).then(() => say($, 'Refreshed'), () => undefined)} />
         <Button
           key="agents"
           label={`Agents ● ${S.agents.filter(isLive).length}`}
@@ -807,6 +806,7 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
   const open = qs.filter(q => !q.isResolved)
   const answered = qs.filter(q => q.isResolved)
   const job = jobFor(number)
+  const lock = rdLock(number)
   return (
     <Box flexDirection="column" gap={1}>
       {Header(ui, `${number} — open questions`, $, { kind: 'ticket', number, tab: 'rd' })}
@@ -821,6 +821,9 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
               {n + 1}. {q.text}
             </Text>
             {q.detail !== '' && <Text dimColor>{q.detail}</Text>}
+            {lock !== undefined ? (
+              <Text key={`locked-${key}`} dimColor>{`🔒 ${lock}`}</Text>
+            ) : (
             <Input
               key={key}
               label="Answer"
@@ -840,6 +843,7 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
                   .catch(err => fail($, err))
               }}
             />
+            )}
             <Box flexDirection="row" gap={1}>
               <Button
                 key={`suggest-${key}`}
@@ -911,7 +915,7 @@ export async function createTicket($: $, withAI: boolean) {
     const { number, skipped } = await createSkeleton(
       $,
       { title: (S.drafts.get('new-title') ?? '').trim() || titleFromIdea(idea), text: idea, mode: S.newMode, blockedBy, kind: S.newKind },
-      withAI ? 'AI drafting…' : 'Skeleton — fill in rd.md and eval.md',
+      withAI ? paneNote('drafting…') : paneNote('skeleton — fill in rd.md and eval.md'),
     )
     S.drafts.delete('new-idea')
     S.drafts.delete('new-blocked')
@@ -936,7 +940,7 @@ export async function draftInChat($: $) {
   const idea = (S.drafts.get('new-idea') ?? '').trim()
   if (idea === '') return say($, 'Describe the ticket first', 'warning')
   const hasOwn = await $.fs.exists(abs('.claude/skills/ticket/SKILL.md')).catch(() => false)
-  await fill($, `/${hasOwn ? 'ticket' : 'ticket-board:ticket'} ${idea}`, 'In your prompt box — press Enter to draft it in chat')
+  await fill($, withBoard(`/${hasOwn ? 'ticket' : 'ticket-board:ticket'} ${idea}`, boardPath()), 'In your prompt box — press Enter to draft it in chat')
 }
 
 function newView($: $, ui: UI): RenderChildren {
@@ -1144,11 +1148,11 @@ export const startPrompt = {
   github: () =>
     `Create a private GitHub repository for this project with \`gh repo create --private\`, add it as origin and push${startFacts().hasCommit ? '' : ' (make the first commit first)'}.`,
   firstPush: () => (startFacts().hasOrigin ? 'Make the first commit and push it to origin.' : 'Make the first commit.'),
-  brainstorm: (idea: string) => `/ticket-board:brainstorm whole ${idea}`.trim(),
-  design: (idea: string) => `/ticket-board:design ${idea}`.trim(),
-  fromCode: () => '/ticket-board:design Draft a design from the existing code in this repository.',
-  fromIdea: () => `/ticket-board:design ${S.project?.ideaPath ?? ''}`.trim(),
-  plan: () => '/ticket-board:planning',
+  brainstorm: (idea: string) => withBoard(`/ticket-board:brainstorm whole ${idea}`.trim(), boardPath()),
+  design: (idea: string) => withBoard(`/ticket-board:design ${idea}`.trim(), boardPath()),
+  fromCode: () => withBoard('/ticket-board:design Draft a design from the existing code in this repository.', boardPath()),
+  fromIdea: () => withBoard(`/ticket-board:design ${S.project?.ideaPath ?? ''}`.trim(), boardPath()),
+  plan: () => withBoard('/ticket-board:planning', boardPath()),
 }
 
 const IDEA_KEY = 'start-idea'

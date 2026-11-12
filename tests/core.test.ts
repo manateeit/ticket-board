@@ -18,7 +18,7 @@ import {
   startStep,
   type StartFacts,
 } from '../hooks/core/project'
-import { DEFAULT_FILTERS, OFF_PLAN, comparePhase, kindOf, nextNumber, resultOf, query, runLine, slugify, sortItems, titleFromIdea, type Filters, type Item, type Sort } from '../hooks/core/query'
+import { DEFAULT_FILTERS, NOTE_PREFIXES, OFF_PLAN, PANE_NOTE_PREFIX, comparePhase, isPaneNote, kindOf, nextNumber, paneNote, resultOf, query, runLine, slugify, sortItems, titleFromIdea, withBoard, type Filters, type Item, type Sort } from '../hooks/core/query'
 import {
   applyProposal,
   blockedByFor,
@@ -347,10 +347,84 @@ test('run lines follow the tickets folder setting (0025)', () => {
   expect(router).not.toContain('tickets/')
 })
 
+test('run lines place the wait-for-blockers clause after the run sentence (0034)', () => {
+  const TAIL =
+    ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
+  // With a router: the clause follows "Run ticket 0005", the router tail comes after it unchanged.
+  expect(runLine(['0005'], true, 'tickets/BOARD.md', ['0003'])).toBe(`Run ticket 0005 — but only once 0003 is done —${TAIL}`)
+  const work = runLine(['0005'], true, 'work/BOARD.md', ['0003', '0004'])
+  expect(work).toStartWith('Run ticket 0005 — but only once 0003, 0004 are done — as the router.')
+  expect(work).toEndWith(runLine(['0005'], true, 'work/BOARD.md').slice('Run ticket 0005'.length))
+  // Without a router: the clause ends the sentence, after the board when one is named.
+  expect(runLine(['0005'], false, 'tickets/BOARD.md', ['0003'])).toBe('Run ticket 0005 — but only once 0003 is done.')
+  expect(runLine(['0005'], false, 'work/BOARD.md', ['0003'])).toBe('Run ticket 0005 (board: work/BOARD.md) — but only once 0003 is done.')
+  // No blockers: byte-identical to 0.5.3, router and plain, default and other board.
+  const WORK_TAIL =
+    ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update work/BOARD.md, and never write the code yourself. The board is work/BOARD.md and the ticket folders are in work/. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
+  for (const wait of [undefined, []]) {
+    expect(runLine(['0005'], true, 'tickets/BOARD.md', wait)).toBe(`Run ticket 0005${TAIL}`)
+    expect(runLine(['0005'], true, 'work/BOARD.md', wait)).toBe(`Run ticket 0005${WORK_TAIL}`)
+    expect(runLine(['0005', '0006'], false, 'tickets/BOARD.md', wait)).toBe('Run tickets 0005 and 0006.')
+    expect(runLine(['0005', '0006'], false, 'work/BOARD.md', wait)).toBe('Run tickets 0005 and 0006 (board: work/BOARD.md).')
+  }
+})
+
 test('result tags from board notes', () => {
   expect(resultOf('merged f681c3c (merge commit, local, no push); 3 worker rounds')?.label).toBe('Merged')
   expect(resultOf('moved from GitHub issue #2 2026-11-09')?.label).toBe('From GitHub')
   expect(resultOf('—')).toBeUndefined()
+})
+
+// 0032: badges come only from the Notes prefix at the start; the pane owns only "AI " notes.
+test('0032: result tags only from the note prefix, never from words further in', () => {
+  expect(resultOf('merged 1a2b3c')?.label).toBe('Merged')
+  expect(resultOf('Merged 1a2b3c, all 5 checks PASS')?.label).toBe('Merged')
+  expect(resultOf('failed: check 3')?.label).toBe('Failing')
+  expect(resultOf('blocked: waiting on 0007')?.label).toBe('Blocked')
+  expect(resultOf('dropped: superseded by 0012')?.label).toBe('Dropped')
+  expect(resultOf('decided: keep the old flow')?.label).toBe('Decided')
+  expect(resultOf('done after red tests in round 2')).toBeUndefined()
+  expect(resultOf('fixed the failing test, now merged into main')).toBeUndefined()
+  expect(resultOf('scope narrowed, blocked earlier')).toBeUndefined()
+  expect(resultOf('')).toBeUndefined()
+})
+
+test('0032: merged notes as written on this repo\'s board keep their Merged badge', () => {
+  // Copied from tickets/BOARD.md (tests cannot read the repo's files).
+  for (const n of [
+    'merged 33a3b72 (no rebase), all 6 checks PASS, 36/36 tests',
+    'merged 405f6f0 (3 rounds), all 8 checks PASS, 86/86 tests',
+    'merged 33b4229, checks 1-4,6 PASS, 139/139 · check 5 (live click) waived by human 2026-11-10, to test after release · terminal `o` fix; desktop not reproduced (likely 0013)',
+    'merged 9ff6f75, all 5 checks PASS, 213/213 · cause: desktop native buttons draw labels in app colors on painted glass; fix: inverseText plates + darker palette · needs a person to look in each Colors setting (plate width in column cells unverified)',
+    'merged dfd5a95, all 5 checks PASS · leak audit L1, L9 · follow-up: AI note writes (ai.ts:103, register.tsx:251) still drop notes silently on a board with no Notes column',
+    'merged d042905, all 4 checks PASS, round 2 resolved a test-file conflict, 353/353 on main · leak audit L7',
+  ])
+    expect(resultOf(n)?.label).toBe('Merged')
+  // Notes that only mention a keyword further in get no badge now.
+  expect(resultOf('AI draft done · all 4 questions answered (no retry button; blocked-ticket explain is a separate ticket)')).toBeUndefined()
+  expect(resultOf('leak audit L12 (risk) + audit 2 L6 (bug)')).toBeUndefined()
+})
+
+test('0032: the pane owns empty notes and notes with its exact prefix only', () => {
+  expect(isPaneNote('')).toBe(true)
+  expect(isPaneNote('AI draft done · 1 open question')).toBe(true)
+  expect(isPaneNote('AI-reviewed by router')).toBe(false)
+  expect(isPaneNote('Answers folded in · 0 open questions')).toBe(false)
+  expect(isPaneNote('merged 1a2b3c')).toBe(false)
+  expect(paneNote('answers folded in')).toBe(`${PANE_NOTE_PREFIX}answers folded in`)
+  expect(paneNote('AI drafting…')).toBe('AI drafting…')
+})
+
+test('0032: the prefix table is the one templates/BOARD.md and router.md list', () => {
+  expect(NOTE_PREFIXES.map(p => `${p.prefix.trim()} → ${p.label}`)).toEqual([
+    'merged → Merged',
+    'failed: → Failing',
+    'blocked: → Blocked',
+    'dropped: → Dropped',
+    'decided: → Decided',
+    'moved from GitHub issue → From GitHub',
+  ])
+  expect(PANE_NOTE_PREFIX).toBe('AI ')
 })
 
 test('hide done works across tabs but not on the Done tab', () => {
@@ -501,6 +575,24 @@ test('start: commit presence, code detection and the idea file from names alone'
   expect(ideaFile([{ name: 'Brief.md', kind: 'file' }], [])).toBe('design/Brief.md')
   expect(ideaFile([], [{ name: '2026-11-01-a.md', kind: 'file' }, { name: '2026-11-09-b.md', kind: 'file' }])).toBe('design/brainstorms/2026-11-09-b.md')
   expect(ideaFile([{ name: 'DESIGN.md', kind: 'file' }], [])).toBe('')
+})
+
+// ---------- Tickets folder setting: remaining paths (0035) ----------
+
+test('hasCode ignores the top folder of a nested tickets folder and of the bound design and plan', () => {
+  expect(hasCode(['planning', 'README.md'], 'planning/tickets')).toBe(false)
+  expect(hasCode(['spec', 'README.md'], 'tickets', ['spec/DESIGN.md', 'spec/PLAN.md'])).toBe(false)
+  expect(hasCode(['notes', 'work'], 'work', ['./notes/DESIGN.md', ''])).toBe(false)
+  expect(hasCode(['planning', 'src'], 'planning/tickets')).toBe(true)
+  expect(hasCode(['spec', 'README.md'], 'tickets')).toBe(true)
+  expect(hasCode(['tickets', 'README.md'], 'work')).toBe(true)
+})
+
+test('withBoard names a non-default board the way runLine does, and leaves the default alone', () => {
+  expect(withBoard('/ticket-board:planning')).toBe('/ticket-board:planning')
+  expect(withBoard('/ticket-board:planning', 'tickets/BOARD.md')).toBe('/ticket-board:planning')
+  expect(withBoard('/ticket-board:brainstorm 0007', 'work/BOARD.md')).toBe('/ticket-board:brainstorm 0007 (board: work/BOARD.md)')
+  expect(runLine(['0007'], false, 'work/BOARD.md')).toContain('(board: work/BOARD.md)')
 })
 
 // ---------- Tickets from the plan (0008) ----------
@@ -1069,6 +1161,16 @@ test('binding: a half binding line keeps the default for the other half', () => 
   const b4 = bindFromBoard('# B\n\nDesign: x/d.md · Plan: x/p.md\n', files(both))
   expect(b4).toEqual(expect.objectContaining({ designPath: undefined, planPath: undefined, isBlank: true }))
   expect(b4.warnings.length).toBe(2)
+})
+
+test('binding: rewriting the line keeps the half it is not given (0037)', () => {
+  const board = '# Ticket board\n\nDesign: docs/arch.md · Plan: docs/roadmap.md\n\n| # | Ticket | Status |\n|---|---|---|\n'
+  expect(setBindingLine(board, undefined, 'design/PLAN.md')).toBe(board.replace('Plan: docs/roadmap.md', 'Plan: design/PLAN.md'))
+  expect(setBindingLine(board, 'design/DESIGN.md', undefined)).toBe(board.replace('Design: docs/arch.md', 'Design: design/DESIGN.md'))
+  // A half-line keeps its half and gains the new one.
+  expect(setBindingLine('# B\n\nDesign: docs/arch.md\n', undefined, 'p.md')).toBe('# B\n\nDesign: docs/arch.md · Plan: p.md\n')
+  // No existing line: as before, only the given half is written.
+  expect(setBindingLine('# B\n', undefined, 'p.md')).toBe('# B\n\nPlan: p.md\n')
 })
 
 test('adopt: paths must be inside the project; empty input is an error', () => {

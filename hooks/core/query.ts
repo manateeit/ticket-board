@@ -149,13 +149,15 @@ export const DEFAULT_BOARD = 'tickets/BOARD.md'
 /**
  * `Run tickets 0011, 0013 and 0014.` `board` is the resolved board path (`<ticketsDir>/BOARD.md`): a
  * non-default one is named in the line so the router works on the board the pane shows. With the
- * default the line reads as it always has.
+ * default the line reads as it always has. `waitFor` (blockers not done yet) adds `— but only once
+ * 0003 is done` right after the run sentence, before any router tail, so callers never edit the text.
  */
-export function runLine(numbers: readonly string[], asRouter = false, board = DEFAULT_BOARD): string {
+export function runLine(numbers: readonly string[], asRouter = false, board = DEFAULT_BOARD, waitFor: readonly string[] = []): string {
   const head = numbers.slice(0, -1).join(', ')
   const line = numbers.length === 1 ? `Run ticket ${numbers[0]}` : `Run tickets ${head} and ${numbers[numbers.length - 1]}`
-  if (asRouter) return `${line}${routerTail(board)}`
-  return board === DEFAULT_BOARD ? `${line}.` : `${line} (board: ${board}).`
+  const wait = waitFor.length === 0 ? '' : ` — but only once ${waitFor.join(', ')} ${waitFor.length === 1 ? 'is' : 'are'} done`
+  if (asRouter) return `${line}${wait}${wait === '' ? '' : ' —'}${routerTail(board)}`
+  return board === DEFAULT_BOARD ? `${line}${wait}.` : `${line} (board: ${board})${wait}.`
 }
 
 /** Makes a run line work in any session: the router already is one, any other session takes the role from the file. */
@@ -164,24 +166,51 @@ export function routerTail(board = DEFAULT_BOARD): string {
   return ` as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update ${board}, and never write the code yourself.${which} A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.`
 }
 
+/**
+ * A slash command the pane fills (`/ticket`, brainstorm, design, planning), with the board named the
+ * way `runLine` names it so the skill acts on the board the pane shows. With the default board the
+ * command reads as it always has.
+ */
+export function withBoard(command: string, board = DEFAULT_BOARD): string {
+  return board === DEFAULT_BOARD ? command : `${command} (board: ${board})`
+}
+
 export function today(nowMs: number): string {
   const d = new Date(nowMs)
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-/** A one-word outcome from a board row's notes ("merged f681c3c (local…)" → Merged); the full notes live on the ticket page. */
-const RESULTS: [RegExp, string, string][] = [
-  [/\bmerged\b/i, 'Merged', 'green'],
-  [/\b(abandon|dropped|won'?t do|wontfix)/i, 'Dropped', 'slate'],
-  [/\b(fail|red|broken)\b/i, 'Failing', 'red'],
-  [/\bblocked\b/i, 'Blocked', 'red'],
-  [/\b(decided|scope)\b/i, 'Decided', 'violet'],
-  [/\bmoved from github issue\b/i, 'From GitHub', 'sky'],
+/**
+ * The Notes column conventions; templates/BOARD.md and .claude/agents/router.md list the same ones.
+ * A one-word outcome comes only from the prefix a note starts with (case does not matter), never
+ * from a word further in: "merged f681c3c (local…)" → Merged, "done after red tests in round 2" →
+ * no badge. The full notes live on the ticket page.
+ */
+export const NOTE_PREFIXES: readonly { prefix: string; label: string; hue: string }[] = [
+  { prefix: 'merged ', label: 'Merged', hue: 'green' },
+  { prefix: 'failed:', label: 'Failing', hue: 'red' },
+  { prefix: 'blocked:', label: 'Blocked', hue: 'red' },
+  { prefix: 'dropped:', label: 'Dropped', hue: 'slate' },
+  { prefix: 'decided:', label: 'Decided', hue: 'violet' },
+  { prefix: 'moved from GitHub issue', label: 'From GitHub', hue: 'sky' },
 ]
 /** `hue` names a color of the pane's palette (HUE in hooks/glass.tsx), so it follows the color scheme. */
 export function resultOf(notes: string): { label: string; hue: string } | undefined {
-  if (notes.trim() === '' || notes.trim() === '—') return undefined
-  for (const [re, label, hue] of RESULTS) if (re.test(notes)) return { label, hue }
-  return undefined
+  const n = notes.trimStart().toLowerCase()
+  const hit = NOTE_PREFIXES.find(p => n.startsWith(p.prefix.toLowerCase()))
+  return hit === undefined ? undefined : { label: hit.label, hue: hit.hue }
+}
+
+/** Every note the pane writes starts with this; the pane replaces only these (or an empty note), never a router's or a person's. */
+export const PANE_NOTE_PREFIX = 'AI '
+
+/** True for a note the pane owns: empty, or carrying the pane's exact prefix ("AI-reviewed by router" is not one). */
+export function isPaneNote(notes: string): boolean {
+  return notes.trim() === '' || notes.startsWith(PANE_NOTE_PREFIX)
+}
+
+/** The text as a pane note: the pane's prefix in front, unless it already has it. */
+export function paneNote(text: string): string {
+  return text.startsWith(PANE_NOTE_PREFIX) ? text : `${PANE_NOTE_PREFIX}${text}`
 }

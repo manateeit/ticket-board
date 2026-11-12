@@ -16,7 +16,7 @@ The file standard is `${CLAUDE_PLUGIN_ROOT}/docs/STANDARD.md`; the brief templat
 
 ## 1. Read the scope
 
-Arguments: `$ARGUMENTS`. The first word is the scope; anything after it is the person's notes.
+Arguments: `$ARGUMENTS`. The first word is the scope; anything after it is the person's notes. A trailing `(board: <path>)` is not an argument: it is the board path you were given (the pane adds it when the tickets folder is not `tickets/`); take it off before reading the rest.
 
 | Scope | Item |
 |---|---|

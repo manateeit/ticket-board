@@ -45,19 +45,19 @@ the checker fails the ticket if they are stale.
 | 0029 | Watch buttons handle the host's refusal | done | solo | — | — | merged d042905, all 4 checks PASS, round 2 resolved a test-file conflict, 353/353 on main · leak audit L7 |
 | 0030 | One parser for rd.md head fields | done | solo | — | — | merged d4493ca, all 6 checks PASS, 355/355 on main · leak audit L8 |
 | 0031 | Glass palette and plates made explicit | draft | solo | — | — | leak audit L10, L11 (risk) |
-| 0032 | Notes prefixes written down | in-progress | solo | — | worker | leak audit L12 (risk) + audit 2 L6 (bug) |
-| 0033 | One status list for glass and roadmap | in-progress | solo | — | worker | leak audit 2 L10, L14 (bug) |
-| 0034 | Run line places the wait-for-blockers clause itself | in-progress | solo | — | worker | leak audit 2 L8 (bug) |
-| 0035 | Tickets folder setting: remaining paths | in-progress | solo | — | worker | leak audit 2 L7, L13 (bug) |
-| 0036 | New ticket rows report dropped columns | in-progress | solo | — | worker | leak audit 2 L2 (bug) |
-| 0037 | Binding line keeps the half it is not given | in-progress | solo | — | worker | leak audit 2 L3 (bug) |
-| 0038 | Replan Apply only applies what was ticked, for its design | in-progress | solo | — | worker | leak audit 2 L4, L5 (bug) |
-| 0039 | One rule for where a design section's questions end | in-progress | solo | — | worker | leak audit 2 L1 (bug) |
-| 0040 | Questions section hidden only when core finds it | in-progress | solo | — | worker | leak audit 2 L9 (bug) |
-| 0041 | Store writes: fresh snapshot and no edits under an AI job | in-progress | solo | — | worker | leak audit 2 L11, L15 (risk) |
-| 0042 | Untracked writer spawns count and show | in-progress | solo | — | worker | leak audit 2 L12 (risk) |
-| 0043 | Agent handoff contracts match the pipeline | in-progress | solo | — | worker | leak audit 2 L16, L18, L19 (risk/coupling) |
-| 0044 | Every eval.md has Result and Evidence fields | in-progress | solo | — | worker | leak audit 2 L17 (risk) |
+| 0032 | Notes prefixes written down | done | solo | — | — | merged 4d9f3ed, all checks PASS, round 2 resolved merge conflict (render timeouts from load only) · round 2: test-file conflict with main · leak audit L12 (risk) + audit 2 L6 (bug) |
+| 0033 | One status list for glass and roadmap | in-progress | solo | — | worker | built; re-merging main after the setPaneNote fix (736d7f7) · leak audit 2 L10, L14 (bug) |
+| 0034 | Run line places the wait-for-blockers clause itself | done | solo | — | — | merged c812b8b, all 5 checks PASS (render timeouts from load only) · leak audit 2 L8 (bug) |
+| 0035 | Tickets folder setting: remaining paths | done | solo | — | — | merged e5e54f4, all 4 checks PASS, round 2 resolved merge conflict, 408/408 on main · checker ALL PASS; round 2: test-file conflict with main · leak audit 2 L7, L13 (bug) |
+| 0036 | New ticket rows report dropped columns | in-progress | solo | — | worker | checker ALL PASS; round 2: README conflict with main · leak audit 2 L2 (bug) |
+| 0037 | Binding line keeps the half it is not given | done | solo | — | — | merged 07e6fa1, all 4 checks PASS (render timeouts from load only) · leak audit 2 L3 (bug) |
+| 0038 | Replan Apply only applies what was ticked, for its design | done | solo | — | — | merged d42c7a1, all 5 checks PASS (render timeouts from load only) · leak audit 2 L4, L5 (bug) |
+| 0039 | One rule for where a design section's questions end | done | solo | — | — | merged 18a5a76, all 5 checks PASS (render timeouts from load only) · leak audit 2 L1 (bug) |
+| 0040 | Questions section hidden only when core finds it | done | solo | — | — | merged 3cb071d, all 4 checks PASS (render timeouts from load only) · leak audit 2 L9 (bug) |
+| 0041 | Store writes: fresh snapshot and no edits under an AI job | done | solo | — | — | merged e475a3e, all 4 checks PASS (render timeouts from load only) · leak audit 2 L11, L15 (risk) |
+| 0042 | Untracked writer spawns count and show | done | solo | — | — | merged 4789abb, all checks PASS, round 2 resolved merge conflict (render timeouts from load only) · round 2: ai.ts conflict with main · leak audit 2 L12 (risk) |
+| 0043 | Agent handoff contracts match the pipeline | done | solo | — | — | merged 33d255e, all 5 checks PASS (2 render timeouts from machine load, Markdown-only diff) · leak audit 2 L16, L18, L19 |
+| 0044 | Every eval.md has Result and Evidence fields | done | solo | — | — | merged 282a45b, all 4 checks PASS (round 2 fixed README), 409/409 on main · round 2: README line 281 stale (checker FAIL on docs) · leak audit 2 L17 (risk) |
 
 How to read this board:
 
@@ -67,3 +67,14 @@ How to read this board:
 - **Blocked by** — ticket numbers that must be `done` first.
 - **Owner** — the worker/session currently on it, once in-progress.
 - **Notes** — last meaningful event: merged commit, check result, blocker.
+  Start the note with one of these prefixes; the pane's Result badge comes
+  only from the prefix at the very start, never from words further in:
+  - `merged <sha>` → Merged (e.g. `merged 1a2b3c, all 5 checks PASS`)
+  - `failed: …` → Failing (e.g. `failed: check 3, round 2`)
+  - `blocked: …` → Blocked (e.g. `blocked: waiting on 0007`)
+  - `dropped: …` → Dropped
+  - `decided: …` → Decided
+  - `moved from GitHub issue …` → From GitHub
+  - `AI …` — written by the ticket-board pane, which replaces only notes that
+    are empty or start with `AI ` (capital AI and a space). Never start your
+    own note with `AI `; the pane never replaces any other note.
