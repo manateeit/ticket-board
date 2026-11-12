@@ -45,7 +45,19 @@ the checker fails the ticket if they are stale.
 | 0029 | Watch buttons handle the host's refusal | done | solo | — | — | merged d042905, all 4 checks PASS, round 2 resolved a test-file conflict, 353/353 on main · leak audit L7 |
 | 0030 | One parser for rd.md head fields | done | solo | — | — | merged d4493ca, all 6 checks PASS, 355/355 on main · leak audit L8 |
 | 0031 | Glass palette and plates made explicit | draft | solo | — | — | leak audit L10, L11 (risk) |
-| 0032 | Notes prefixes written down | draft | solo | — | — | leak audit L12 (risk) |
+| 0032 | Notes prefixes written down | in-progress | solo | — | worker | leak audit L12 (risk) + audit 2 L6 (bug) |
+| 0033 | One status list for glass and roadmap | in-progress | solo | — | worker | leak audit 2 L10, L14 (bug) |
+| 0034 | Run line places the wait-for-blockers clause itself | in-progress | solo | — | worker | leak audit 2 L8 (bug) |
+| 0035 | Tickets folder setting: remaining paths | in-progress | solo | — | worker | leak audit 2 L7, L13 (bug) |
+| 0036 | New ticket rows report dropped columns | in-progress | solo | — | worker | leak audit 2 L2 (bug) |
+| 0037 | Binding line keeps the half it is not given | in-progress | solo | — | worker | leak audit 2 L3 (bug) |
+| 0038 | Replan Apply only applies what was ticked, for its design | in-progress | solo | — | worker | leak audit 2 L4, L5 (bug) |
+| 0039 | One rule for where a design section's questions end | in-progress | solo | — | worker | leak audit 2 L1 (bug) |
+| 0040 | Questions section hidden only when core finds it | in-progress | solo | — | worker | leak audit 2 L9 (bug) |
+| 0041 | Store writes: fresh snapshot and no edits under an AI job | in-progress | solo | — | worker | leak audit 2 L11, L15 (risk) |
+| 0042 | Untracked writer spawns count and show | in-progress | solo | — | worker | leak audit 2 L12 (risk) |
+| 0043 | Agent handoff contracts match the pipeline | in-progress | solo | — | worker | leak audit 2 L16, L18, L19 (risk/coupling) |
+| 0044 | Every eval.md has Result and Evidence fields | in-progress | solo | — | worker | leak audit 2 L17 (risk) |
 
 How to read this board:
 

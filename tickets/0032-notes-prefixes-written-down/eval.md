@@ -18,7 +18,11 @@
    - Run: read templates/BOARD.md and .claude/agents/router.md
    - Pass: both list the same prefixes the code matches
 
-5. Docs and README updated
+5. Pane's own notes stay pane-owned (fails before the fix)
+   - Run: pane test: fold answers into a ticket (note "Answers folded in…"), then Enhance it; and a skeleton ticket, then Enhance
+   - Pass: the running and done AI notes replace the pane's earlier note in BOARD.md
+
+6. Docs and README updated
    - Run: read README.md and the docs in rd.md `## Docs`
    - Pass: they describe the change as built
 ## Not checked by automation
