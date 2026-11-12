@@ -115,11 +115,12 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
   const calls: string[] = []
   const writes: string[] = []
   const opened: string[] = []
+  const titles: string[] = []
   const dirs = new Set(opts.dirs ?? [])
   const store = opts.store ?? new Map<string, unknown>()
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'board' } }))
-  on('ui.open', (_: unknown, e: { id: string }) => (opened.push(e.id), { value: { isPlaced: true } }))
+  on('ui.open', (_: unknown, e: { id: string; title?: string }) => (opened.push(e.id), e.title !== undefined && titles.push(e.title), { value: { isPlaced: true } }))
   on('clock.every', () => ({ deny: 'no timers in tests' }))
   on('agent.list', () => AGENTS_DENIED ? { deny: 'agent.list is not available here' } : ({ value: AGENTS_OVERRIDE ?? [
     { id: 'a1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
@@ -158,7 +159,7 @@ async function boot($: Parameters<TestBody>[0], on: any, surface: 'terminal' | '
   await new Promise(r => setTimeout(r, 20))
   const openedAtStart = [...opened]
   const ui = await $.ui.mount({ ...PANE, surface } as any)
-  return { ui, fs, filled, calls, writes, store, openedAtStart }
+  return { ui, fs, filled, calls, writes, store, openedAtStart, titles }
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -4324,6 +4325,123 @@ for (const surface of ['desktop', 'terminal'] as const)
         AGENTS_OVERRIDE = undefined
       }
     })
+
+// ---------- 0045: held agents are not counted as running ----------
+
+// The host's `waiting` means held (on its own background work, a plan approval or an Agent call), not running a turn.
+const HELD_BOARD = BOARD.replace(
+  '| 0003 | Dark mode for settings page   | draft  | solo | —          | —       | AI draft done · 1 open question |',
+  [
+    '| 0003 | Dark mode for settings page   | draft  | solo | —          | —       | AI draft done · 1 open question |',
+    '| 0040 | Untracked writer spawns       | done   | solo | —          | —       | merged |',
+    '| 0041 | Agent handoff contracts       | ready  | solo | —          | —       | |',
+  ].join('\n'),
+)
+const heldAgent = (id: string, description: string, name: string) => ({ id, description, type: 'worker', status: 'waiting', name })
+/** Where the Held and Recently finished headings sit in the drawn text (-1 when absent). */
+const panelParts = (drawn: string) => ({ held: drawn.search(/HELD|"Held"/), past: drawn.search(/RECENTLY FINISHED|Recently finished/) })
+
+for (const surface of ['desktop', 'terminal'] as const) {
+  test(`held agents are not counted as running (${surface})`, async ($, on) => {
+    AGENTS_OVERRIDE = [
+      { id: 'a1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
+      heldAgent('h1', 'Worker: ticket 0040', 'worker-0040'),
+      heldAgent('h2', 'Checker: ticket 0041', 'checker-0041'),
+    ]
+    try {
+      const { ui } = await boot($, on, surface, { 'tickets/BOARD.md': HELD_BOARD })
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      if (surface === 'desktop') {
+        await ui.find({ type: 'Text', text: /^Waiting on 1 agent {2}· {2}2 agents held {2}· {2}Claude continues when it reports$/ })
+        expect(await drawnText(ui)).toContain('● 1')
+      } else await ui.find({ type: 'Button', label: /^Agents ● 1$/ } as any)
+      await ui.press({ key: 'agents' })
+      await ui.find({ type: 'Text', text: /AGENTS · 1 RUNNING/ })
+      const drawn = await drawnText(ui)
+      const { held } = panelParts(drawn)
+      expect(held).toBeGreaterThan(-1)
+      // Both held agents are listed under Held, with their waiting pill; the running one above it.
+      expect(drawn.indexOf('worker-0002')).toBeLessThan(held)
+      expect(drawn.indexOf('worker-0040')).toBeGreaterThan(held)
+      expect(drawn.indexOf('checker-0041')).toBeGreaterThan(held)
+      expect(drawn).toContain('● waiting')
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+
+  test(`only held agents left: nothing running (${surface})`, async ($, on) => {
+    AGENTS_OVERRIDE = [heldAgent('h1', 'Worker: ticket 0040', 'worker-0040'), heldAgent('h2', 'Checker: ticket 0041', 'checker-0041')]
+    try {
+      on('turn.start', (_: unknown, e: unknown) => e)
+      on('turn.complete', () => ({ text: 'ok' }))
+      const { ui, titles } = await boot($, on, surface, { 'tickets/BOARD.md': HELD_BOARD })
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      // A main turn runs and ends: the tab title says working, then not, though the held agents remain.
+      await ($ as any).turn.start({ turnId: 't-main', prompt: 'go' })
+      expect(titles.at(-1)).toContain('● working')
+      await ($ as any).turn.complete({ turnId: 't-main', reason: 'answer', answer: 'ok', isAborted: false, durationMs: 1 })
+      expect(titles.at(-1)).not.toContain('● working')
+      if (surface === 'desktop') {
+        await ui.find({ type: 'Text', text: /^2 agents held · nothing running$/ })
+        const drawn = await drawnText(ui)
+        expect(drawn).not.toContain('Claude continues when')
+        expect(drawn).not.toContain('Claude is idle')
+      } else await ui.find({ type: 'Button', label: /^Agents ● 0$/ } as any)
+      await ui.press({ key: 'agents' })
+      await ui.find({ type: 'Text', text: /AGENTS · 0 RUNNING/ })
+      expect(await drawnText(ui)).toContain('worker-0040')
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+
+  test(`a held agent whose ticket is done is marked a probable leftover (${surface})`, async ($, on) => {
+    AGENTS_OVERRIDE = [heldAgent('h1', 'Worker: ticket 0040', 'worker-0040'), heldAgent('h2', 'Checker: ticket 0041', 'checker-0041')]
+    try {
+      const { ui } = await boot($, on, surface, { 'tickets/BOARD.md': HELD_BOARD })
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      await ui.press({ key: 'agents' })
+      await ui.find({ type: 'Text', text: /AGENTS · 0 RUNNING/ })
+      const drawn = await drawnText(ui)
+      // One leftover note, on 0040's line (done), none on 0041's (ready).
+      expect(drawn.match(/ticket done: probably leftover/g)?.length).toBe(1)
+      const note = drawn.indexOf('ticket done: probably leftover')
+      expect(drawn.indexOf('worker-0040')).toBeLessThan(note)
+      expect(drawn.indexOf('checker-0041')).toBeGreaterThan(note)
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+
+  test(`idle and unknown agent statuses are not running (${surface})`, async ($, on) => {
+    AGENTS_OVERRIDE = [
+      { id: 'i1', description: 'Check 0001', type: 'checker', status: 'idle', name: 'checker-idle' },
+      { id: 'z1', description: 'Task z', type: 'worker', status: 'snoozing', name: 'worker-snoozing' },
+    ]
+    try {
+      const { ui } = await boot($, on, surface)
+      await ui.find({ type: 'Text', text: /Dark mode/ })
+      if (surface === 'desktop') await ui.find({ type: 'Text', text: /Claude is idle/ })
+      else await ui.find({ type: 'Button', label: /^Agents ● 0$/ } as any)
+      await ui.press({ key: 'agents' })
+      await ui.find({ type: 'Text', text: /AGENTS · 0 RUNNING/ })
+      const drawn = await drawnText(ui)
+      const { held, past } = panelParts(drawn)
+      expect(held).toBe(-1)
+      expect(past).toBeGreaterThan(-1)
+      expect(drawn.indexOf('checker-idle')).toBeGreaterThan(past)
+      expect(drawn).toContain('● snoozing')
+      expect(drawn).not.toContain('Waiting on')
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+}
 
 // 0027: a forced refresh never hands back a snapshot older than the call; plain ones still share one run.
 const listPasses = (calls: string[]) => calls.filter(c => /^list \/repo\/tickets -> /.test(c)).length

@@ -1018,8 +1018,14 @@ export function jobFor(number: string): Job | undefined {
 }
 
 
-const LIVE = new Set(['pending', 'running', 'waiting'])
+// The host's AgentStatus: `pending` and `running` run a turn. `waiting` is held (on background work it
+// owns, a plan's approval or an Agent call), not running. `idle`, the ended ones and any status we don't
+// know are neither: the pane lists them as finished.
+const LIVE = new Set(['pending', 'running'])
+/** Running a turn: counted as running in the panel, the strip, the Agents count and the tab title. */
 export const isLive = (a: AgentInfo) => LIVE.has(a.status)
+/** Held by the host (`waiting`): listed under Held, never counted as running. */
+export const isHeld = (a: AgentInfo) => a.status === 'waiting'
 
 /** Re-reads this session's agents; redraws only when something changed. */
 export async function loadAgents($: $): Promise<void> {
