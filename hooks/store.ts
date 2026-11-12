@@ -734,7 +734,10 @@ export function folderOf(number: string): string | undefined {
   return S.snap?.files.get(number)?.folder
 }
 
-/** Reserves the next number: creates the folder with skeleton files and adds a draft row. */
+/**
+ * Reserves the next number: creates the folder with skeleton files and adds a draft row.
+ * `skipped` lists the given row values BOARD.md had no column for (see `addRow`).
+ */
 export async function createSkeleton(
   $: $,
   idea: {
@@ -749,7 +752,7 @@ export async function createSkeleton(
     checks?: string[]
   },
   notes: string,
-): Promise<{ number: string; folder: string }> {
+): Promise<{ number: string; folder: string; skipped: Column[] }> {
   await refresh($, true)
   const names = [...(S.snap?.files.values() ?? [])].map(f => f.folder)
   const entries = await listOr($, dir())
@@ -810,12 +813,10 @@ export async function createSkeleton(
   await $.fs.write(abs(`${dir()}/${folder}/rd.md`), rd)
   await $.fs.write(abs(`${dir()}/${folder}/eval.md`), ev)
   const text = await $.fs.read(abs(boardPath()))
-  await $.fs.write(
-    abs(boardPath()),
-    addRow(text, { number, title: idea.title, status: 'draft', mode: idea.mode, blockedBy: idea.blockedBy, notes }),
-  )
+  const { text: next, skipped } = addRow(text, { number, title: idea.title, status: 'draft', mode: idea.mode, blockedBy: idea.blockedBy, notes })
+  await $.fs.write(abs(boardPath()), next)
   await refresh($, true)
-  return { number, folder }
+  return { number, folder, skipped }
 }
 
 /** Writes the board (`<ticketsDir>/BOARD.md`, default `tickets/BOARD.md`) from the plugin's template (and `TEMPLATE/rd.md`, `eval.md` when missing). Throws on a failed write. */

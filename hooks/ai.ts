@@ -234,6 +234,8 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
   }
   S.isCreating = true
   const made: string[] = []
+  // Tickets whose Blocked by was not written because BOARD.md has no Blocked by column.
+  const lostDeps: string[] = []
   let tail: string[] = []
   // The batch's own error, never the banner: an old error still showing must not hide this summary.
   let stopped = false
@@ -258,7 +260,7 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
       const { blockedBy, missing } = blockedByFor(b, rm.links, created)
       const extra = missingNote(missing)
       const brief = planBrief(rm.design, rm.plan, b)
-      const { number, folder } = await createSkeleton(
+      const { number, folder, skipped } = await createSkeleton(
         $,
         {
           title: b.name || b.id,
@@ -274,13 +276,14 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
       )
       created.set(b.id, number)
       made.push(number)
+      if (skipped.includes('blockedBy')) lostDeps.push(number)
       await addPlanTicket($, b.id, number)
       S.planFailed.delete(b.id)
       S.planQueue.push({ number, folder, build: b.id, brief, extra })
     }
   } catch (err) {
     stopped = true
-    say($, `Stopped creating tickets: ${err instanceof Error ? err.message : String(err)}`, 'error')
+    say($, [`Stopped creating tickets: ${err instanceof Error ? err.message : String(err)}`, lostDepsNote(lostDeps)].filter(Boolean).join(' · '), 'error')
   } finally {
     S.isCreating = false
   }
@@ -293,12 +296,17 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
   const failed = made.filter(n => [...S.planFailed.values()].some(f => f.number === n)).length
   say(
     $,
-    [`Created ${plural(made.length, 'draft ticket')} from ${what} (${range})`, queued === 0 ? '' : `${queued} queued`, failed === 0 ? '' : `${failed} failed to start`, ...tail]
+    [`Created ${plural(made.length, 'draft ticket')} from ${what} (${range})`, queued === 0 ? '' : `${queued} queued`, failed === 0 ? '' : `${failed} failed to start`, lostDepsNote(lostDeps), ...tail]
       .filter(Boolean)
       .join(' · '),
-    failed > 0 ? 'warning' : 'success',
+    failed > 0 || lostDeps.length > 0 ? 'warning' : 'success',
   )
   return made
+}
+
+/** `Blocked by not saved for 0003, 0004: BOARD.md has no Blocked by column`, or '' when nothing was lost. */
+function lostDepsNote(numbers: readonly string[]): string {
+  return numbers.length === 0 ? '' : `Blocked by not saved for ${numbers.join(', ')}: BOARD.md has no Blocked by column`
 }
 
 /** Create again for a plan build whose writer failed: the same ticket goes back in the queue. */

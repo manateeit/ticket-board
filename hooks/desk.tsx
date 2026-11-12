@@ -1387,16 +1387,24 @@ export function deskNew($: $, ui: UI): RenderChildren {
                 }}
               />,
               <Box key="meta" flexDirection="row" gap={2} flexWrap="wrap">
-                <Select key="new-mode" label="Mode" value={S.newMode} options={[{ value: 'solo', label: 'Solo' }, { value: 'team', label: 'Team' }]} onSelect={v => ((S.newMode = v), redraw($))} />
-                <Input
-                  key="new-blocked"
-                  label="Depends on"
-                  value={S.drafts.get('new-blocked') ?? ''}
-                  placeholder="e.g. 0003"
-                  submitLabel="Set"
-                  onInput={v => void S.drafts.set('new-blocked', v)}
-                  onSubmit={v => void S.drafts.set('new-blocked', v)}
-                />
+                {hasColumn('mode') ? (
+                  <Select key="new-mode" label="Mode" value={S.newMode} options={[{ value: 'solo', label: 'Solo' }, { value: 'team', label: 'Team' }]} onSelect={v => ((S.newMode = v), redraw($))} />
+                ) : (
+                  <Text key="new-mode-none" color={G.faint} size="footnote">{noColumn('mode')}</Text>
+                )}
+                {hasColumn('blockedBy') ? (
+                  <Input
+                    key="new-blocked"
+                    label="Depends on"
+                    value={S.drafts.get('new-blocked') ?? ''}
+                    placeholder="e.g. 0003"
+                    submitLabel="Set"
+                    onInput={v => void S.drafts.set('new-blocked', v)}
+                    onSubmit={v => void S.drafts.set('new-blocked', v)}
+                  />
+                ) : (
+                  <Text key="new-blocked-none" color={G.faint} size="footnote">{noColumn('blockedBy')}</Text>
+                )}
               </Box>,
               <Box key="create-row" flexDirection="row" gap={1} flexWrap="wrap">
                 <Button key="create-ai" label="✨ Create + AI enhance" variant="primary" onPress={() => void createTicket($, true)} />

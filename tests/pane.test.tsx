@@ -1296,6 +1296,62 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// ---------- 0036: a new ticket's Mode / Blocked by are never dropped silently ----------
+
+const NO_DEPS_BOARD = `# Ticket board
+
+| #    | Ticket                      | Status | Mode | Notes |
+|------|-----------------------------|--------|------|-------|
+| 0003 | Dark mode for settings page | draft  | solo |       |
+`
+
+/** Fills the new-ticket idea and creates it (terminal: submitting the idea creates; desktop: Create empty draft). */
+async function createFromForm(ui: any, fs: { files: Map<string, string> }, idea: string, folder: string) {
+  await ui.input({ key: 'new-idea', text: idea, kind: 'submit' } as any)
+  if (!fs.files.has(`${folder}/rd.md`)) await ui.press({ key: 'create-plain' })
+  await until(() => fs.files.has(`${folder}/rd.md`), 'the new ticket folder')
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`0036: a board without Blocked by does not offer it on the new-ticket form (${surface})`, async ($, on) => {
+    const { ui, fs } = await boot($, on, surface, { 'tickets/BOARD.md': NO_DEPS_BOARD })
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'new' })
+    await ui.find({ key: 'new-idea' } as any)
+    await ui.find({ key: 'new-mode' } as any)
+    const drawn = await drawnText(ui)
+    expect(drawn).not.toContain('"key":"new-blocked"')
+    expect(drawn).toContain('Blocked by: BOARD.md has no Blocked by column')
+    await ui.unmount()
+  })
+
+  test(`0036: a dependency the board cannot hold is reported, not "Created" (${surface})`, async ($, on) => {
+    const { ui, fs } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    await ui.press({ key: 'new' })
+    await ui.input({ key: 'new-blocked', text: '0001', kind: 'submit' } as any)
+    // Someone drops the Blocked by column while the form is open.
+    fs.files.set('tickets/BOARD.md', NO_DEPS_BOARD)
+    fs.mtimes.set('tickets/BOARD.md', ++fs.tick.n)
+    await createFromForm(ui, fs, 'Export button does nothing', 'tickets/0004-export-button-does-nothing')
+    await until(async () => (await drawnText(ui)).includes('Blocked by 0001 not saved: BOARD.md has no Blocked by column'), 'the not-saved message')
+    expect(parseBoard(fs.files.get('tickets/BOARD.md')!)!.rows.map(r => r.number)).toEqual(['0003', '0004'])
+    await ui.unmount()
+  })
+
+  test(`0036: a board with every column creates the row with its dependency, no warning (${surface})`, async ($, on) => {
+    const { ui, fs } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    await ui.press({ key: 'new' })
+    await ui.input({ key: 'new-blocked', text: '0001', kind: 'submit' } as any)
+    await createFromForm(ui, fs, 'Export button does nothing', 'tickets/0004-export-button-does-nothing')
+    await until(() => parseBoard(fs.files.get('tickets/BOARD.md')!)!.rows.some(r => r.number === '0004'), 'the new row')
+    expect(parseBoard(fs.files.get('tickets/BOARD.md')!)!.rows.find(r => r.number === '0004')!.blockedBy).toEqual(['0001'])
+    expect(await drawnText(ui)).not.toContain('not saved')
+    await ui.unmount()
+  })
+}
+
 // 0023: a board without Mode and Notes columns; edits to them are never reported as saved.
 const LEAN_BOARD = `# Ticket board
 
@@ -1976,6 +2032,28 @@ async function until(check: () => boolean | Promise<boolean>, what: string, ms =
 const rowsOf = (fs: { files: Map<string, string> }) => parseBoard(fs.files.get('tickets/BOARD.md')!)!.rows
 const t8Row = (fs: { files: Map<string, string> }, n: string) => rowsOf(fs).find(r => r.number === n)!
 const t8Folder = (fs: { files: Map<string, string> }, n: string) => [...fs.files.keys()].find(k => k.startsWith(`tickets/${n}-`) && k.endsWith('/rd.md'))!.replace(/\/rd\.md$/, '')
+
+// ---------- 0036: a plan batch on a board without Blocked by names the tickets that lost it ----------
+
+test('0036: Create tickets for a phase on a board without Blocked by says which tickets lost their dependencies', async ($, on) => {
+  const w = fakeWriter(on)
+  try {
+    const lean = T8_BOARD.replace('| Blocked by ', '').replace('|------------', '').replace('| —          ', '')
+    const { ui, fs } = await boot($, on, 'desktop', { ...t8Files(), 'tickets/BOARD.md': lean }, { blank: true })
+    expect(parseBoard(lean)!.columns.blockedBy).toBeUndefined()
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-create-P1' })
+    await ui.press({ key: 'phase-create-P1' })
+    await until(async () => (await drawnText(ui)).includes('Created 4 draft tickets from P1'), 'the batch summary')
+    // P1.2 → 0003 (needs 0001, 0002), P1.3 → 0004 (needs 0003), P1.5 → 0005 (needs 0002); P1.4 → 0002 needs nothing new.
+    expect(await drawnText(ui)).toContain('Blocked by not saved for 0003, 0004, 0005: BOARD.md has no Blocked by column')
+    expect(rowsOf(fs).length).toBe(5)
+    await ui.unmount()
+  } finally {
+    w.done()
+  }
+})
 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`Create tickets for a phase: 4 skeletons, Blocked by from Needs, Plan cells, 3 writers at a time (${surface})`, async ($, on) => {
