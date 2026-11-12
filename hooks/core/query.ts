@@ -149,13 +149,15 @@ export const DEFAULT_BOARD = 'tickets/BOARD.md'
 /**
  * `Run tickets 0011, 0013 and 0014.` `board` is the resolved board path (`<ticketsDir>/BOARD.md`): a
  * non-default one is named in the line so the router works on the board the pane shows. With the
- * default the line reads as it always has.
+ * default the line reads as it always has. `waitFor` (blockers not done yet) adds `— but only once
+ * 0003 is done` right after the run sentence, before any router tail, so callers never edit the text.
  */
-export function runLine(numbers: readonly string[], asRouter = false, board = DEFAULT_BOARD): string {
+export function runLine(numbers: readonly string[], asRouter = false, board = DEFAULT_BOARD, waitFor: readonly string[] = []): string {
   const head = numbers.slice(0, -1).join(', ')
   const line = numbers.length === 1 ? `Run ticket ${numbers[0]}` : `Run tickets ${head} and ${numbers[numbers.length - 1]}`
-  if (asRouter) return `${line}${routerTail(board)}`
-  return board === DEFAULT_BOARD ? `${line}.` : `${line} (board: ${board}).`
+  const wait = waitFor.length === 0 ? '' : ` — but only once ${waitFor.join(', ')} ${waitFor.length === 1 ? 'is' : 'are'} done`
+  if (asRouter) return `${line}${wait}${wait === '' ? '' : ' —'}${routerTail(board)}`
+  return board === DEFAULT_BOARD ? `${line}${wait}.` : `${line} (board: ${board})${wait}.`
 }
 
 /** Makes a run line work in any session: the router already is one, any other session takes the role from the file. */

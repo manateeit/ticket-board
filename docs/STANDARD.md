@@ -260,6 +260,9 @@ Single source of truth for the super-agent workflow. …
 - A half the line leaves out uses its default: `design/DESIGN.md` for the design, `design/PLAN.md`
   for the plan, if that file exists. So `Design: design/factory/design.md` alone still binds
   `design/PLAN.md` once it is written. With no binding line both defaults are used if they exist.
+- Rewriting the line (adopting docs, section 9) changes only the half being set and keeps the
+  other half as the line names it: adopting a plan-only proposal on a board bound to
+  `Design: docs/arch.md · Plan: docs/roadmap.md` gives `Design: docs/arch.md · Plan: design/PLAN.md`.
 
 ## 6. Who may write what
 
@@ -521,8 +524,8 @@ reason under each. On **Apply selected** the pane:
 2. writes `design/DESIGN.md` and `design/PLAN.md`, or other names the person picks: an existing
    DESIGN.md or PLAN.md is **never overwritten** (Apply asks for another name or cancel and writes
    nothing);
-3. sets the BOARD.md binding line (section 5) to the files written, creating `tickets/BOARD.md`
-   from the template when there is none;
+3. sets the BOARD.md binding line (section 5) to the files written, keeping the half of an
+   existing line it did not write, and creating `tickets/BOARD.md` from the template when there is none;
 4. marks the proposal `applied`, and runs the roadmap's coverage checks.
 
 The source files are never modified or deleted.

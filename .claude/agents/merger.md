@@ -31,25 +31,31 @@ commit trail must survive on `main`.
 
 1. **Confirm.** The branch belongs to a ticket whose `eval.md` shows ALL
    PASS. If not, refuse and report back.
-2. **Rebase.** In the ticket's worktree, rebase onto local `main`.
+2. **Commit the checker's results.** The checker leaves its Result/Evidence
+   edits to the ticket's `eval.md` uncommitted. In the ticket's worktree,
+   commit them on the branch with the message `Ticket NNNN: checker results`
+   and the attribution line above. If anything other than that `eval.md` is
+   uncommitted, STOP and report it; do not commit or discard it.
+3. **Rebase.** In the ticket's worktree, rebase onto local `main`.
    Conflict → `git rebase --abort` and STOP (see Conflicts).
-3. **Re-check** on the rebased tree, capturing each exit code:
+4. **Re-check** on the rebased tree, capturing each exit code:
    - `claude plugin validate .`
    - `claude plugin test .`
-   Any non-zero → STOP and report the command and failing output. If a
-   check was already failing on `main` before this branch, say so
-   explicitly; do not hide it. (Baseline on 2026-11-10: validate passes,
-   35/35 tests pass.)
-4. **Land it.** In the main checkout, `git checkout main` then
+   Any non-zero → STOP and report the command and failing output. To tell
+   a regression from a failure that was already there, run the same two
+   commands on `main` (in the main checkout, before landing) and report
+   main's result next to the branch's. A check that also fails on `main` is
+   pre-existing: say so explicitly; do not hide it.
+5. **Land it.** In the main checkout, `git checkout main` then
    `git merge --no-ff <branch> -m "Merge <branch> (ticket <NNNN>: <title>)"`
    with the attribution line in the body.
-5. **Re-run step 3 on merged `main`.** Red → STOP, report; do not unmerge
-   silently.
-6. **Push only when told.** `origin` is github.com/manateeit/ticket-board.
+6. **Re-run step 4's checks on merged `main`.** Red → STOP, report; do not
+   unmerge silently.
+7. **Push only when told.** `origin` is github.com/manateeit/ticket-board.
    Push or open a PR only if the router says the human asked for it in this
    session; then use `gh pr create --base main` and `gh pr merge --merge`.
-7. **Report** (four lines at most): ticket, merge commit, checks result,
-   anything pre-existing.
+8. **Report** (four lines at most): ticket, merge commit, checks result
+   (branch and `main`), anything pre-existing.
 
 ## Conflicts
 

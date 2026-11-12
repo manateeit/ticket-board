@@ -31,7 +31,7 @@ import {
   type Roadmap,
 } from './core/roadmap'
 import type { Question } from './core/ticket'
-import { S, abs, addPlanTicket, boardPath, changesFolder, createBoardFiles, createSkeleton, dir, editRow, folderOf, fullRoadmap, latestProposal, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
+import { S, abs, addPlanTicket, boardPath, changesFolder, createBoardFiles, createSkeleton, dir, editRow, folderOf, fullRoadmap, latestProposal, proposalKey, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
 
 type $ = EngineInterface
 
@@ -327,6 +327,13 @@ export async function retryPlanBuild($: $, buildId: string): Promise<void> {
 /** What Apply shows, writing nothing, when PLAN.md is not the plan the proposal was made from. */
 export const PLAN_CHANGED = 'plan changed; regenerate the proposal'
 
+/** What Apply shows, writing nothing, when the proposal was made for another design version (0038). */
+export const staleProposal = (pv: number | undefined, dv: number | undefined) =>
+  `This replan proposal is for ${pv === undefined ? 'an unknown design version' : `design v${pv}`}, the design is ${dv === undefined ? 'unversioned' : `v${dv}`}: make a new proposal; nothing applied`
+
+/** What Apply and Dismiss show, writing nothing, when the proposal changed after the items were ticked (0038). */
+export const PROPOSAL_CHANGED = 'The replan proposal changed since you ticked: tick the items again; nothing applied'
+
 async function readText($: $, path: string): Promise<string | undefined> {
   try {
     return await $.fs.read(abs(path))
@@ -465,7 +472,10 @@ export async function stampProposal($: $): Promise<void> {
   if (lp?.text === undefined || lp.proposal === undefined || !lp.proposal.hasGroups || lp.proposal.planHash !== '' || planPath === undefined) return
   const plan = await readText($, planPath)
   if (plan === undefined) return
-  await $.fs.write(abs(lp.path), setFrontMatterKey(lp.text, 'plan-hash', planHash(plan)))
+  const next = setFrontMatterKey(lp.text, 'plan-hash', planHash(plan))
+  // The pane's own write: ticks made meanwhile stay with the proposal.
+  if (S.replanTicksOf === proposalKey(lp.path, lp.text)) S.replanTicksOf = proposalKey(lp.path, next)
+  await $.fs.write(abs(lp.path), next)
   await refresh($, true)
 }
 
@@ -510,33 +520,46 @@ export async function createFollowUps($: $, items: readonly { build?: string; ti
 /**
  * Apply selected: the ticked open items edit PLAN.md (Add, Change, Drop and `design-version`),
  * Add and Follow-up items become draft tickets, and the proposal marks them `[x]` with the new
- * plan's hash. Stops with PLAN_CHANGED and writes nothing when PLAN.md is not the plan the
- * proposal was made from. Nothing ticked is a no-op. Done tickets are never written.
+ * plan's hash; `design-version` becomes the proposal's. Writes nothing when PLAN.md is not the plan
+ * the proposal was made from (PLAN_CHANGED), when the proposal is not for the current design version
+ * (staleProposal), or when the proposal changed since the ticks were made (PROPOSAL_CHANGED).
+ * Nothing ticked is a no-op. Done tickets are never written.
  */
 export async function applyReplan($: $, ticked: readonly number[]): Promise<void> {
   if (S.isApplying) return say($, 'Still applying the last selection', 'warning')
   S.isApplying = true
   try {
+    const ticksOf = S.replanTicksOf
     await refresh($, true)
     const lp = latestProposal()
     if (lp === undefined) return say($, 'No replan proposal to apply', 'warning')
     const text = await readText($, lp.path)
     const proposal = text === undefined ? undefined : parseProposal(text, lp.name)
     if (text === undefined || proposal === undefined || !proposal.hasGroups) return say($, `Could not read the replan proposal: ${lp.path}`, 'error')
+    if (ticked.length > 0 && proposalKey(lp.path, text) !== ticksOf) {
+      S.replanTicks.clear()
+      redraw($)
+      return say($, PROPOSAL_CHANGED, 'error')
+    }
+    const dv = parseDesign(S.snap?.binding?.design).version
+    if (proposal.designVersion === undefined || proposal.designVersion !== dv) return say($, staleProposal(proposal.designVersion, dv), 'error')
     const sel = proposal.items.filter(i => i.state === 'open' && ticked.includes(i.index)).map(i => i.index)
     if (sel.length === 0) return say($, 'Nothing ticked: nothing applied', 'warning')
     const planPath = S.snap?.binding?.planPath
     const plan = planPath === undefined ? undefined : await readText($, planPath)
     if (planPath === undefined || plan === undefined) return say($, 'No PLAN.md is bound to this board', 'error')
     if (proposal.planHash === '' || planHash(plan) !== proposal.planHash) return say($, PLAN_CHANGED, 'error')
-    const r = applyProposal(plan, proposal, sel, parseDesign(S.snap?.binding?.design).version, today(Date.now()))
+    const r = applyProposal(plan, proposal, sel, proposal.designVersion, today(Date.now()))
     if (r.md !== plan) await $.fs.write(abs(planPath), r.md)
     await refresh($, true)
     const added = r.added.length === 0 ? [] : await createPlanTickets($, r.added, 'the replan')
     const follow = await createFollowUps($, r.followUps)
     // The plan the remaining items now apply to: its hash goes into the proposal with the ticks.
     const after = (await readText($, planPath)) ?? r.md
-    await $.fs.write(abs(lp.path), markProposal(text, proposal, new Map(r.applied.map(i => [i, 'applied' as const])), planHash(after)))
+    const marked = markProposal(text, proposal, new Map(r.applied.map(i => [i, 'applied' as const])), planHash(after))
+    // The pane's own write: the ticks left (skipped items) stay with the proposal.
+    S.replanTicksOf = proposalKey(lp.path, marked)
+    await $.fs.write(abs(lp.path), marked)
     for (const i of r.applied) S.replanTicks.delete(i)
     await refresh($, true)
     const made = [...added, ...follow]
@@ -563,10 +586,17 @@ export async function dismissReplan($: $, ticked: readonly number[]): Promise<vo
   const lp = latestProposal()
   const text = lp === undefined ? undefined : await readText($, lp.path)
   if (lp === undefined || text === undefined) return say($, `Could not read the replan proposal${lp === undefined ? '' : `: ${lp.path}`}`, 'error')
+  if (ticked.length > 0 && proposalKey(lp.path, text) !== S.replanTicksOf) {
+    S.replanTicks.clear()
+    redraw($)
+    return say($, PROPOSAL_CHANGED.replace('nothing applied', 'nothing dismissed'), 'error')
+  }
   const proposal = parseProposal(text, lp.name)
   const sel = proposal.items.filter(i => i.state === 'open' && ticked.includes(i.index)).map(i => i.index)
   if (sel.length === 0) return say($, 'Nothing ticked: nothing dismissed', 'warning')
-  await $.fs.write(abs(lp.path), markProposal(text, proposal, new Map(sel.map(i => [i, 'dismissed' as const]))))
+  const marked = markProposal(text, proposal, new Map(sel.map(i => [i, 'dismissed' as const])))
+  S.replanTicksOf = proposalKey(lp.path, marked)
+  await $.fs.write(abs(lp.path), marked)
   for (const i of sel) S.replanTicks.delete(i)
   await refresh($, true)
   say($, `Dismissed ${plural(sel.length, 'item')}`)

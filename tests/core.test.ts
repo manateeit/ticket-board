@@ -329,6 +329,28 @@ test('run lines follow the tickets folder setting (0025)', () => {
   expect(router).not.toContain('tickets/')
 })
 
+test('run lines place the wait-for-blockers clause after the run sentence (0034)', () => {
+  const TAIL =
+    ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
+  // With a router: the clause follows "Run ticket 0005", the router tail comes after it unchanged.
+  expect(runLine(['0005'], true, 'tickets/BOARD.md', ['0003'])).toBe(`Run ticket 0005 — but only once 0003 is done —${TAIL}`)
+  const work = runLine(['0005'], true, 'work/BOARD.md', ['0003', '0004'])
+  expect(work).toStartWith('Run ticket 0005 — but only once 0003, 0004 are done — as the router.')
+  expect(work).toEndWith(runLine(['0005'], true, 'work/BOARD.md').slice('Run ticket 0005'.length))
+  // Without a router: the clause ends the sentence, after the board when one is named.
+  expect(runLine(['0005'], false, 'tickets/BOARD.md', ['0003'])).toBe('Run ticket 0005 — but only once 0003 is done.')
+  expect(runLine(['0005'], false, 'work/BOARD.md', ['0003'])).toBe('Run ticket 0005 (board: work/BOARD.md) — but only once 0003 is done.')
+  // No blockers: byte-identical to 0.5.3, router and plain, default and other board.
+  const WORK_TAIL =
+    ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update work/BOARD.md, and never write the code yourself. The board is work/BOARD.md and the ticket folders are in work/. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
+  for (const wait of [undefined, []]) {
+    expect(runLine(['0005'], true, 'tickets/BOARD.md', wait)).toBe(`Run ticket 0005${TAIL}`)
+    expect(runLine(['0005'], true, 'work/BOARD.md', wait)).toBe(`Run ticket 0005${WORK_TAIL}`)
+    expect(runLine(['0005', '0006'], false, 'tickets/BOARD.md', wait)).toBe('Run tickets 0005 and 0006.')
+    expect(runLine(['0005', '0006'], false, 'work/BOARD.md', wait)).toBe('Run tickets 0005 and 0006 (board: work/BOARD.md).')
+  }
+})
+
 test('result tags from board notes', () => {
   expect(resultOf('merged f681c3c (merge commit, local, no push); 3 worker rounds')?.label).toBe('Merged')
   expect(resultOf('moved from GitHub issue #2 2026-11-09')?.label).toBe('From GitHub')
@@ -1103,6 +1125,16 @@ test('binding: a half binding line keeps the default for the other half', () => 
   const b4 = bindFromBoard('# B\n\nDesign: x/d.md · Plan: x/p.md\n', files(both))
   expect(b4).toEqual(expect.objectContaining({ designPath: undefined, planPath: undefined, isBlank: true }))
   expect(b4.warnings.length).toBe(2)
+})
+
+test('binding: rewriting the line keeps the half it is not given (0037)', () => {
+  const board = '# Ticket board\n\nDesign: docs/arch.md · Plan: docs/roadmap.md\n\n| # | Ticket | Status |\n|---|---|---|\n'
+  expect(setBindingLine(board, undefined, 'design/PLAN.md')).toBe(board.replace('Plan: docs/roadmap.md', 'Plan: design/PLAN.md'))
+  expect(setBindingLine(board, 'design/DESIGN.md', undefined)).toBe(board.replace('Design: docs/arch.md', 'Design: design/DESIGN.md'))
+  // A half-line keeps its half and gains the new one.
+  expect(setBindingLine('# B\n\nDesign: docs/arch.md\n', undefined, 'p.md')).toBe('# B\n\nDesign: docs/arch.md · Plan: p.md\n')
+  // No existing line: as before, only the given half is written.
+  expect(setBindingLine('# B\n', undefined, 'p.md')).toBe('# B\n\nPlan: p.md\n')
 })
 
 test('adopt: paths must be inside the project; empty input is an error', () => {

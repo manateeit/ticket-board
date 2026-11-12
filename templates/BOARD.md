@@ -19,7 +19,9 @@ How to read this board:
 - **Mode** — `solo` = one worker in one worktree. `team` = several workers
   coordinating (experimental agent teams; falls back to sequenced solo workers).
 - **Blocked by** — ticket numbers that must be `done` first.
-- **Owner** — the worker/session currently on it, once in-progress.
+- **Owner** — the worker/session currently on it, once in-progress, and when
+  the router dispatched it: `<owner>, dispatched YYYY-MM-DD HH:MM` (rewritten
+  at `in-progress` and again at `in-check`; the watchdog reads it).
 - **Notes** — last meaningful event: merged commit, check result, blocker.
   Start the note with one of these prefixes; the pane's Result badge comes
   only from the prefix at the very start, never from words further in:
