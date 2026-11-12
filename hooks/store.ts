@@ -90,7 +90,9 @@ export const S = {
   newMode: 'solo',
   newKind: 'feature',
   overrideTo: '',
-  isRefreshing: false,
+  /** The refresh reading the files now, and the forced one queued to read again after it. */
+  refreshRun: undefined as Promise<boolean> | undefined,
+  refreshNext: undefined as Promise<boolean> | undefined,
   /** This session's subagents and teammates, as $.agent.list() last gave them. */
   agents: [] as AgentInfo[],
   showAgents: false,
@@ -163,7 +165,8 @@ export function resetSession(cwd: string) {
     overrideTo: '',
     busySince: 0,
     busyTool: '',
-    isRefreshing: false,
+    refreshRun: undefined,
+    refreshNext: undefined,
     project: undefined,
     startFlags: { ...NO_START_FLAGS },
     showBoard: false,
@@ -365,11 +368,37 @@ export async function followCwd($: $): Promise<boolean> {
   return true
 }
 
-/** Re-reads what changed since the last snapshot (by modification time). Returns whether anything changed. */
-export async function refresh($: $, force = false): Promise<boolean> {
-  if (S.isRefreshing) return false
-  S.isRefreshing = true
-  try {
+/**
+ * Re-reads what changed since the last snapshot (by modification time). Returns whether anything changed.
+ * Once it resolves, S.snap holds the files as they were when it was called: a plain refresh while one
+ * is running shares that run (the poll reads the disk once), a forced one waits for it and then reads
+ * again (forced calls made meanwhile share that one extra run).
+ */
+export function refresh($: $, force = false): Promise<boolean> {
+  const running = S.refreshRun
+  if (running === undefined) {
+    const run = readTickets($, force).finally(() => {
+      if (S.refreshRun === run) S.refreshRun = undefined
+    })
+    S.refreshRun = run
+    return run
+  }
+  if (!force) return running
+  if (S.refreshNext === undefined) {
+    const again: Promise<boolean> = running
+      .catch(() => false)
+      .then(() => {
+        if (S.refreshNext === again) S.refreshNext = undefined
+        return refresh($, true)
+      })
+    S.refreshNext = again
+  }
+  return S.refreshNext
+}
+
+/** One pass over the tickets folder; only refresh() calls it, so passes never overlap. */
+async function readTickets($: $, force: boolean): Promise<boolean> {
+  {
     if (await followCwd($)) force = true
     if (S.root === '') await resolveRoot($)
     const prev = S.snap
@@ -433,8 +462,6 @@ export async function refresh($: $, force = false): Promise<boolean> {
     S.snap = { hasBoard: boardEntry !== undefined, boardText, board, boardMtime, files, loadedAt: Date.now(), binding, changes, ...(changeNotes === undefined ? {} : { changeNotes }) }
     if (changed) redraw($)
     return changed
-  } finally {
-    S.isRefreshing = false
   }
 }
 

@@ -3677,3 +3677,86 @@ for (const surface of ['desktop', 'terminal'] as const)
         AGENTS_OVERRIDE = undefined
       }
     })
+
+// 0027: a forced refresh never hands back a snapshot older than the call; plain ones still share one run.
+const listPasses = (calls: string[]) => calls.filter(c => /^list \/repo\/tickets -> /.test(c)).length
+/** A Write the session makes to the tickets folder: the pane starts a plain (not forced) refresh for it. */
+const writeTool = ($: any, file_path: string, agentId?: string) =>
+  $.tool.call({ tool: 'Write', file_path, content: 'x', ...(agentId === undefined ? {} : { agentId }) })
+
+test('two plain refreshes at once read the disk once', async ($, on) => {
+  on('tool.call', () => ({ result: 'ok' }) as any)
+  const gate: { wait?: Promise<void> } = {}
+  const { ui, calls } = await boot($, on, 'terminal', {}, { gate })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  let release = () => undefined as void
+  gate.wait = new Promise<void>(r => (release = r))
+  const before = listPasses(calls)
+  await writeTool($, '/repo/tickets/0003-dark-mode-for-settings-page/a.txt')
+  await writeTool($, '/repo/tickets/0003-dark-mode-for-settings-page/b.txt')
+  await new Promise(r => setTimeout(r, 20))
+  gate.wait = undefined
+  release()
+  await until(() => listPasses(calls) > before, 'the refresh to read the folder')
+  await new Promise(r => setTimeout(r, 50))
+  expect(listPasses(calls) - before).toBe(1)
+  await ui.unmount()
+})
+
+test('a forced refresh while a plain one runs waits for it and reads the files again', async ($, on) => {
+  on('tool.call', () => ({ result: 'ok' }) as any)
+  const gate: { wait?: Promise<void> } = {}
+  const { ui, fs } = await boot($, on, 'desktop', {}, { gate })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  let release = () => undefined as void
+  gate.wait = new Promise<void>(r => (release = r))
+  // A plain refresh is in flight; then rd.md changes within the same mtime tick, which only a forced read sees.
+  await writeTool($, '/repo/tickets/0003-dark-mode-for-settings-page/a.txt')
+  await new Promise(r => setTimeout(r, 20))
+  fs.files.set('tickets/0003-dark-mode-for-settings-page/rd.md', rd('0003', 'Dark mode for settings page', '- Which accent colour in dark mode?\n- Which contrast ratio?'))
+  await ui.press({ key: 'refresh' })
+  await new Promise(r => setTimeout(r, 20))
+  gate.wait = undefined
+  release()
+  await until(async () => (await drawnText(ui)).includes('Refreshed'), 'the refresh to finish')
+  await new Promise(r => setTimeout(r, 50))
+  await ui.press({ key: 'open-0003' })
+  expect(await drawnText(ui)).toContain('2 OPEN QUESTIONS')
+  await ui.unmount()
+})
+
+test('a writer that finishes while a refresh runs gets its note and toast from the files it wrote', async ($, on) => {
+  const w = fakeWriter(on)
+  on('tool.call', () => ({ result: 'ok' }) as any)
+  const gate: { wait?: Promise<void> } = {}
+  const { ui, fs } = await boot($, on, 'terminal', t8Files(), { blank: true, gate })
+  await ui.find({ key: 'tab-plan' })
+  await ui.press({ key: 'tab-plan' })
+  await ui.find({ key: 'build-create-P1.3' })
+  await ui.press({ key: 'build-create-P1.3' })
+  await until(() => w.spawned.length === 1, 'the writer to start')
+  const folder = t8Folder(fs, '0002')
+  // The writer's files: two open questions, ## Docs and the docs check kept.
+  const written = fs.files.get(`${folder}/rd.md`)!.replace(/## Open questions[\s\S]*?(?=\n## |$)/, '## Open questions\n\n- Which calendar view first?\n- Weeks start on Monday?\n')
+  expect(written).toContain('## Docs')
+  let release = () => undefined as void
+  gate.wait = new Promise<void>(r => (release = r))
+  fs.files.set(`${folder}/rd.md`, written)
+  fs.mtimes.set(`${folder}/rd.md`, 900)
+  fs.mtimes.set(`${folder}/eval.md`, 901)
+  // Its last Write starts a plain refresh, still running when the writer finishes.
+  await writeTool($, `/repo/${folder}/rd.md`, 'w1')
+  await new Promise(r => setTimeout(r, 20))
+  const finished = w.finish($, 'w1')
+  await new Promise(r => setTimeout(r, 20))
+  gate.wait = undefined
+  release()
+  await finished
+  const notes = t8Row(fs, '0002').notes
+  expect(notes).toContain('AI draft done · 2 open questions')
+  expect(notes).not.toContain('missing')
+  expect(w.toasts.join(' ')).toContain('Ticket 0002: AI draft done · 2 open questions')
+  expect(w.toasts.join(' ')).not.toContain('missing')
+  w.done()
+  await ui.unmount()
+})
