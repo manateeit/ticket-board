@@ -260,7 +260,7 @@ Other moves (in-progress, in-check, done) belong to the router. They are availab
      4. When it finishes, the row's note becomes `AI draft done · 2 open questions` and the pane takes you to the questions.
    - **Create empty draft**: the same folder and row, with no AI. You fill it in yourself.
    - **Draft in chat instead**: puts `/ticket <idea>` in your prompt box, so the main session writes the ticket with you, interactively.
-4. You can keep using the pane and the chat while the AI writes. **Watch** opens the writer's transcript.
+4. You can keep using the pane and the chat while the AI writes. **Watch** opens the writer's transcript. Where the app won't switch to it from the pane (the desktop app today), the pane says so and shows the writer's steps under the ticket's buttons instead, the same fallback as **Open transcript** in the Agents panel.
 
 **✎ Enhance with AI** on an existing draft runs the same writer against the files that are already there. It keeps your decisions and answered questions, fills the gaps, and tightens the checks.
 

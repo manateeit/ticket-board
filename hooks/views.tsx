@@ -1,5 +1,5 @@
 // The pane's views: Start, Board, Ticket, Questions, New ticket, BOARD.md.
-import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, deskTicket, openReadme } from './desk'
+import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, deskTicket, openReadme, openTranscript } from './desk'
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { STATUSES } from './core/board'
@@ -644,7 +644,15 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval', from?: Vie
       {job !== undefined && (
         <Box flexDirection="row" gap={1}>
           <Text color="claude">✎ AI is {job.kind === 'draft' || job.kind === 'plan' ? 'writing' : job.kind === 'enhance' ? 'enhancing' : 'folding answers into'} this ticket…</Text>
-          <Button key="viewagent" label="Watch" plain onPress={() => void $.ui.view({ agentId: job.agentId }).catch(() => undefined)} />
+          <Button key="viewagent" label="Watch" plain onPress={() => void openTranscript($, job.agentId)} />
+        </Box>
+      )}
+      {job !== undefined && S.watching === job.agentId && (
+        <Box key="watch-log" flexDirection="column" paddingLeft={2}>
+          {(S.agentLog.get(job.agentId) ?? []).length === 0 && <Text dimColor>No tool calls seen yet. Steps show up here as the writer works.</Text>}
+          {(S.agentLog.get(job.agentId) ?? []).slice(-8).map((l, n) => (
+            <Text key={`watch-log-${n}`} dimColor wrap="truncate">{`${new Date(l.at).toTimeString().slice(0, 5)}  ${l.tool || 'Thinking'}  ${l.detail}`}</Text>
+          ))}
         </Box>
       )}
 

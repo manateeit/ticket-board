@@ -3677,3 +3677,53 @@ for (const surface of ['desktop', 'terminal'] as const)
         AGENTS_OVERRIDE = undefined
       }
     })
+
+// ---------- Watch on the ticket page (0029: the host's {deny} was dropped) ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  // The desktop resolves with { deny } (what the Agents panel already handled); a host error rejects.
+  for (const [how, reply, said] of [
+    ['resolves with { deny }', { value: { deny: 'x' } }, "The app won't switch to that agent's transcript here (x)."],
+    ['rejects', { deny: 'x' }, "Can't open that transcript here: ticket-board: $.ui.view: x."],
+  ] as const)
+  test(`Watch on a ticket being written: when the switch ${how}, it says why and shows the activity instead (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const asked: string[] = []
+    on('ui.view', (_: unknown, e: { agentId: string }) => (asked.push(e.agentId), reply))
+    const { ui } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    await ui.find({ key: 'viewagent' })
+    await ui.press({ key: 'viewagent' })
+    await until(async () => (await drawnText(ui)).includes(said), 'the refusal message')
+    expect(asked).toEqual(['w1'])
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('Its activity is shown below instead.')
+    expect(drawn).toContain(surface === 'desktop' ? `agent-log-w1` : 'watch-log')
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`Watch on a ticket being written opens the transcript where the app allows it (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const asked: string[] = []
+    on('ui.view', (_: unknown, e: { agentId: string }) => (asked.push(e.agentId), { value: undefined }))
+    const { ui } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode/ })
+    await ui.press({ key: 'open-0003' })
+    await ui.press({ key: 'enhance' })
+    await until(() => w.spawned.length === 1, 'the writer to start')
+    await ui.find({ key: 'viewagent' })
+    await ui.press({ key: 'viewagent' })
+    await until(() => asked.length === 1, 'the view switch')
+    expect(asked).toEqual(['w1'])
+    const drawn = await drawnText(ui)
+    expect(drawn).not.toContain("won't switch")
+    expect(drawn).not.toContain('agent-log-w1')
+    expect(drawn).not.toContain('watch-log')
+    w.done()
+    await ui.unmount()
+  })
+}
