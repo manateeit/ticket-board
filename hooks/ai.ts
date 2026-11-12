@@ -1,7 +1,7 @@
 // Handing ticket writing to a background agent, and one-shot answer suggestions.
-import type { EngineInterface } from 'claude-code'
+import type { AgentInfo, EngineInterface } from 'claude-code'
 
-import { today } from './core/query'
+import { isPaneNote, paneNote, today } from './core/query'
 import {
   DEFAULT_DESIGN,
   DEFAULT_PLAN,
@@ -31,7 +31,7 @@ import {
   type Roadmap,
 } from './core/roadmap'
 import type { Question } from './core/ticket'
-import { S, abs, addPlanTicket, boardPath, changesFolder, createBoardFiles, createSkeleton, dir, editRow, folderOf, fullRoadmap, latestProposal, proposalKey, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
+import { S, abs, addPlanTicket, boardPath, changesFolder, createBoardFiles, createSkeleton, dir, editRow, folderOf, fullRoadmap, isLive, latestProposal, proposalKey, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
 
 type $ = EngineInterface
 
@@ -97,16 +97,19 @@ export function jobNote(label: string, extra: string | undefined): string {
   return extra === undefined || extra === '' ? label : `${label} · ${extra}`
 }
 
-/** Only notes the pane wrote itself (empty, or starting with `AI `) are replaced. */
-async function setAiNote($: $, number: string, note: string) {
+/**
+ * The one writer of pane notes: the note gets the pane's prefix (PANE_NOTE_PREFIX), and it replaces
+ * only a note the pane owns (isPaneNote), so a router's or a person's note is never overwritten.
+ */
+export async function setPaneNote($: $, number: string, note: string) {
   const row = rowOf(number)
-  if (row !== undefined && (row.notes === '' || row.notes.startsWith('AI '))) await editRow($, number, { notes: note }).catch(() => undefined)
+  if (row !== undefined && isPaneNote(row.notes)) await editRow($, number, { notes: paneNote(note) }).catch(() => undefined)
 }
 
 /** Records a failed plan ticket: the Plan view shows the reason and offers Create again. */
 export async function failPlan($: $, build: string, number: string, reason: string, extra?: string) {
   S.planFailed.set(build, { number, reason })
-  await setAiNote($, number, jobNote(`AI plan ticket failed (${reason})`, extra))
+  await setPaneNote($, number, jobNote(`AI plan ticket failed (${reason})`, extra))
   redraw($)
 }
 
@@ -118,6 +121,37 @@ async function listedWriter($: $, description: string): Promise<string | undefin
   } catch {
     return undefined
   }
+}
+
+/** The row note of a writer that started without an agent id (0042). */
+export const UNTRACKED_NOTE = 'AI writer started without an agent id; refresh when it is done'
+
+/** Untracked writers that agent.list now shows live become ordinary jobs (0042). */
+async function matchUntracked($: $): Promise<void> {
+  if (S.untracked.size === 0) return
+  let listed: AgentInfo[]
+  try {
+    listed = await $.agent.list()
+  } catch {
+    return
+  }
+  for (const u of [...S.untracked.values()]) {
+    const a = listed.filter(x => x.description === u.description && isLive(x) && !S.jobs.has(x.id)).at(-1)
+    if (a === undefined) continue
+    S.untracked.delete(u.number)
+    const { description: _d, label, ...job } = u
+    S.jobs.set(a.id, { agentId: a.id, ...job })
+    await saveJobs($)
+    await setAiNote($, u.number, jobNote(label, u.extra))
+  }
+}
+
+/** The person refreshed: writers started without an agent id give their slots back, and queued plan tickets start (0042). */
+export async function releaseUntracked($: $): Promise<void> {
+  if (S.untracked.size === 0) return
+  await matchUntracked($)
+  S.untracked.clear()
+  await pumpPlanQueue($)
 }
 
 /** `plan` is set for a ticket from a plan build (0008): its build, folder and missing-dependency note. */
@@ -133,7 +167,7 @@ export async function startJob(
     say($, `Ticket ${number} has no folder to write in`, 'error')
     return false
   }
-  if ([...S.jobs.values()].some(j => j.number === number)) {
+  if ([...S.jobs.values()].some(j => j.number === number) || S.untracked.has(number)) {
     say($, `An AI job is already working on ${number}`, 'warning')
     return false
   }
@@ -159,6 +193,9 @@ export async function startJob(
   // A spawn that does not hand back its id: find the new agent in this session's list by its description.
   const agentId = r.agentId ?? (await listedWriter($, description))
   if (agentId === undefined) {
+    // Untracked (0042): it still holds a writer slot, and its row says so, until the person refreshes or it is matched.
+    S.untracked.set(number, { number, kind, startedAt: Date.now(), description, label, ...(plan === undefined ? {} : { build: plan.build, extra: plan.extra }) })
+    await setAiNote($, number, jobNote(UNTRACKED_NOTE, plan?.extra))
     say($, 'The ticket writer started without an agent id; refresh when it is done', 'warning')
     return true
   }
@@ -170,7 +207,7 @@ export async function startJob(
     ...(plan === undefined ? {} : { build: plan.build, extra: plan.extra }),
   })
   await saveJobs($)
-  await setAiNote($, number, jobNote(label, plan?.extra))
+  await setPaneNote($, number, jobNote(label, plan?.extra))
   if (plan === undefined) say($, `${label.replace('…', '')} ticket ${number} in the background`)
   return true
 }
@@ -193,6 +230,7 @@ export async function pumpPlanQueue($: $): Promise<void> {
   try {
     do {
       pumpAgain = false
+      await matchUntracked($)
       while (S.planQueue.length > 0 && runningJobs() < MAX_JOBS) {
         const q = S.planQueue.shift()!
         await startJob($, q.number, 'plan', q.brief, { build: q.build, folder: q.folder, extra: q.extra })
@@ -210,6 +248,8 @@ export function planJobOf(buildId: string): { state: 'queued' | 'writing' | 'fai
   if (q !== undefined) return { state: 'queued', number: q.number }
   const j = [...S.jobs.values()].find(x => x.kind === 'plan' && x.build === buildId)
   if (j !== undefined) return { state: 'writing', number: j.number }
+  const u = [...S.untracked.values()].find(x => x.kind === 'plan' && x.build === buildId)
+  if (u !== undefined) return { state: 'writing', number: u.number }
   const f = S.planFailed.get(buildId)
   return f === undefined ? undefined : { state: 'failed', number: f.number, reason: f.reason }
 }
@@ -291,12 +331,19 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
   const range = made.length === 1 ? made[0]! : `${made[0]}–${made[made.length - 1]}`
   const queued = S.planQueue.filter(q => made.includes(q.number)).length
   const failed = made.filter(n => [...S.planFailed.values()].some(f => f.number === n)).length
+  const untracked = made.filter(n => S.untracked.has(n)).length
   say(
     $,
-    [`Created ${plural(made.length, 'draft ticket')} from ${what} (${range})`, queued === 0 ? '' : `${queued} queued`, failed === 0 ? '' : `${failed} failed to start`, ...tail]
+    [
+      `Created ${plural(made.length, 'draft ticket')} from ${what} (${range})`,
+      queued === 0 ? '' : `${queued} queued`,
+      failed === 0 ? '' : `${failed} failed to start`,
+      untracked === 0 ? '' : `${untracked} started without an agent id (refresh when done)`,
+      ...tail,
+    ]
       .filter(Boolean)
       .join(' · '),
-    failed > 0 ? 'warning' : 'success',
+    failed > 0 || untracked > 0 ? 'warning' : 'success',
   )
   return made
 }
@@ -314,7 +361,7 @@ export async function retryPlanBuild($: $, buildId: string): Promise<void> {
   S.planFailed.delete(buildId)
   const extra = missingNote(blockedByFor(b, rm.links, new Map()).missing)
   S.planQueue.push({ number: f.number, folder, build: buildId, brief: planBrief(rm.design, rm.plan, b), extra })
-  await setAiNote($, f.number, jobNote('AI queued', extra))
+  await setPaneNote($, f.number, jobNote('AI queued', extra))
   await pumpPlanQueue($)
   if (!S.planFailed.has(buildId)) say($, `Writing ticket ${f.number} for ${buildId} again`)
 }
@@ -604,8 +651,8 @@ export async function dismissReplan($: $, ticked: readonly number[]): Promise<vo
 /** Where adopt proposals go: `design/changes/` beside the default DESIGN.md. */
 export const ADOPT_FOLDER = changesFolder(DEFAULT_DESIGN)
 
-/** Writer jobs, the adopt agent included: what the 3-slot queue counts. */
-export const runningJobs = () => S.jobs.size + (S.adoptJob === undefined ? 0 : 1)
+/** Writer jobs, untracked writers (0042) and the adopt agent included: what the 3-slot queue counts. */
+export const runningJobs = () => S.jobs.size + S.untracked.size + (S.adoptJob === undefined ? 0 : 1)
 
 function adoptBrief($: $, a: { path: string; sources: string[]; date: string }): string {
   return [

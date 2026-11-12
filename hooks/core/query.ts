@@ -181,18 +181,36 @@ export function today(nowMs: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-/** A one-word outcome from a board row's notes ("merged f681c3c (local…)" → Merged); the full notes live on the ticket page. */
-const RESULTS: [RegExp, string, string][] = [
-  [/\bmerged\b/i, 'Merged', 'green'],
-  [/\b(abandon|dropped|won'?t do|wontfix)/i, 'Dropped', 'slate'],
-  [/\b(fail|red|broken)\b/i, 'Failing', 'red'],
-  [/\bblocked\b/i, 'Blocked', 'red'],
-  [/\b(decided|scope)\b/i, 'Decided', 'violet'],
-  [/\bmoved from github issue\b/i, 'From GitHub', 'sky'],
+/**
+ * The Notes column conventions; templates/BOARD.md and .claude/agents/router.md list the same ones.
+ * A one-word outcome comes only from the prefix a note starts with (case does not matter), never
+ * from a word further in: "merged f681c3c (local…)" → Merged, "done after red tests in round 2" →
+ * no badge. The full notes live on the ticket page.
+ */
+export const NOTE_PREFIXES: readonly { prefix: string; label: string; hue: string }[] = [
+  { prefix: 'merged ', label: 'Merged', hue: 'green' },
+  { prefix: 'failed:', label: 'Failing', hue: 'red' },
+  { prefix: 'blocked:', label: 'Blocked', hue: 'red' },
+  { prefix: 'dropped:', label: 'Dropped', hue: 'slate' },
+  { prefix: 'decided:', label: 'Decided', hue: 'violet' },
+  { prefix: 'moved from GitHub issue', label: 'From GitHub', hue: 'sky' },
 ]
 /** `hue` names a color of the pane's palette (HUE in hooks/glass.tsx), so it follows the color scheme. */
 export function resultOf(notes: string): { label: string; hue: string } | undefined {
-  if (notes.trim() === '' || notes.trim() === '—') return undefined
-  for (const [re, label, hue] of RESULTS) if (re.test(notes)) return { label, hue }
-  return undefined
+  const n = notes.trimStart().toLowerCase()
+  const hit = NOTE_PREFIXES.find(p => n.startsWith(p.prefix.toLowerCase()))
+  return hit === undefined ? undefined : { label: hit.label, hue: hit.hue }
+}
+
+/** Every note the pane writes starts with this; the pane replaces only these (or an empty note), never a router's or a person's. */
+export const PANE_NOTE_PREFIX = 'AI '
+
+/** True for a note the pane owns: empty, or carrying the pane's exact prefix ("AI-reviewed by router" is not one). */
+export function isPaneNote(notes: string): boolean {
+  return notes.trim() === '' || notes.startsWith(PANE_NOTE_PREFIX)
+}
+
+/** The text as a pane note: the pane's prefix in front, unless it already has it. */
+export function paneNote(text: string): string {
+  return text.startsWith(PANE_NOTE_PREFIX) ? text : `${PANE_NOTE_PREFIX}${text}`
 }

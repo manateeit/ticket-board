@@ -107,7 +107,17 @@ It re-reads the board every few seconds while it is open, and right after any to
 
 **Agents.** The **Agents** button in the title bar (key `a`) shows a count of running agents and opens a panel just below the summary tiles: every subagent or teammate this session is running (with its ticket, when it names one, and a Watch button), the tickets the board says are in flight, and the last few agents that finished. Press it again, or **Hide** in the panel, to close it; **Show agents** in the activity strip opens it from any view. A router running in a different session shows up through the In flight tickets. If this Claude Code cannot list agents, the panel opens empty with *No agents running in this session right now.* In the terminal the same button (*Agents ● N*, key `a`) sits beside **Refresh** and shows the panel as plain lines under the buttons.
 
-Tickets are a **table** — ID, Type, Title, Phase (when there is a plan), Status, Result (a one-word tag from the board's notes: Merged, Decided, From GitHub, Failing…), Depends on, Questions, Updated and one next-step button per row (*Answer 2*, *✓ Ready*, *▶ Run*, *Unblock*). Click any column header to sort, again to reverse; sorting by Status groups the rows. The text around the table on BOARD.md is shown below it as *Board notes*.
+Tickets are a **table** — ID, Type, Title, Phase (when there is a plan), Status, Result (a one-word tag from the prefix the board note starts with — see *Notes prefixes* below), Depends on, Questions, Updated and one next-step button per row (*Answer 2*, *✓ Ready*, *▶ Run*, *Unblock*). Click any column header to sort, again to reverse; sorting by Status groups the rows. The text around the table on BOARD.md is shown below it as *Board notes*.
+
+**Notes prefixes.** The Result tag comes only from the prefix a row's Notes starts with, never from a word further in ("done after red tests in round 2" gets no tag). The same list is in `templates/BOARD.md` and `.claude/agents/router.md`:
+
+- `merged <sha>` → **Merged**
+- `failed: …` → **Failing**
+- `blocked: …` → **Blocked**
+- `dropped: …` → **Dropped**
+- `decided: …` → **Decided**
+- `moved from GitHub issue …` → **From GitHub**
+- `AI …` — the pane's own notes (*AI drafting…*, *AI enhancing…*, *AI draft done · 2 open questions*, *AI answers folded in · 0 open questions*, *AI skeleton — fill in rd.md and eval.md*). The pane replaces only a note that is empty or starts with `AI ` (capital AI and a space); a router's or a person's note is never overwritten.
 
 The other views:
 
@@ -286,7 +296,7 @@ For each selected build that has no ticket, the pane:
 
 Builds that already have a ticket are skipped (deferred and dropped builds are left out), and the message says how many: `Created 4 draft tickets from P2 (0012–0015) · 1 queued · skipped 1 build that already has a ticket`.
 
-**At most 3 writer jobs run at once.** The rest wait: the build shows *queued* (and the row's note `AI queued`) until a writer finishes, then the next one starts. A running one shows *✎ writing*. The queue lives in the pane for the session: it survives redraws and switching views, not a restart.
+**At most 3 writer jobs run at once.** The rest wait: the build shows *queued* (and the row's note `AI queued`) until a writer finishes, then the next one starts. A running one shows *✎ writing*. A writer the app starts without handing back an agent id still counts as one of the 3: its row's note says `AI writer started without an agent id; refresh when it is done`, the summary counts it, and it keeps its slot until you press **Refresh** (or the pane finds it running in this session's agent list and tracks it). The queue lives in the pane for the session: it survives redraws and switching views, not a restart.
 
 **When the writer finishes**, the pane checks the files: if `rd.md` has no `## Docs` naming README.md, or `eval.md` lacks the **Docs and README updated** check, the row's Notes and the toast say what is missing (`AI draft done · 0 open questions · missing ## Docs naming README.md`). **When it fails** (it stops, or cannot start), the build shows *failed: <reason>* and **↻ Create again**, which runs the writer again on the same ticket.
 
