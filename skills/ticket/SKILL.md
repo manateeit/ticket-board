@@ -1,6 +1,6 @@
 ---
 name: ticket
-description: Turn a feature request or idea into a build-ready ticket for the super-agent workflow. Creates tickets/<number>-<slug>/rd.md (what the feature must do) and eval.md (how a checker verifies it is done), then adds the ticket to tickets/BOARD.md as a draft. Use when the user describes a feature, bug, or change they want built by the router/worker system, or says "make a ticket", "ticket this", or "add this to the board".
+description: Turn a feature request or idea into a build-ready ticket for the super-agent workflow. Creates <tickets folder>/<number>-<slug>/rd.md (what the feature must do) and eval.md (how a checker verifies it is done), then adds the ticket to the board (the board path you were given, default tickets/BOARD.md) as a draft. Use when the user describes a feature, bug, or change they want built by the router/worker system, or says "make a ticket", "ticket this", or "add this to the board".
 ---
 
 # Ticket writer
@@ -14,16 +14,21 @@ or by asking the human while they are still here.
 The ticket-board pane (`/board`) shows the result: the person answers open
 questions there and flips the ticket from `draft` to `ready`.
 
+**The board** below means the board path you were given (default
+`tickets/BOARD.md`, set by the plugin's Tickets folder setting); **the tickets
+folder** is the folder that holds it (default `tickets/`). Ticket folders always
+sit next to the board.
+
 ## Steps
 
 1. **Explore first.** Read the relevant parts of the codebase (entry points,
    similar features, existing conventions, tests) so the ticket reflects how
    this project actually works, not how a generic project might.
 
-2. **Number the ticket.** Look in `tickets/` (and the rows of
-   `tickets/BOARD.md`) for the highest existing number and use the next one,
+2. **Number the ticket.** Look in the tickets folder (and the rows of the
+   board) for the highest existing number and use the next one,
    zero-padded: `0007-fix-login-redirect`. Create the folder
-   `tickets/<number>-<slug>/`. If `tickets/BOARD.md` does not exist yet, create
+   `<tickets folder>/<number>-<slug>/`. If the board does not exist yet, create
    it from this skill's board template (`templates/BOARD.md` in the
    ticket-board plugin) or ask the person to press **Set up board** in `/board`.
    The templates for the two files are in this skill's `TEMPLATE/` folder.
@@ -36,7 +41,7 @@ questions there and flips the ticket from `draft` to `ready`.
      pane's Plan view). `Plan:` is the one build id; `Design:` lists each design section the
      build covers with the `Rev` it has now (`D<n>@<rev>`), read from the build's `Covers`
      cell in the plan and the sections in the design (paths from the `Design: … · Plan: …`
-     line in `tickets/BOARD.md`, else `design/DESIGN.md` and `design/PLAN.md`). When the
+     line in the board, else `design/DESIGN.md` and `design/PLAN.md`). When the
      section's `Rev` later goes up, the board shows the ticket as stale. Omit both lines for
      a ticket that does not come from a build (an off-plan bug or chore is fine). Format:
      `docs/STANDARD.md` section 4 in the ticket-board plugin.
@@ -82,7 +87,7 @@ questions there and flips the ticket from `draft` to `ready`.
    - **Blocked by** — ticket numbers that must be DONE before this one starts,
      or `—`.
 
-6. **Add a row to `tickets/BOARD.md`** with status `draft`, and show the human
+6. **Add a row to the board** with status `draft`, and show the human
    the ticket. The ticket only becomes `ready` when the human (or the router,
    on the human's instruction) flips it — workers never start drafts.
 

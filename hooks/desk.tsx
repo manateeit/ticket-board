@@ -686,7 +686,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
           </Text>
         </Box>
         <Box key="title-buttons" flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
-          {run.length > 0 && <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter), 'Run line is in your prompt box — press Enter to send it')} />}
+          {run.length > 0 && <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter, boardPath()), 'Run line is in your prompt box — press Enter to send it')} />}
           <Button
             key="agents"
             hotkey="a"
@@ -1706,8 +1706,8 @@ export async function openReadme($: $) {
   await refresh($, true)
 }
 
-const README_ASK =
-  'Update README.md so it matches the project as it is now: what it is, how to install and run it, how to use it, and what changed recently (see tickets/BOARD.md). Keep what is still true; fix what is stale.'
+const readmeAsk = () =>
+  `Update README.md so it matches the project as it is now: what it is, how to install and run it, how to use it, and what changed recently (see ${boardPath()}). Keep what is still true; fix what is stale.`
 
 /** Characters of README per part on the glass: its markdown is drawn several times larger than the text. */
 export const README_PART = 8000
@@ -1796,7 +1796,7 @@ export function deskReadme($: $, ui: UI): RenderChildren {
             onPress={() =>
               void fill(
                 $,
-                text === undefined ? 'Write a README.md for this project: what it is, how to install and run it, and how to use it. Read the code and tickets/BOARD.md first.' : README_ASK,
+                text === undefined ? `Write a README.md for this project: what it is, how to install and run it, and how to use it. Read the code and ${boardPath()} first.` : readmeAsk(),
                 'In your prompt box — press Enter to send it',
               )
             }

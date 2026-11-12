@@ -1,4 +1,4 @@
-// Parsing and editing tickets/BOARD.md.
+// Parsing and editing the board (<ticketsDir>/BOARD.md, default tickets/BOARD.md).
 // Every edit rewrites one table line only; the rest of the file is kept byte for byte.
 
 export const STATUSES = ['draft', 'ready', 'in-progress', 'in-check', 'done', 'blocked'] as const

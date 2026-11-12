@@ -83,7 +83,7 @@ Write `- none` under a list that is empty.
 Hard limits:
 
 - Write only the brief path you were given. Never edit `design/DESIGN.md`, `design/PLAN.md`,
-  `tickets/` or any code. Folding the brief into the design is a later `/design` step.
+  the tickets folder (default `tickets/`) or any code. Folding the brief into the design is a later `/design` step.
 - Never write code.
 - Plain English, no flattery, critique before agreement.
 

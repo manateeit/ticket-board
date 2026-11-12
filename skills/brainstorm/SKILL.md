@@ -23,13 +23,13 @@ Arguments: `$ARGUMENTS`. The first word is the scope; anything after it is the p
 | empty or `whole` | the whole concept: the person's idea, or the existing design as a whole |
 | `D<n>` (e.g. `D3`) | design section D3 |
 | `P<n>` (e.g. `P2`) | plan phase P2 and its builds |
-| a ticket number (e.g. `0007` or `7`) | the ticket `tickets/0007-*/` |
+| a ticket number (e.g. `0007` or `7`) | the ticket `0007-*/` next to the board |
 
 Any other first word: reply with exactly one line and stop:
 `Unknown scope "<word>". Use: whole | D<n> (design section) | P<n> (plan phase) | <ticket number>.`
 
-Find the files. The design and plan paths come from the binding line under the title of
-`tickets/BOARD.md` (`Design: <path> · Plan: <path>`); without it use `design/DESIGN.md` and
+Find the files. The board is the board path you were given (default `tickets/BOARD.md`). The
+design and plan paths come from the binding line under its title (`Design: <path> · Plan: <path>`); without it use `design/DESIGN.md` and
 `design/PLAN.md` (any case). Then:
 
 - `D<n>` with no design file, or `P<n>` with no plan file: say
@@ -119,6 +119,6 @@ three lines: the brief path, the path used, the open questions, and that `/ticke
 ## Rules
 
 - Write only the brief (and, on the EGM path, EGM's own working file). Never edit
-  `DESIGN.md`, `PLAN.md`, `tickets/BOARD.md` or any ticket.
+  `DESIGN.md`, `PLAN.md`, the board or any ticket.
 - Never write code.
 - Plain English, critique before agreement, no flattery.

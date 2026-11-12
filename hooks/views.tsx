@@ -111,7 +111,7 @@ export function runnable(): string[] {
 
 export function runTicket($: $, number: string) {
   const open = blockersOpen(rowOf(number)?.blockedBy ?? [])
-  const base = runLine([number], S.hasRouter)
+  const base = runLine([number], S.hasRouter, boardPath())
   const text = open.length === 0 ? base : `${base.replace(/\.$/, '')} — but only once ${open.join(', ')} ${open.length === 1 ? 'is' : 'are'} done.`
   void fill($, text, 'In your prompt box — press Enter to send it')
 }
@@ -399,7 +399,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
         <Button key="new" label="+ New ticket" hotkey="n" variant="primary" onPress={() => go($, { kind: 'new' })} />
         {run.length > 0 && (
-          <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter), 'In your prompt box — press Enter to send it to the router')} />
+          <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter, boardPath()), 'In your prompt box — press Enter to send it to the router')} />
         )}
         <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'), () => undefined)} />
         <Button

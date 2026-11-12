@@ -294,6 +294,22 @@ test('run lines', () => {
   expect(runLine(['0011'], true)).toStartWith('Run ticket 0011 as the router. If this session is not already the router, first read .claude/agents/router.md')
 })
 
+test('run lines follow the tickets folder setting (0025)', () => {
+  const ROUTER_DEFAULT =
+    'Run ticket 0011 as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
+  // The default board: exactly today's text, with or without the path given.
+  expect(runLine(['0011'], true)).toBe(ROUTER_DEFAULT)
+  expect(runLine(['0011'], true, 'tickets/BOARD.md')).toBe(ROUTER_DEFAULT)
+  expect(runLine(['0011'], false, 'tickets/BOARD.md')).toBe('Run ticket 0011.')
+  // Another folder: the line names that board and never tickets/BOARD.md.
+  const plain = runLine(['0011', '0013'], false, 'work/BOARD.md')
+  expect(plain).toBe('Run tickets 0011 and 0013 (board: work/BOARD.md).')
+  const router = runLine(['0011'], true, 'work/BOARD.md')
+  expect(router).toContain('update work/BOARD.md')
+  expect(router).toContain('ticket folders are in work/.')
+  expect(router).not.toContain('tickets/')
+})
+
 test('result tags from board notes', () => {
   expect(resultOf('merged f681c3c (merge commit, local, no push); 3 worker rounds')?.label).toBe('Merged')
   expect(resultOf('moved from GitHub issue #2 2026-11-09')?.label).toBe('From GitHub')
