@@ -237,7 +237,9 @@ Single source of truth for the super-agent workflow. …
   tracks binds the one it is working on.
 - Upper or lower case file names are accepted.
 - It is an ordinary line outside the table, so the board's table reader ignores it.
-- With no binding line, `design/DESIGN.md` and `design/PLAN.md` are used if they exist.
+- A half the line leaves out uses its default: `design/DESIGN.md` for the design, `design/PLAN.md`
+  for the plan, if that file exists. So `Design: design/factory/design.md` alone still binds
+  `design/PLAN.md` once it is written. With no binding line both defaults are used if they exist.
 
 ## 6. Who may write what
 

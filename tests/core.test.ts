@@ -938,6 +938,25 @@ test('adopt: the binding line goes under the BOARD.md title, or replaces the one
   expect(setBindingLine(board, undefined, undefined)).toBe(board)
 })
 
+test('binding: a half binding line keeps the default for the other half', () => {
+  const files = (map: Record<string, string>) => (p: string) => map[p]
+  const both = { 'design/DESIGN.md': '# D\n', 'design/PLAN.md': '# P\n' }
+  // Design-only line (what adopt writes with no plan draft), then design/PLAN.md appears.
+  const designOnly = setBindingLine('# Ticket board\n', 'design/DESIGN.md', undefined)
+  const b1 = bindFromBoard(designOnly, files(both))
+  expect(b1).toEqual(expect.objectContaining({ designPath: 'design/DESIGN.md', planPath: 'design/PLAN.md', plan: '# P\n', isBound: true, warnings: [] }))
+  // Plan-only line: design/DESIGN.md is bound when it exists, unbound (no warning) when it does not.
+  const planOnly = '# Ticket board\n\nPlan: design/factory/plan.md\n'
+  const b2 = bindFromBoard(planOnly, files({ 'design/factory/plan.md': '# F\n', 'design/design.md': '# D\n' }))
+  expect(b2).toEqual(expect.objectContaining({ designPath: 'design/design.md', planPath: 'design/factory/plan.md', warnings: [] }))
+  const b3 = bindFromBoard(planOnly, files({ 'design/factory/plan.md': '# F\n' }))
+  expect(b3).toEqual(expect.objectContaining({ designPath: undefined, design: undefined, planPath: 'design/factory/plan.md', warnings: [] }))
+  // Both halves named: the defaults are never used, and a missing named file is still a warning.
+  const b4 = bindFromBoard('# B\n\nDesign: x/d.md · Plan: x/p.md\n', files(both))
+  expect(b4).toEqual(expect.objectContaining({ designPath: undefined, planPath: undefined, isBlank: true }))
+  expect(b4.warnings.length).toBe(2)
+})
+
 test('adopt: paths must be inside the project; empty input is an error', () => {
   expect(adoptPaths('', '/repo').error).toBe('Type one or more file or folder paths inside the project')
   expect(adoptPaths(' , \n', '/repo').error).toBe('Type one or more file or folder paths inside the project')

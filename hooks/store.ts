@@ -262,8 +262,8 @@ async function listOr($: $, path: string) {
 }
 
 /**
- * Design and plan the board is bound to (`Design: … · Plan: …` in BOARD.md), else `design/DESIGN.md`
- * and `design/PLAN.md` in any case. `bindFromBoard` reads synchronously, so the paths it asks for
+ * Design and plan the board is bound to (`Design: … · Plan: …` in BOARD.md); a half the line does not
+ * name is `design/DESIGN.md` / `design/PLAN.md` in any case. `bindFromBoard` reads synchronously, so the paths it asks for
  * are read first and handed back on a second pass.
  */
 async function findDesignAndPlan($: $, boardText: string | undefined): Promise<{ designPath: string; planPath: string }> {
