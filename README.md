@@ -363,6 +363,8 @@ This mod was built for the router/worker/checker workflow, where:
 - you (and `/ticket`) write tickets as drafts,
 - you flip them to ready,
 - the **router** session picks ready tickets, starts a **worker** for each in its own worktree, sends finished work to a **checker** that runs `eval.md`, and updates `BOARD.md`.
+- the checker writes its results into `eval.md` and leaves them uncommitted; the **merger** commits them on the ticket's branch (`Ticket NNNN: checker results`), rebases onto `main`, compares the plugin's checks with `main`'s result measured at merge time, and lands the branch with a merge commit.
+- each time the router marks a ticket `in-progress` or `in-check` it writes the dispatch time into the Owner cell (`worker, dispatched 2026-11-12 14:05`), which the **watchdog** reads to tell a stuck ticket from a new one.
 
 The best setup is to **run the pane in the router session**:
 
