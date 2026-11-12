@@ -3179,6 +3179,45 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 
+  test(`adopt with a design only, then design/PLAN.md added: the plan is bound and a build's ticket is created (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const full = adoptProposal(ADOPT_DATE())
+    const designOnly = full.replace(/\n## PLAN\.md\n[\s\S]*$/, '\n')
+    const planText = /\n## PLAN\.md\n~~~~markdown\n([\s\S]*?)~~~~\n/.exec(full)![1]!
+    const { ui, fs } = await boot($, on, surface, adoptFiles(), { blank: true })
+    await openAdoptView(ui)
+    await ui.input({ key: 'adopt-paths', text: 'notes/salon.md', kind: 'submit' } as any)
+    await until(() => w.spawned.length === 1, 'the adopt agent to start')
+    fs.files.set(ADOPT_PATH(), designOnly)
+    await w.finish($, w.spawned[0]!.agentId)
+    await ui.find({ key: 'ad-tick-D2' })
+    await ui.press({ key: 'adopt-apply' })
+    await until(() => fs.files.has('/repo/design/DESIGN.md'), 'the apply')
+    // Adopt wrote a design-only binding line; no plan yet.
+    const board = fs.files.get('tickets/BOARD.md')!
+    expect(board).toContain('Design: design/DESIGN.md\n')
+    expect(board).not.toContain('Plan:')
+    expect(fs.files.has('/repo/design/PLAN.md')).toBe(false)
+    // The plan is written later, by hand; a refresh binds it through the default path.
+    fs.files.set('/repo/design/PLAN.md', planText)
+    await ui.press({ key: 'tab-board' })
+    await ui.press({ key: 'refresh' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    expect(await drawnText(ui)).toContain('Magic link sign-in')
+    await ui.find({ key: 'build-create-P1.1' })
+    await ui.press({ key: 'build-create-P1.1' })
+    await until(() => w.spawned.length === 2, 'the ticket writer to start')
+    const drawn = await drawnText(ui)
+    expect(drawn).not.toContain('No PLAN.md is bound')
+    const row = rowsOf(fs).find(r => r.title === 'Magic link sign-in')!
+    expect(row.status).toBe('draft')
+    const line = fs.files.get('/repo/design/PLAN.md')!.split('\n').find(l => l.startsWith('| P1.1 |'))!
+    expect(line.trim().endsWith(`| ${row.number} |`)).toBe(true)
+    w.done()
+    await ui.unmount()
+  })
+
   test(`adopt errors: empty input, a path outside the project and a missing path start nothing (${surface})`, async ($, on) => {
     const w = fakeWriter(on)
     const { ui, writes } = await boot($, on, surface, adoptFiles(), { blank: true })
