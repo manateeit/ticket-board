@@ -44,7 +44,7 @@ import {
   withNoteFollowUp,
 } from '../hooks/core/roadmap'
 import { historyOf } from '../hooks/core/designfile'
-import { answerQuestion, docsGaps, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
+import { answerQuestion, docsGaps, isReadyable, isResolved, parseQuestions, readiness } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
 import { adoptLeftOut, adoptPaths, adoptResult, bindFromBoard, parseAdopt, setBindingLine } from '../hooks/core/roadmap'
 import { DEMO_ROADMAP } from './demo-roadmap'
@@ -154,6 +154,39 @@ test('finds open questions and records an answer under the right one', () => {
 test('placeholder questions do not count', () => {
   expect(parseQuestions(RD.replace(/## Open questions[\s\S]*/, '## Open questions\n\n- none\n')).length).toBe(0)
   expect(parseQuestions(RD.replace(/## Open questions[\s\S]*/, '## Open questions\n\n- <Must be empty before this ticket can be marked ready>\n')).length).toBe(0)
+})
+
+test('a detail line mentioning "agent)" or "(human" does not resolve a question (0024)', () => {
+  const rd = RD.replace(/## Open questions[\s\S]*/, '## Open questions\n\n- Which colour?\n  ask the router (or the agent)\n  then check with (human review\n')
+  const qs = parseQuestions(rd)
+  expect(qs.length).toBe(1)
+  expect(qs[0]!.isResolved).toBe(false)
+  expect(isResolved('Which colour?', 'ask the router (or the agent)')).toBe(false)
+  expect(isResolved('Which colour?', 'resolved later (human')).toBe(false)
+  const check = readiness({ rd, ev: EVAL, blockedBy: [], statusOf: () => 'done' }).find(c => c.id === 'questions')
+  expect(check?.isOk).toBe(false)
+  expect(check?.label).toContain('1 open question')
+})
+
+test('every accepted resolved form counts as answered (0024)', () => {
+  const with_ = (body: string) => RD.replace(/## Open questions[\s\S]*/, `## Open questions\n\n${body}\n`)
+  const forms = [
+    '- Which colour?\n  **Resolved 2026-11-11 (human): teal**',
+    '- Which colour?\n  **Resolved 2026-11-11 (agent, from code: x.ts): teal**',
+    '- Which colour?\n  **Resolved 2026-11-11 (agent, from code: x.ts)**: teal',
+    '- [x] Which colour?',
+    '- ~~Which colour?~~',
+  ]
+  for (const f of forms) {
+    const qs = parseQuestions(with_(f))
+    expect(qs.length).toBe(1)
+    expect(qs[0]!.isResolved).toBe(true)
+  }
+  expect(parseQuestions(with_('- none')).length).toBe(0)
+  expect(parseQuestions(with_('- none (resolved 2026-11-11; answers folded into the ticket)')).length).toBe(0)
+  const statusOf = () => 'done'
+  for (const f of [...forms, '- none', '- none (resolved 2026-11-11; answers folded into the ticket)'])
+    expect(readiness({ rd: with_(f), ev: EVAL, blockedBy: [], statusOf }).find(c => c.id === 'questions')?.isOk).toBe(true)
 })
 
 test('ready check blocks on open questions and passes once answered', () => {

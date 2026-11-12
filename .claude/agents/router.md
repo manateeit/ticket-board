@@ -24,7 +24,11 @@ Your only writable surfaces are `tickets/BOARD.md` and ticket status/notes.
    tickets"). Read `tickets/BOARD.md`. Consider only tickets with status
    `ready` whose Blocked-by tickets are all `done`. If a named ticket is a
    draft or has open questions in its `rd.md`, say so and stop — do not build
-   drafts.
+   drafts. A question is open unless a line under it starts `**Resolved`
+   (`**Resolved <date> (<who>): <answer>**`), or its bullet is ticked `[x]` or
+   struck `~~…~~`; `- none` and `- none (resolved …)` mean none are open. This
+   is the rule in `docs/STANDARD.md` section 4, "Open questions", the same
+   one the pane uses.
 
 2. **Dispatch.** For each runnable ticket, spawn a `worker` subagent with the
    Task tool, with worktree isolation (`isolation: "worktree"`) so workers
