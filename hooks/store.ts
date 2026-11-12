@@ -678,7 +678,8 @@ export async function editRow($: $, number: string, changes: CellChanges, expect
   const text = await $.fs.read(abs(boardPath()))
   const { text: next, skipped } = setCells(text, number, changes, expectStatus)
   if (next !== text) await $.fs.write(abs(boardPath()), next)
-  await refresh($)
+  // Forced: a plain refresh already running read the board before this write (0041).
+  await refresh($, true)
   return skipped
 }
 
@@ -687,13 +688,28 @@ export function hasColumn(col: Column): boolean {
   return S.snap?.board?.columns[col] !== undefined
 }
 
-export async function saveAnswer($: $, number: string, q: Question, answer: string) {
+/** Why a person can't edit this ticket's rd.md now (an AI job is writing it), or undefined when they can (0041). */
+export function rdLock(number: string): string | undefined {
+  return jobFor(number) === undefined ? undefined : `The AI is writing ticket ${number}: answers and Type are locked until it finishes`
+}
+
+/**
+ * Applies one edit to a ticket's rd.md and redraws from the written file. Refuses (throws, nothing written)
+ * while an AI job holds the ticket, so a person's edit and the agent's never overwrite each other.
+ */
+export async function editRd($: $, number: string, edit: (text: string) => string) {
+  const locked = rdLock(number)
+  if (locked !== undefined) throw new Error(locked)
   const f = S.snap?.files.get(number)
   if (f === undefined) throw new Error(`Ticket ${number} has no folder`)
   const path = `${dir()}/${f.folder}/rd.md`
   const text = await $.fs.read(abs(path))
-  await $.fs.write(abs(path), answerQuestion(text, q.index, q.text, answer, today(Date.now())))
-  await refresh($)
+  await $.fs.write(abs(path), edit(text))
+  await refresh($, true)
+}
+
+export async function saveAnswer($: $, number: string, q: Question, answer: string) {
+  await editRd($, number, text => answerQuestion(text, q.index, q.text, answer, today(Date.now())))
 }
 
 /** Answers one open question of a design section in DESIGN.md (the only file written). */
