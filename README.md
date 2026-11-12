@@ -349,7 +349,7 @@ A real router session reads that as itself and carries on. Any other session tak
 
 With the default *Tickets folder* the lines read exactly as above. With another folder, say `work`, they name that board, so the router updates the board the pane shows: `Run ticket 0014 (board: work/BOARD.md).`, or with a router `… update work/BOARD.md, and never write the code yourself. The board is work/BOARD.md and the ticket folders are in work/. …`
 
-- If a *blocked by* ticket is not done yet, the line adds `— but only once 0008 is done.`, and the ticket view says what it is waiting for.
+- If a *blocked by* ticket is not done yet, the line adds the wait right after the run sentence, before any router tail: `Run ticket 0014 — but only once 0008 is done.`, or with a router `Run ticket 0014 — but only once 0008 is done — as the router. If this session is not already the router, …`. The ticket view says what it is waiting for.
 - On the board, **▶ Run ready (N)** counts the ready tickets whose blockers are all done and fills one line for all of them (`Run tickets 0011, 0013 and 0014 …`).
 - In the [Plan view](#the-pane-view-by-view), each phase has the same **▶ Run ready (N)** for its own builds, and each build with a ready ticket has **▶ Run**. Same rule (status `ready`, every blocker done, also blockers outside the phase) and the same line, router tail included. Nothing is ever sent. With nothing ready the button is dim, pressing it fills nothing, and the reason is shown beside it (*No tickets in P3 yet*, *Nothing in P2 can run yet: 0012 waits on 0009*).
 - To make *every* new session in a project the router, desktop included, put `{ "agent": "router" }` in that project's `.claude/settings.local.json`.

@@ -3965,6 +3965,22 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// ---------- The Run line places the wait-for-blockers clause itself (0034) ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Run on a ready ticket with an open blocker waits before the router tail (${surface})`, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface, p7Files({ router: true }), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'open-0004' })
+    await ui.press({ key: 'run' })
+    expect(filled).toEqual([runLine(['0004'], true, 'tickets/BOARD.md', ['0005'])])
+    expect(filled[0]).toStartWith('Run ticket 0004 — but only once 0005 is done — as the router. If this session')
+    expect(filled[0]).toEndWith('and the docs listed under ## Docs in its rd.md.')
+    expect(filled[0]).not.toContain('rd. — but only once')
+    await ui.unmount()
+  })
+}
+
 // ---------- The Tickets folder setting everywhere (0025) ----------
 
 /** The same project with its board and ticket folders in `work/` instead of `tickets/`. */

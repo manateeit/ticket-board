@@ -329,6 +329,28 @@ test('run lines follow the tickets folder setting (0025)', () => {
   expect(router).not.toContain('tickets/')
 })
 
+test('run lines place the wait-for-blockers clause after the run sentence (0034)', () => {
+  const TAIL =
+    ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
+  // With a router: the clause follows "Run ticket 0005", the router tail comes after it unchanged.
+  expect(runLine(['0005'], true, 'tickets/BOARD.md', ['0003'])).toBe(`Run ticket 0005 — but only once 0003 is done —${TAIL}`)
+  const work = runLine(['0005'], true, 'work/BOARD.md', ['0003', '0004'])
+  expect(work).toStartWith('Run ticket 0005 — but only once 0003, 0004 are done — as the router.')
+  expect(work).toEndWith(runLine(['0005'], true, 'work/BOARD.md').slice('Run ticket 0005'.length))
+  // Without a router: the clause ends the sentence, after the board when one is named.
+  expect(runLine(['0005'], false, 'tickets/BOARD.md', ['0003'])).toBe('Run ticket 0005 — but only once 0003 is done.')
+  expect(runLine(['0005'], false, 'work/BOARD.md', ['0003'])).toBe('Run ticket 0005 (board: work/BOARD.md) — but only once 0003 is done.')
+  // No blockers: byte-identical to 0.5.3, router and plain, default and other board.
+  const WORK_TAIL =
+    ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update work/BOARD.md, and never write the code yourself. The board is work/BOARD.md and the ticket folders are in work/. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
+  for (const wait of [undefined, []]) {
+    expect(runLine(['0005'], true, 'tickets/BOARD.md', wait)).toBe(`Run ticket 0005${TAIL}`)
+    expect(runLine(['0005'], true, 'work/BOARD.md', wait)).toBe(`Run ticket 0005${WORK_TAIL}`)
+    expect(runLine(['0005', '0006'], false, 'tickets/BOARD.md', wait)).toBe('Run tickets 0005 and 0006.')
+    expect(runLine(['0005', '0006'], false, 'work/BOARD.md', wait)).toBe('Run tickets 0005 and 0006 (board: work/BOARD.md).')
+  }
+})
+
 test('result tags from board notes', () => {
   expect(resultOf('merged f681c3c (merge commit, local, no push); 3 worker rounds')?.label).toBe('Merged')
   expect(resultOf('moved from GitHub issue #2 2026-11-09')?.label).toBe('From GitHub')
