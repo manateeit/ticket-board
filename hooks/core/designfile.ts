@@ -2,15 +2,10 @@
 // question of a D section, and approving the design. Pure text in, text out; the reading is in
 // roadmap.ts (0003), the question format in ticket.ts, both reused unchanged.
 
-import { changeSummary, parseChangeNote } from './roadmap'
+import { changeSummary, D_HEADING, parseChangeNote, questionsBlock, questionText } from './roadmap'
 import { answerQuestion, parseQuestions } from './ticket'
 
 export class DesignEditError extends Error {}
-
-const D_HEADING = /^##\s+(?:~~\s*)?D(\d+)\s*(?:~~\s*)?[·—–:]/i
-
-/** A question's text as roadmap.ts shows it: without the `[ ]` / `[x]` box. */
-export const questionText = (raw: string) => raw.replace(/^\[[ xX]\]\s*/, '').trim()
 
 /**
  * Writes the person's answer under one open question of section `sectionId` (`D3`): the box is
@@ -28,10 +23,10 @@ export function answerDesignQuestion(md: string, sectionId: string, text: string
   if (head === -1) throw new DesignEditError(`${sectionId} is no longer in DESIGN.md`)
   let end = lines.findIndex((l, i) => i > head && /^##\s/.test(l))
   if (end === -1) end = lines.length
-  const q = lines.findIndex((l, i) => i > head && i < end && /^###\s+open questions/i.test(l))
-  if (q === -1) throw new DesignEditError(`${sectionId} has no open questions section`)
-  let qEnd = lines.findIndex((l, i) => i > q && i < end && /^###?\s/.test(l))
-  if (qEnd === -1) qEnd = end
+  const block = questionsBlock(lines.slice(head + 1, end))
+  if (block === undefined) throw new DesignEditError(`${sectionId} has no open questions section`)
+  const q = head + 1 + block.start
+  const qEnd = head + 1 + block.end
   // The questions as a stand-alone `## Open questions` block, so ticket.ts reads and writes them.
   const fragment = ['## Open questions', ...lines.slice(q + 1, qEnd)].join('\n')
   const found = parseQuestions(fragment).find(x => questionText(x.text) === text.trim())

@@ -1855,6 +1855,27 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// ---------- A ### subsection after a section's Open questions (0039) ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Design tab: bullets under a later ### are not questions; the real one answers (${surface})`, async ($, on) => {
+    const design = P7_DESIGN.replace('- [ ] Stripe or Adyen? [Stripe · Adyen]\n', '- [ ] Stripe or Adyen? [Stripe · Adyen]\n\n### Notes\n- Adyen has a sandbox\n- Ask about fees\n')
+    const { ui, fs } = await boot($, on, surface, p7Files({ design }), { blank: true })
+    await ui.find({ key: 'tab-design' })
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D1' })
+    expect(await drawnText(ui)).toContain('Answer the 2 open questions first (D3, D4)')
+    await ui.press({ key: 'sec-D3' })
+    await ui.find({ key: 'dq-D3-0' })
+    expect(await drawnText(ui)).not.toContain('dq-D3-1')
+    await ui.input({ key: 'dq-D3-0', text: 'Stripe', kind: 'submit' } as any)
+    const md = fs.files.get('/repo/design/DESIGN.md')!
+    expect(md).toMatch(/- \[x\] Stripe or Adyen\? \[Stripe · Adyen\]\n {2}\*\*Resolved \d{4}-\d{2}-\d{2} \(human\): Stripe\*\*\n\n### Notes\n- Adyen has a sandbox/)
+    expect(await drawnText(ui)).not.toContain('That question changed')
+    await ui.unmount()
+  })
+}
+
 // ---------- Tickets from the plan (0008) ----------
 
 const T8_DESIGN = `---

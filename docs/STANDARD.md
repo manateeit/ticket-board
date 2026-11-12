@@ -116,7 +116,7 @@ dot `·`, a space, the title). Each has these lines, in this order:
 | `Why: …` | the reason this section exists |
 | `What: …` | what is being built, in plain words (may continue on following lines) |
 | `Done when:` | a bullet list of observable conditions. EARS form `WHEN … THE SYSTEM SHALL …` is optional; plain statements are fine. These become the starting point of each ticket's `eval.md`. |
-| `### Open questions` | questions in the same format as rd.md (below). Optional. |
+| `### Open questions` | questions in the same format as rd.md (below). Optional. The block ends at the next `###` (or `##`) heading; bullets under a later `### …` subsection (Notes, say) are not questions. |
 
 **Open questions** use the rd.md format and the resolved rule in section 4. A question is
 written `- [ ]` and stays open until it is resolved. Answering it means ticking it (`- [x]`) and adding, indented under
