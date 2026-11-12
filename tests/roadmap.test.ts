@@ -18,6 +18,7 @@ import {
   type TicketRef,
 } from '../hooks/core/roadmap'
 import { parseDesignRefs, parsePlanRef } from '../hooks/core/ticket'
+import { answerDesignQuestion } from '../hooks/core/designfile'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -197,6 +198,35 @@ test('roadmap: blank project gives empty results and no checks', () => {
   expect(all.checks).toEqual([])
   expect(parseDesign('').sections).toEqual([])
   expect(parsePlan('   \n').phases).toEqual([])
+})
+
+// ── Where a section's Open questions end (0039) ───────────────────────────
+
+const NOTES_AFTER = `## D3 · Payments
+Rev: 1
+What: Take a deposit.
+
+### Open questions
+- [ ] Stripe or Adyen?
+
+### Notes
+- Adyen has a sandbox
+- Ask the owner about fees
+
+## D4 · Reminders
+Rev: 1
+`
+
+test('roadmap: a ### subsection after Open questions ends them, reader and writer agree (0039)', () => {
+  const d3 = parseDesign(NOTES_AFTER).sections[0]!
+  expect(d3.questions).toEqual([{ text: 'Stripe or Adyen?', isResolved: false }])
+  const after = answerDesignQuestion(NOTES_AFTER, 'D3', d3.questions[0]!.text, 'Stripe', '2026-11-12')
+  expect(after).toContain('- [x] Stripe or Adyen?\n  **Resolved 2026-11-12 (human): Stripe**\n\n### Notes\n- Adyen has a sandbox')
+  expect(parseDesign(after).sections[0]!.questions).toEqual([{ text: 'Stripe or Adyen?', isResolved: true }])
+  // Without a later subsection the block still runs to the end of the section.
+  const plain = NOTES_AFTER.replace('### Notes\n- Adyen has a sandbox\n- Ask the owner about fees\n\n', '')
+  expect(parseDesign(plain).sections[0]!.questions).toEqual([{ text: 'Stripe or Adyen?', isResolved: false }])
+  expect(answerDesignQuestion(plain, 'D3', 'Stripe or Adyen?', 'Adyen', '2026-11-12')).toContain('- [x] Stripe or Adyen?\n  **Resolved 2026-11-12 (human): Adyen**\n\n## D4')
 })
 
 // ── Full fixture ──────────────────────────────────────────────────────────

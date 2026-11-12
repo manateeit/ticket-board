@@ -58,7 +58,7 @@ const intOf = (v: string | undefined): number | undefined => {
 const firstHeading = (lines: string[]) => /^#\s+(.+?)\s*$/.exec(lines.find(l => /^#\s/.test(l)) ?? '')?.[1]
 
 /** `## D3 · Title`, `## d3 — Title`, `## D3: Title`, `## D7 · ~~Title~~`, `## ~~D7 · Title~~`. */
-const D_HEADING = /^##\s+(?:~~\s*)?D(\d+)\s*(?:~~\s*)?[·—–:]\s*(.*?)\s*$/i
+export const D_HEADING = /^##\s+(?:~~\s*)?D(\d+)\s*(?:~~\s*)?[·—–:]\s*(.*?)\s*$/i
 const P_HEADING = /^##\s+(?:~~\s*)?P(\d+)\s*(?:~~\s*)?[·—–:]\s*(.*?)\s*$/i
 
 function splitH2(lines: string[]): { head: string; body: string[] }[] {
@@ -69,6 +69,21 @@ function splitH2(lines: string[]): { head: string; body: string[] }[] {
   }
   return out
 }
+
+/**
+ * Where a D section's Open questions are, in its body (the lines after its `##` heading):
+ * `start` is the `### Open questions` line, `end` the next `###`/`##` heading or the body's end.
+ * The one rule for the reader (`parseSection`) and the answer writer (designfile.ts).
+ */
+export function questionsBlock(body: readonly string[]): { start: number; end: number } | undefined {
+  const start = body.findIndex(l => /^###\s+open questions/i.test(l))
+  if (start === -1) return undefined
+  const end = body.findIndex((l, i) => i > start && /^###?\s/.test(l))
+  return { start, end: end === -1 ? body.length : end }
+}
+
+/** A question's text as the pane shows it: without the `[ ]` / `[x]` box. */
+export const questionText = (raw: string) => raw.replace(/^\[[ xX]\]\s*/, '').trim()
 
 const FIELD = /^\s*(?:\*\*)?(rev|status|why|what|done when|goal|appetite|exit)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.*?)\s*$/i
 
@@ -84,12 +99,11 @@ function parseSection(id: string, rawTitle: string, heading: string, body: strin
     isDropped: heading.includes('~~'),
   }
   let field = ''
-  let qStart = -1
+  const block = questionsBlock(body)
   body.forEach((line, i) => {
-    if (qStart !== -1) return
+    if (block !== undefined && i >= block.start) return
     if (/^###\s/.test(line)) {
-      if (/^###\s+open questions/i.test(line)) qStart = i
-      else field = ''
+      field = ''
       return
     }
     const m = FIELD.exec(line)
@@ -113,10 +127,10 @@ function parseSection(id: string, rawTitle: string, heading: string, body: strin
     } else if (field === 'what') sec.what = `${sec.what} ${t}`.trim()
     else if (field === 'why') sec.why = `${sec.why} ${t}`.trim()
   })
-  if (qStart !== -1) {
-    const qs = parseQuestions(['## Open questions', ...body.slice(qStart + 1)].join('\n'))
+  if (block !== undefined) {
+    const qs = parseQuestions(['## Open questions', ...body.slice(block.start + 1, block.end)].join('\n'))
     for (const q of qs) {
-      const text = q.text.replace(/^\[[ xX]\]\s*/, '').trim()
+      const text = questionText(q.text)
       if (text === '' || /^<.*>$/.test(text) || /^none\b/i.test(text)) continue
       sec.questions.push({ text, isResolved: q.isResolved })
     }
@@ -1544,9 +1558,16 @@ export function adoptResult(p: AdoptProposal, off: ReadonlySet<string>, date: st
   return res
 }
 
-/** Sets the `Design: … · Plan: …` binding line under the BOARD.md title (replacing the one there). Other lines are kept. */
+/**
+ * Sets the `Design: … · Plan: …` binding line under the BOARD.md title (replacing the one there). A half
+ * not given (`undefined`) keeps the path the existing line names for it. Other lines are kept.
+ */
 export function setBindingLine(board: string, design: string | undefined, plan: string | undefined): string {
-  const text = [design === undefined ? '' : `Design: ${design}`, plan === undefined ? '' : `Plan: ${plan}`].filter(Boolean).join(' · ')
+  if (design === undefined && plan === undefined) return board
+  const kept = parseBindingLine(board)
+  const d = design ?? kept?.design
+  const p = plan ?? kept?.plan
+  const text = [d === undefined ? '' : `Design: ${d}`, p === undefined ? '' : `Plan: ${p}`].filter(Boolean).join(' · ')
   if (text === '') return board
   const eol = board.includes('\r\n') ? '\r\n' : '\n'
   const lines = board.split(/\r?\n/)

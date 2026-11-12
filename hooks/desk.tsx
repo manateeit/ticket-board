@@ -4,12 +4,13 @@
 // The terminal keeps the compact views in views.tsx.
 import type { EngineInterface, RenderChildren } from 'claude-code'
 
-import { startJob, suggestAnswer } from './ai'
+import { releaseUntracked, startJob, suggestAnswer } from './ai'
 import { STATUSES, parseBlockedBy } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
-import { headFieldLine, isReadyable, setHeadField } from './core/ticket'
+import { findSection, headFieldLine, isReadyable, setHeadField } from './core/ticket'
 import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, statusHexOf, tint, wash, workingSvg } from './glass'
 import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
+import { editRd, rdLock } from './store'
 import { openAdopt } from './adopt'
 import {
   ADOPT_LABEL,
@@ -704,7 +705,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
             {'Agents '}
             <Text color={S.agents.some(isLive) ? AGENT_HEX.running! : G.faint}>{`● ${S.agents.filter(isLive).length}`}</Text>
           </Button>
-          <Button key="refresh" label="↻" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'))} />
+          <Button key="refresh" label="↻" hotkey="r" onPress={() => void releaseUntracked($).then(() => refresh($, true)).then(() => say($, 'Refreshed'))} />
           <Button key="new" label="+ New ticket" hotkey="n" variant="primary" onPress={() => go($, { kind: 'new' })} />
         </Box>
       </Box>
@@ -840,30 +841,27 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
 
 /** Splits rd.md / eval.md into one card per "## " section. Drops the H1 (the page shows the title), the head's Type line
  * (a `type:` line in a section or code block stays),
- * and the Open questions section (the questions card above handles those; a done ticket doesn't need them). */
+ * and the section core reads the open questions from (the questions card above handles those; a done ticket doesn't need them).
+ * A heading core does not recognise stays visible, so the page and the ready check agree. */
 export function docSections(text: string): { title?: string; body: string }[] {
-  const out: { title?: string; body: string[] }[] = [{ body: [] }]
+  const out: { title?: string; body: string[]; at?: number }[] = [{ body: [] }]
   const typeAt = headFieldLine(text, 'type')
+  const questionsAt = findSection(text, 'Open questions')?.start
   for (const [n, line] of text.split(/\r?\n/).entries()) {
     if (/^#\s/.test(line) || n === typeAt) continue
     const h = /^##\s+(.*)$/.exec(line)
-    if (h) out.push({ title: h[1]!.replace(/[`*]/g, '').trim(), body: [] })
+    if (h) out.push({ title: h[1]!.replace(/[`*]/g, '').trim(), body: [], at: n })
     else out[out.length - 1]!.body.push(line)
   }
   return out
-    .filter(sec => !/^open questions?\b/i.test(sec.title ?? ''))
+    .filter(sec => questionsAt === undefined || sec.at !== questionsAt)
     .map(sec => ({ title: sec.title, body: sec.body.join('\n').trim() }))
     .filter(sec => sec.title !== undefined || sec.body !== '')
 }
 
 async function setKind($: $, number: string, kind: Kind) {
-  const f = S.snap?.files.get(number)
-  if (f === undefined) return say($, `Ticket ${number} has no folder`, 'error')
-  const path = `${dir()}/${f.folder}/rd.md`
   try {
-    const rd = await $.fs.read(abs(path))
-    await $.fs.write(abs(path), setHeadField(rd, 'Type', kind))
-    await refresh($, true)
+    await editRd($, number, rd => setHeadField(rd, 'Type', kind))
     say($, `${number} is now a ${KIND[kind].label.toLowerCase()}`)
   } catch (err) {
     fail($, err)
@@ -913,6 +911,7 @@ function QuestionsCard($: $, ui: UI, number: string, focus: boolean): RenderChil
   const open = qs.filter(q => !q.isResolved)
   const answered = qs.filter(q => q.isResolved)
   const job = jobFor(number)
+  const lock = rdLock(number)
   const hex = open.length > 0 ? STATUS_HEX.draft! : STATUS_HEX.ready!
   return Card(
     ui,
@@ -935,6 +934,11 @@ function QuestionsCard($: $, ui: UI, number: string, focus: boolean): RenderChil
                 {q.detail}
               </Text>
             )}
+            {lock !== undefined ? (
+              <Text key={`locked-${key}`} color={G.soft} size="footnote">
+                {`🔒 ${lock}`}
+              </Text>
+            ) : (
             <Input
               key={key}
               value={draft}
@@ -952,6 +956,7 @@ function QuestionsCard($: $, ui: UI, number: string, focus: boolean): RenderChil
                   .catch(err => fail($, err))
               }}
             />
+            )}
             <Box flexDirection="row" gap={1}>
               <Button
                 key={`suggest-${key}`}
@@ -1182,13 +1187,22 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
             ui,
             [
               Prop(ui, 'Status', StatusPill(ui, status)),
-              <Select
-                key={`kind-${number}`}
-                label="Type"
-                value={kind}
-                options={KINDS.map(k => ({ value: k, label: `${KIND[k].icon} ${KIND[k].label}` }))}
-                onSelect={v => void setKind($, number, v as Kind)}
-              />,
+              rdLock(number) !== undefined ? (
+                <Box key={`kind-locked-${number}`} flexDirection="column">
+                  {Prop(ui, 'Type', `${KIND[kind].icon} ${KIND[kind].label}`)}
+                  <Text color={G.faint} size="footnote">
+                    {`🔒 ${rdLock(number)}`}
+                  </Text>
+                </Box>
+              ) : (
+                <Select
+                  key={`kind-${number}`}
+                  label="Type"
+                  value={kind}
+                  options={KINDS.map(k => ({ value: k, label: `${KIND[k].icon} ${KIND[k].label}` }))}
+                  onSelect={v => void setKind($, number, v as Kind)}
+                />
+              ),
               row === undefined ? null : hasColumn('mode') ? (
                 <Select
                   key={`mode-${number}`}

@@ -1,7 +1,7 @@
 // Handing ticket writing to a background agent, and one-shot answer suggestions.
-import type { EngineInterface } from 'claude-code'
+import type { AgentInfo, EngineInterface } from 'claude-code'
 
-import { today } from './core/query'
+import { isPaneNote, paneNote, today } from './core/query'
 import {
   DEFAULT_DESIGN,
   DEFAULT_PLAN,
@@ -31,7 +31,7 @@ import {
   type Roadmap,
 } from './core/roadmap'
 import type { Question } from './core/ticket'
-import { S, abs, addPlanTicket, boardPath, changesFolder, createBoardFiles, createSkeleton, dir, editRow, folderOf, fullRoadmap, latestProposal, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
+import { S, abs, addPlanTicket, boardPath, changesFolder, createBoardFiles, createSkeleton, dir, editRow, folderOf, fullRoadmap, isLive, latestProposal, proposalKey, redraw, refresh, roadmapView, rowOf, saveJobs, say, type Job } from './store'
 
 type $ = EngineInterface
 
@@ -97,16 +97,19 @@ export function jobNote(label: string, extra: string | undefined): string {
   return extra === undefined || extra === '' ? label : `${label} · ${extra}`
 }
 
-/** Only notes the pane wrote itself (empty, or starting with `AI `) are replaced. */
-async function setAiNote($: $, number: string, note: string) {
+/**
+ * The one writer of pane notes: the note gets the pane's prefix (PANE_NOTE_PREFIX), and it replaces
+ * only a note the pane owns (isPaneNote), so a router's or a person's note is never overwritten.
+ */
+export async function setPaneNote($: $, number: string, note: string) {
   const row = rowOf(number)
-  if (row !== undefined && (row.notes === '' || row.notes.startsWith('AI '))) await editRow($, number, { notes: note }).catch(() => undefined)
+  if (row !== undefined && isPaneNote(row.notes)) await editRow($, number, { notes: paneNote(note) }).catch(() => undefined)
 }
 
 /** Records a failed plan ticket: the Plan view shows the reason and offers Create again. */
 export async function failPlan($: $, build: string, number: string, reason: string, extra?: string) {
   S.planFailed.set(build, { number, reason })
-  await setAiNote($, number, jobNote(`AI plan ticket failed (${reason})`, extra))
+  await setPaneNote($, number, jobNote(`AI plan ticket failed (${reason})`, extra))
   redraw($)
 }
 
@@ -118,6 +121,37 @@ async function listedWriter($: $, description: string): Promise<string | undefin
   } catch {
     return undefined
   }
+}
+
+/** The row note of a writer that started without an agent id (0042). */
+export const UNTRACKED_NOTE = 'AI writer started without an agent id; refresh when it is done'
+
+/** Untracked writers that agent.list now shows live become ordinary jobs (0042). */
+async function matchUntracked($: $): Promise<void> {
+  if (S.untracked.size === 0) return
+  let listed: AgentInfo[]
+  try {
+    listed = await $.agent.list()
+  } catch {
+    return
+  }
+  for (const u of [...S.untracked.values()]) {
+    const a = listed.filter(x => x.description === u.description && isLive(x) && !S.jobs.has(x.id)).at(-1)
+    if (a === undefined) continue
+    S.untracked.delete(u.number)
+    const { description: _d, label, ...job } = u
+    S.jobs.set(a.id, { agentId: a.id, ...job })
+    await saveJobs($)
+    await setAiNote($, u.number, jobNote(label, u.extra))
+  }
+}
+
+/** The person refreshed: writers started without an agent id give their slots back, and queued plan tickets start (0042). */
+export async function releaseUntracked($: $): Promise<void> {
+  if (S.untracked.size === 0) return
+  await matchUntracked($)
+  S.untracked.clear()
+  await pumpPlanQueue($)
 }
 
 /** `plan` is set for a ticket from a plan build (0008): its build, folder and missing-dependency note. */
@@ -133,7 +167,7 @@ export async function startJob(
     say($, `Ticket ${number} has no folder to write in`, 'error')
     return false
   }
-  if ([...S.jobs.values()].some(j => j.number === number)) {
+  if ([...S.jobs.values()].some(j => j.number === number) || S.untracked.has(number)) {
     say($, `An AI job is already working on ${number}`, 'warning')
     return false
   }
@@ -159,6 +193,9 @@ export async function startJob(
   // A spawn that does not hand back its id: find the new agent in this session's list by its description.
   const agentId = r.agentId ?? (await listedWriter($, description))
   if (agentId === undefined) {
+    // Untracked (0042): it still holds a writer slot, and its row says so, until the person refreshes or it is matched.
+    S.untracked.set(number, { number, kind, startedAt: Date.now(), description, label, ...(plan === undefined ? {} : { build: plan.build, extra: plan.extra }) })
+    await setAiNote($, number, jobNote(UNTRACKED_NOTE, plan?.extra))
     say($, 'The ticket writer started without an agent id; refresh when it is done', 'warning')
     return true
   }
@@ -170,7 +207,7 @@ export async function startJob(
     ...(plan === undefined ? {} : { build: plan.build, extra: plan.extra }),
   })
   await saveJobs($)
-  await setAiNote($, number, jobNote(label, plan?.extra))
+  await setPaneNote($, number, jobNote(label, plan?.extra))
   if (plan === undefined) say($, `${label.replace('…', '')} ticket ${number} in the background`)
   return true
 }
@@ -193,6 +230,7 @@ export async function pumpPlanQueue($: $): Promise<void> {
   try {
     do {
       pumpAgain = false
+      await matchUntracked($)
       while (S.planQueue.length > 0 && runningJobs() < MAX_JOBS) {
         const q = S.planQueue.shift()!
         await startJob($, q.number, 'plan', q.brief, { build: q.build, folder: q.folder, extra: q.extra })
@@ -210,6 +248,8 @@ export function planJobOf(buildId: string): { state: 'queued' | 'writing' | 'fai
   if (q !== undefined) return { state: 'queued', number: q.number }
   const j = [...S.jobs.values()].find(x => x.kind === 'plan' && x.build === buildId)
   if (j !== undefined) return { state: 'writing', number: j.number }
+  const u = [...S.untracked.values()].find(x => x.kind === 'plan' && x.build === buildId)
+  if (u !== undefined) return { state: 'writing', number: u.number }
   const f = S.planFailed.get(buildId)
   return f === undefined ? undefined : { state: 'failed', number: f.number, reason: f.reason }
 }
@@ -291,12 +331,19 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
   const range = made.length === 1 ? made[0]! : `${made[0]}–${made[made.length - 1]}`
   const queued = S.planQueue.filter(q => made.includes(q.number)).length
   const failed = made.filter(n => [...S.planFailed.values()].some(f => f.number === n)).length
+  const untracked = made.filter(n => S.untracked.has(n)).length
   say(
     $,
-    [`Created ${plural(made.length, 'draft ticket')} from ${what} (${range})`, queued === 0 ? '' : `${queued} queued`, failed === 0 ? '' : `${failed} failed to start`, ...tail]
+    [
+      `Created ${plural(made.length, 'draft ticket')} from ${what} (${range})`,
+      queued === 0 ? '' : `${queued} queued`,
+      failed === 0 ? '' : `${failed} failed to start`,
+      untracked === 0 ? '' : `${untracked} started without an agent id (refresh when done)`,
+      ...tail,
+    ]
       .filter(Boolean)
       .join(' · '),
-    failed > 0 ? 'warning' : 'success',
+    failed > 0 || untracked > 0 ? 'warning' : 'success',
   )
   return made
 }
@@ -314,7 +361,7 @@ export async function retryPlanBuild($: $, buildId: string): Promise<void> {
   S.planFailed.delete(buildId)
   const extra = missingNote(blockedByFor(b, rm.links, new Map()).missing)
   S.planQueue.push({ number: f.number, folder, build: buildId, brief: planBrief(rm.design, rm.plan, b), extra })
-  await setAiNote($, f.number, jobNote('AI queued', extra))
+  await setPaneNote($, f.number, jobNote('AI queued', extra))
   await pumpPlanQueue($)
   if (!S.planFailed.has(buildId)) say($, `Writing ticket ${f.number} for ${buildId} again`)
 }
@@ -323,6 +370,13 @@ export async function retryPlanBuild($: $, buildId: string): Promise<void> {
 
 /** What Apply shows, writing nothing, when PLAN.md is not the plan the proposal was made from. */
 export const PLAN_CHANGED = 'plan changed; regenerate the proposal'
+
+/** What Apply shows, writing nothing, when the proposal was made for another design version (0038). */
+export const staleProposal = (pv: number | undefined, dv: number | undefined) =>
+  `This replan proposal is for ${pv === undefined ? 'an unknown design version' : `design v${pv}`}, the design is ${dv === undefined ? 'unversioned' : `v${dv}`}: make a new proposal; nothing applied`
+
+/** What Apply and Dismiss show, writing nothing, when the proposal changed after the items were ticked (0038). */
+export const PROPOSAL_CHANGED = 'The replan proposal changed since you ticked: tick the items again; nothing applied'
 
 async function readText($: $, path: string): Promise<string | undefined> {
   try {
@@ -462,7 +516,10 @@ export async function stampProposal($: $): Promise<void> {
   if (lp?.text === undefined || lp.proposal === undefined || !lp.proposal.hasGroups || lp.proposal.planHash !== '' || planPath === undefined) return
   const plan = await readText($, planPath)
   if (plan === undefined) return
-  await $.fs.write(abs(lp.path), setFrontMatterKey(lp.text, 'plan-hash', planHash(plan)))
+  const next = setFrontMatterKey(lp.text, 'plan-hash', planHash(plan))
+  // The pane's own write: ticks made meanwhile stay with the proposal.
+  if (S.replanTicksOf === proposalKey(lp.path, lp.text)) S.replanTicksOf = proposalKey(lp.path, next)
+  await $.fs.write(abs(lp.path), next)
   await refresh($, true)
 }
 
@@ -507,33 +564,46 @@ export async function createFollowUps($: $, items: readonly { build?: string; ti
 /**
  * Apply selected: the ticked open items edit PLAN.md (Add, Change, Drop and `design-version`),
  * Add and Follow-up items become draft tickets, and the proposal marks them `[x]` with the new
- * plan's hash. Stops with PLAN_CHANGED and writes nothing when PLAN.md is not the plan the
- * proposal was made from. Nothing ticked is a no-op. Done tickets are never written.
+ * plan's hash; `design-version` becomes the proposal's. Writes nothing when PLAN.md is not the plan
+ * the proposal was made from (PLAN_CHANGED), when the proposal is not for the current design version
+ * (staleProposal), or when the proposal changed since the ticks were made (PROPOSAL_CHANGED).
+ * Nothing ticked is a no-op. Done tickets are never written.
  */
 export async function applyReplan($: $, ticked: readonly number[]): Promise<void> {
   if (S.isApplying) return say($, 'Still applying the last selection', 'warning')
   S.isApplying = true
   try {
+    const ticksOf = S.replanTicksOf
     await refresh($, true)
     const lp = latestProposal()
     if (lp === undefined) return say($, 'No replan proposal to apply', 'warning')
     const text = await readText($, lp.path)
     const proposal = text === undefined ? undefined : parseProposal(text, lp.name)
     if (text === undefined || proposal === undefined || !proposal.hasGroups) return say($, `Could not read the replan proposal: ${lp.path}`, 'error')
+    if (ticked.length > 0 && proposalKey(lp.path, text) !== ticksOf) {
+      S.replanTicks.clear()
+      redraw($)
+      return say($, PROPOSAL_CHANGED, 'error')
+    }
+    const dv = parseDesign(S.snap?.binding?.design).version
+    if (proposal.designVersion === undefined || proposal.designVersion !== dv) return say($, staleProposal(proposal.designVersion, dv), 'error')
     const sel = proposal.items.filter(i => i.state === 'open' && ticked.includes(i.index)).map(i => i.index)
     if (sel.length === 0) return say($, 'Nothing ticked: nothing applied', 'warning')
     const planPath = S.snap?.binding?.planPath
     const plan = planPath === undefined ? undefined : await readText($, planPath)
     if (planPath === undefined || plan === undefined) return say($, 'No PLAN.md is bound to this board', 'error')
     if (proposal.planHash === '' || planHash(plan) !== proposal.planHash) return say($, PLAN_CHANGED, 'error')
-    const r = applyProposal(plan, proposal, sel, parseDesign(S.snap?.binding?.design).version, today(Date.now()))
+    const r = applyProposal(plan, proposal, sel, proposal.designVersion, today(Date.now()))
     if (r.md !== plan) await $.fs.write(abs(planPath), r.md)
     await refresh($, true)
     const added = r.added.length === 0 ? [] : await createPlanTickets($, r.added, 'the replan')
     const follow = await createFollowUps($, r.followUps)
     // The plan the remaining items now apply to: its hash goes into the proposal with the ticks.
     const after = (await readText($, planPath)) ?? r.md
-    await $.fs.write(abs(lp.path), markProposal(text, proposal, new Map(r.applied.map(i => [i, 'applied' as const])), planHash(after)))
+    const marked = markProposal(text, proposal, new Map(r.applied.map(i => [i, 'applied' as const])), planHash(after))
+    // The pane's own write: the ticks left (skipped items) stay with the proposal.
+    S.replanTicksOf = proposalKey(lp.path, marked)
+    await $.fs.write(abs(lp.path), marked)
     for (const i of r.applied) S.replanTicks.delete(i)
     await refresh($, true)
     const made = [...added, ...follow]
@@ -560,10 +630,17 @@ export async function dismissReplan($: $, ticked: readonly number[]): Promise<vo
   const lp = latestProposal()
   const text = lp === undefined ? undefined : await readText($, lp.path)
   if (lp === undefined || text === undefined) return say($, `Could not read the replan proposal${lp === undefined ? '' : `: ${lp.path}`}`, 'error')
+  if (ticked.length > 0 && proposalKey(lp.path, text) !== S.replanTicksOf) {
+    S.replanTicks.clear()
+    redraw($)
+    return say($, PROPOSAL_CHANGED.replace('nothing applied', 'nothing dismissed'), 'error')
+  }
   const proposal = parseProposal(text, lp.name)
   const sel = proposal.items.filter(i => i.state === 'open' && ticked.includes(i.index)).map(i => i.index)
   if (sel.length === 0) return say($, 'Nothing ticked: nothing dismissed', 'warning')
-  await $.fs.write(abs(lp.path), markProposal(text, proposal, new Map(sel.map(i => [i, 'dismissed' as const]))))
+  const marked = markProposal(text, proposal, new Map(sel.map(i => [i, 'dismissed' as const])))
+  S.replanTicksOf = proposalKey(lp.path, marked)
+  await $.fs.write(abs(lp.path), marked)
   for (const i of sel) S.replanTicks.delete(i)
   await refresh($, true)
   say($, `Dismissed ${plural(sel.length, 'item')}`)
@@ -574,8 +651,8 @@ export async function dismissReplan($: $, ticked: readonly number[]): Promise<vo
 /** Where adopt proposals go: `design/changes/` beside the default DESIGN.md. */
 export const ADOPT_FOLDER = changesFolder(DEFAULT_DESIGN)
 
-/** Writer jobs, the adopt agent included: what the 3-slot queue counts. */
-export const runningJobs = () => S.jobs.size + (S.adoptJob === undefined ? 0 : 1)
+/** Writer jobs, untracked writers (0042) and the adopt agent included: what the 3-slot queue counts. */
+export const runningJobs = () => S.jobs.size + S.untracked.size + (S.adoptJob === undefined ? 0 : 1)
 
 function adoptBrief($: $, a: { path: string; sources: string[]; date: string }): string {
   return [

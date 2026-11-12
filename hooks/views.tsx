@@ -3,11 +3,11 @@ import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, des
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { COLUMN_LABEL, STATUSES, parseBlockedBy, type CellChanges, type Column } from './core/board'
-import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, titleFromIdea, type Filters } from './core/query'
+import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, paneNote, query, runLine, titleFromIdea, type Filters } from './core/query'
 import { allBuilds, staleOf, staleText, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
-import { startJob, suggestAnswer } from './ai'
+import { releaseUntracked, startJob, suggestAnswer } from './ai'
 import { adoptView, deskAdopt, openAdopt } from './adopt'
 import { Tabs, TermReplanBanner, brainstorm, deskDesign, deskPlan, deskReplan, designView, openDesign, openPlan, planView, replanView, viewName } from './plan'
 import { G, barSvg, heroSvg, statusHexOf, tint } from './glass'
@@ -30,6 +30,7 @@ import {
   roadmapView,
   rowOf,
   saveAnswer,
+  rdLock,
   saveFilters,
   say,
   setStartFlag,
@@ -111,9 +112,7 @@ export function runnable(): string[] {
 
 export function runTicket($: $, number: string) {
   const open = blockersOpen(rowOf(number)?.blockedBy ?? [])
-  const base = runLine([number], S.hasRouter, boardPath())
-  const text = open.length === 0 ? base : `${base.replace(/\.$/, '')} — but only once ${open.join(', ')} ${open.length === 1 ? 'is' : 'are'} done.`
-  void fill($, text, 'In your prompt box — press Enter to send it')
+  void fill($, runLine([number], S.hasRouter, boardPath(), open), 'In your prompt box — press Enter to send it')
 }
 
 export function setFilters($: $, change: Partial<Filters>) {
@@ -401,7 +400,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
         {run.length > 0 && (
           <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter, boardPath()), 'In your prompt box — press Enter to send it to the router')} />
         )}
-        <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'), () => undefined)} />
+        <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void releaseUntracked($).then(() => refresh($, true)).then(() => say($, 'Refreshed'), () => undefined)} />
         <Button
           key="agents"
           label={`Agents ● ${S.agents.filter(isLive).length}`}
@@ -807,6 +806,7 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
   const open = qs.filter(q => !q.isResolved)
   const answered = qs.filter(q => q.isResolved)
   const job = jobFor(number)
+  const lock = rdLock(number)
   return (
     <Box flexDirection="column" gap={1}>
       {Header(ui, `${number} — open questions`, $, { kind: 'ticket', number, tab: 'rd' })}
@@ -821,6 +821,9 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
               {n + 1}. {q.text}
             </Text>
             {q.detail !== '' && <Text dimColor>{q.detail}</Text>}
+            {lock !== undefined ? (
+              <Text key={`locked-${key}`} dimColor>{`🔒 ${lock}`}</Text>
+            ) : (
             <Input
               key={key}
               label="Answer"
@@ -840,6 +843,7 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
                   .catch(err => fail($, err))
               }}
             />
+            )}
             <Box flexDirection="row" gap={1}>
               <Button
                 key={`suggest-${key}`}
@@ -909,7 +913,7 @@ export async function createTicket($: $, withAI: boolean) {
     const { number } = await createSkeleton(
       $,
       { title: (S.drafts.get('new-title') ?? '').trim() || titleFromIdea(idea), text: idea, mode: S.newMode, blockedBy, kind: S.newKind },
-      withAI ? 'AI drafting…' : 'Skeleton — fill in rd.md and eval.md',
+      withAI ? paneNote('drafting…') : paneNote('skeleton — fill in rd.md and eval.md'),
     )
     S.drafts.delete('new-idea')
     S.drafts.delete('new-blocked')
