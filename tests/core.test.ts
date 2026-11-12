@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BoardEditError, addRow, parseBoard, setCells } from '../hooks/core/board'
+import { BoardEditError, addRow, formatBlockedBy, parseBlockedBy, parseBoard, setCells } from '../hooks/core/board'
 import {
   commitFromRefs,
   hasCode,
@@ -111,7 +111,7 @@ test('parses the board table', () => {
 })
 
 test('a status change rewrites exactly one line', () => {
-  const after = setCells(BOARD, '0003', { status: 'ready' }, 'draft')
+  const after = setCells(BOARD, '0003', { status: 'ready' }, 'draft').text
   const a = BOARD.split('\n')
   const b = after.split('\n')
   expect(b.length).toBe(a.length)
@@ -132,6 +132,34 @@ test('adds a row after the last ticket and escapes pipes', () => {
   expect(rows.map(r => r.number)).toEqual(['0001', '0002', '0003', '0004'])
   expect(after.includes('A \\| B')).toBe(true)
   expect(after.includes('How to read this board:')).toBe(true)
+})
+
+test('setCells reports columns the board does not have and leaves the file alone for them', () => {
+  const lean = `| # | Ticket | Status |\n|---|--------|--------|\n| 0003 | Dark mode | draft |\n`
+  const all = setCells(lean, '0003', { notes: 'x', mode: 'team', blockedBy: ['0001'] })
+  expect([...all.skipped].sort()).toEqual(['blockedBy', 'mode', 'notes'])
+  expect(all.text).toBe(lean)
+  const some = setCells(lean, '0003', { status: 'blocked', notes: 'blocked: waiting' }, 'draft')
+  expect(some.skipped).toEqual(['notes'])
+  expect(parseBoard(some.text)!.rows[0]!.status).toBe('blocked')
+  expect(some.text).not.toContain('waiting')
+  // A full board writes every column and skips nothing.
+  expect(setCells(BOARD, '0003', { mode: 'team', notes: 'n' }).skipped).toEqual([])
+})
+
+test('Blocked by: the board module owns the cell format, up to 5-digit numbers', () => {
+  expect(formatBlockedBy(['0003', '10000'])).toBe('0003, 10000')
+  expect(formatBlockedBy(['3'])).toBe('0003')
+  expect(formatBlockedBy([])).toBe('—')
+  expect(parseBlockedBy(formatBlockedBy(['0003', '10000']))).toEqual(['0003', '10000'])
+  expect(parseBlockedBy(formatBlockedBy([]))).toEqual([])
+  const one = setCells(BOARD, '0003', { blockedBy: ['0003', '10000'] }).text
+  expect(parseBoard(one)!.rows[2]!.blockedBy).toEqual(['0003', '10000'])
+  const none = setCells(one, '0003', { blockedBy: [] }).text
+  expect(parseBoard(none)!.rows[2]!.blockedBy).toEqual([])
+  expect(none.split('\n').find(l => l.startsWith('| 0003'))).toContain('| —')
+  // Writing the list a row already has gives back the same bytes.
+  expect(setCells(BOARD, '0002', { blockedBy: ['0001'] }).text).toBe(BOARD)
 })
 
 test('adds the first row to an empty table', () => {

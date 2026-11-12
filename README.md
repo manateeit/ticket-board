@@ -198,8 +198,8 @@ Press a ticket number to open the full ticket.
   - `ready`: **▶ Run this ticket**, **Back to draft**
   - `draft`: **Answer questions (N)**, **✓ Mark ready** (only when the ready check passes), **✎ Enhance with AI**
   - `blocked`: **Unblock → draft**, **Unblock → ready**
-  - any status except blocked and done: **Block…**, which asks for a reason and puts it in Notes
-- **Mode** (solo/team) and **Blocked by** can be edited in place.
+  - any status except blocked and done: **Block…**, which asks for a reason and puts it in Notes. On a board without a Notes column the ticket is still blocked, and the pane says the reason was not saved.
+- **Mode** (solo/team) and **Blocked by** can be edited in place. Each needs its column on BOARD.md: on a board without a Mode or Blocked by column the control is replaced by a line saying so (*Mode: BOARD.md has no Mode column*), and an edit to a column the board lacks is shown as an error, never as saved. Blocked by takes ticket numbers of up to 5 digits (`0003, 10000`); an empty list is written as `—`.
 - **Discuss in chat** puts a starter message about this ticket in your prompt box. **Brainstorm** (key `b`) puts `/brainstorm 0007` there, to brainstorm this one item. **Copy path** copies the ticket folder path.
 - **Change status…** lets you set any status by hand, behind a warning. The router normally owns in-progress, in-check and done, so use it only to fix the board.
 - **rd.md / eval.md** tabs show the files, rendered.

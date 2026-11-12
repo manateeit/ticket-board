@@ -81,10 +81,16 @@ function isSeparator(line: string): boolean {
   return /^\s*\|[\s:|-]+\|\s*$/.test(line) && line.includes('-')
 }
 
+/** Ticket numbers in a Blocked by cell (or typed by a person), padded like row numbers. `—`, `none` and blank are []. */
 export function parseBlockedBy(raw: string): string[] {
   const t = raw.trim()
   if (t === '' || /^(—|–|-|none|n\/a)$/i.test(t)) return []
-  return (t.match(/\d{1,4}/g) ?? []).map(n => n.padStart(4, '0'))
+  return (t.match(/\d{1,5}/g) ?? []).map(n => n.padStart(4, '0'))
+}
+
+/** The Blocked by cell for a list of ticket numbers: padded, comma-joined, `—` when empty. */
+export function formatBlockedBy(numbers: readonly string[]): string {
+  return numbers.length === 0 ? '—' : numbers.map(n => n.padStart(4, '0')).join(', ')
 }
 
 export function parseBoard(text: string): Board | undefined {
@@ -152,16 +158,31 @@ export function replaceCell(line: string, index: number, value: string): string 
 
 export class BoardEditError extends Error {}
 
+/** Cell edits for one row. Blocked by takes ticket numbers; the board module writes its cell format. */
+export type CellChanges = Partial<Record<Exclude<Column, 'blockedBy'>, string>> & { blockedBy?: readonly string[] }
+
+/** Header label of each column, for messages about a column the board does not have. */
+export const COLUMN_LABEL: Record<Column, string> = {
+  number: '#',
+  title: 'Ticket',
+  status: 'Status',
+  mode: 'Mode',
+  blockedBy: 'Blocked by',
+  owner: 'Owner',
+  notes: 'Notes',
+}
+
 /**
  * Sets cells of ticket `number`'s row. `expectStatus`, when given, must match the
  * row's current status or the edit is refused (someone else moved it meanwhile).
+ * Returns the new text and the columns it could not write because the board has no such column.
  */
 export function setCells(
   text: string,
   number: string,
-  changes: Partial<Record<Column, string>>,
+  changes: CellChanges,
   expectStatus?: string,
-): string {
+): { text: string; skipped: Column[] } {
   const board = parseBoard(text)
   if (board === undefined) throw new BoardEditError('No ticket table found in BOARD.md')
   const row = board.rows.find(r => r.number === number)
@@ -170,13 +191,19 @@ export function setCells(
     throw new BoardEditError(`Ticket ${number} moved to ${row.status} meanwhile`)
   const lines = text.split(/\r?\n/)
   let line = lines[row.line] ?? ''
-  for (const [col, value] of Object.entries(changes) as [Column, string][]) {
+  const skipped: Column[] = []
+  for (const [col, value] of Object.entries(changes) as [Column, string | readonly string[] | undefined][]) {
+    if (value === undefined) continue
     const idx = board.columns[col]
-    if (idx === undefined) continue
-    line = replaceCell(line, idx, value)
+    if (idx === undefined) {
+      skipped.push(col)
+      continue
+    }
+    line = replaceCell(line, idx, typeof value === 'string' ? value : formatBlockedBy(value))
   }
+  if (skipped.length > 0 && line === lines[row.line]) return { text, skipped }
   lines[row.line] = line
-  return lines.join(board.eol)
+  return { text: lines.join(board.eol), skipped }
 }
 
 export type NewRow = {
@@ -200,7 +227,7 @@ export function addRow(text: string, row: NewRow): string {
     title: row.title,
     status: row.status,
     mode: row.mode,
-    blockedBy: row.blockedBy.length === 0 ? '—' : row.blockedBy.join(', '),
+    blockedBy: formatBlockedBy(row.blockedBy),
     owner: row.owner ?? '—',
     notes: row.notes ?? '',
   }
