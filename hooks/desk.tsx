@@ -4,7 +4,7 @@
 // The terminal keeps the compact views in views.tsx.
 import type { EngineInterface, RenderChildren } from 'claude-code'
 
-import { startJob, suggestAnswer } from './ai'
+import { releaseUntracked, startJob, suggestAnswer } from './ai'
 import { STATUSES, parseBlockedBy } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { findSection, headFieldLine, isReadyable, setHeadField } from './core/ticket'
@@ -705,7 +705,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
             {'Agents '}
             <Text color={S.agents.some(isLive) ? AGENT_HEX.running! : G.faint}>{`● ${S.agents.filter(isLive).length}`}</Text>
           </Button>
-          <Button key="refresh" label="↻" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'))} />
+          <Button key="refresh" label="↻" hotkey="r" onPress={() => void releaseUntracked($).then(() => refresh($, true)).then(() => say($, 'Refreshed'))} />
           <Button key="new" label="+ New ticket" hotkey="n" variant="primary" onPress={() => go($, { kind: 'new' })} />
         </Box>
       </Box>
