@@ -8,7 +8,7 @@ import { startJob, suggestAnswer } from './ai'
 import { STATUSES, parseBlockedBy } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { headFieldLine, isReadyable, setHeadField } from './core/ticket'
-import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
+import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, statusHexOf, tint, wash, workingSvg } from './glass'
 import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
 import { openAdopt } from './adopt'
 import {
@@ -77,7 +77,7 @@ const STATUS_NAME: Record<string, string> = {
 
 const FLOW = ['draft', 'ready', 'in-progress', 'in-check', 'done'] as const
 
-export const hexOf = (status: string) => STATUS_HEX[status] ?? G.soft
+export const hexOf = (status: string) => statusHexOf(status) ?? G.soft
 
 function ago(ms: number): string {
   if (ms <= 0) return '—'

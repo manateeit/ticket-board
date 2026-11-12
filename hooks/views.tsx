@@ -10,7 +10,7 @@ import { isReadyable, readiness } from './core/ticket'
 import { startJob, suggestAnswer } from './ai'
 import { adoptView, deskAdopt, openAdopt } from './adopt'
 import { Tabs, TermReplanBanner, brainstorm, deskDesign, deskPlan, deskReplan, designView, openDesign, openPlan, planView, replanView, viewName } from './plan'
-import { G, STATUS_HEX, barSvg, heroSvg, tint } from './glass'
+import { G, barSvg, heroSvg, statusHexOf, tint } from './glass'
 import {
   S,
   boardPath,
@@ -499,13 +499,13 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
               flexDirection="column"
               hover={{ backgroundColor: glass ? G.cardHover : 'promptBorder' }}
               {...(glass
-                ? { backgroundColor: G.card, borderStyle: 'round', borderColor: tint(STATUS_HEX[i.status] ?? G.accent, 0.4), paddingX: 1 }
+                ? { backgroundColor: G.card, borderStyle: 'round', borderColor: tint(statusHexOf(i.status) ?? G.accent, 0.4), paddingX: 1 }
                 : {})}
             >
               <Box flexDirection="row" gap={1}>
                 <Button key={`open-${i.number}`} label={i.number} plain onPress={open} />
                 {glass ? (
-                  <Text color={STATUS_HEX[i.status] ?? G.accent} backgroundColor={tint(STATUS_HEX[i.status] ?? G.accent, 0.16)} weight="semibold">
+                  <Text color={statusHexOf(i.status) ?? G.accent} backgroundColor={tint(statusHexOf(i.status) ?? G.accent, 0.16)} weight="semibold">
                     {` ${i.status} `}
                   </Text>
                 ) : (

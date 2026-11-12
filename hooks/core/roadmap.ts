@@ -3,7 +3,7 @@
 // Only `bindFromBoard` reads files, through the reader callback it is given.
 // The rules are PLAN-design-plan.md sections 3 and 4.
 
-import { cells, isTableLine, replaceCell, type BoardRow } from './board'
+import { STATUSES, cells, isTableLine, replaceCell, type BoardRow, type Status } from './board'
 import { parseDesignRefs, parsePlanRef, parseQuestions, type DesignRef } from './ticket'
 
 // ── Design ────────────────────────────────────────────────────────────────
@@ -551,18 +551,30 @@ export const WEIGHTS: Record<Size, number> = { S: 1, M: 3, L: 8, '': 3 }
 
 export const weightOf = (b: Pick<Build, 'size'>) => WEIGHTS[b.size]
 
-const READY_OR_LATER = new Set(['ready', 'in-progress', 'in-check', 'done', 'blocked'])
+/**
+ * What each board status means for a build: the state it pushes the build to (the lowest rank among
+ * a build's tickets wins) and whether it counts as ready or later. Keyed by `Status`, so a new status
+ * in `STATUSES` is a type error here until it is placed.
+ */
+const STATUS_BUILD: Record<Status, { state: BuildState; rank: number; isReadyOrLater: boolean }> = {
+  blocked: { state: 'stuck', rank: 0, isReadyOrLater: true },
+  draft: { state: 'shaping', rank: 1, isReadyOrLater: false },
+  'in-progress': { state: 'building', rank: 2, isReadyOrLater: true },
+  'in-check': { state: 'building', rank: 2, isReadyOrLater: true },
+  ready: { state: 'queued', rank: 3, isReadyOrLater: true },
+  done: { state: 'built', rank: 4, isReadyOrLater: true },
+}
+
+const isStatus = (s: string): s is Status => (STATUSES as readonly string[]).includes(s)
+
+const READY_OR_LATER: ReadonlySet<string> = new Set(STATUSES.filter(s => STATUS_BUILD[s].isReadyOrLater))
 
 /** A build's state from its tickets. Tickets with a status the board does not know are ignored. */
 export function buildState(build: Build, tickets: readonly TicketRef[]): BuildState {
   if (build.status !== '') return build.status
-  const st = tickets.map(t => t.status).filter(s => ['draft', 'ready', 'in-progress', 'in-check', 'done', 'blocked'].includes(s))
+  const st = tickets.map(t => t.status).filter(isStatus)
   if (st.length === 0) return 'not-started'
-  if (st.includes('blocked')) return 'stuck'
-  if (st.includes('draft')) return 'shaping'
-  if (st.includes('in-progress') || st.includes('in-check')) return 'building'
-  if (st.includes('ready')) return 'queued'
-  return 'built'
+  return st.map(s => STATUS_BUILD[s]).reduce((a, b) => (b.rank < a.rank ? b : a)).state
 }
 
 export type PhaseProgress = {
