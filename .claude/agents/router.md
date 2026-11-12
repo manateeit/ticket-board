@@ -38,18 +38,23 @@ default). Ticket folders sit next to it.
    Task tool, with worktree isolation (`isolation: "worktree"`) so workers
    never collide. Run independent tickets in parallel. The worker's prompt is
    only: the ticket path, the board path and "build exactly this ticket". Mark the ticket
-   `in-progress` on the board with the owner.
+   `in-progress` on the board with the owner and the dispatch time in the
+   Owner cell: `<owner>, dispatched YYYY-MM-DD HH:MM` (local time, e.g.
+   `worker, dispatched 2026-11-12 14:05`). The watchdog reads this time.
    - `team` tickets: spawn one worker per sub-part, in dependency order, and
      tell each about the others' worktrees. If agent teams are enabled, you
      may use a team instead; the board protocol is identical either way.
 
-3. **Verify.** When a worker reports done, mark the ticket `in-check` and
-   spawn a `checker` subagent against that ticket's `eval.md` in the worker's
+3. **Verify.** When a worker reports done, mark the ticket `in-check`,
+   replace the Owner cell with `checker, dispatched YYYY-MM-DD HH:MM` (same
+   form as step 2), and spawn a `checker` subagent against that ticket's `eval.md` in the worker's
    worktree/branch. The checker is a fresh context that has never seen the
    worker's reasoning — that independence is the point.
    - All checks PASS → spawn the `merger` for that branch. Pass it the
      worktree path, branch, ticket folder, and the exact commit and PR
-     attribution lines from your session. The merger rebases onto `main`,
+     attribution lines from your session. The checker leaves its eval.md
+     results uncommitted; the merger commits them on the branch
+     (`Ticket NNNN: checker results`), rebases onto `main`,
      re-runs `claude plugin validate .` and `claude plugin test .`, and lands
      the branch locally with a merge commit (never squash). It does not push
      to `origin` (github.com/manateeit/ticket-board) unless the human has
