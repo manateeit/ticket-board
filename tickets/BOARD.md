@@ -46,10 +46,10 @@ the checker fails the ticket if they are stale.
 | 0030 | One parser for rd.md head fields | done | solo | — | — | merged d4493ca, all 6 checks PASS, 355/355 on main · leak audit L8 |
 | 0031 | Glass palette and plates made explicit | draft | solo | — | — | leak audit L10, L11 (risk) |
 | 0032 | Notes prefixes written down | done | solo | — | — | merged 4d9f3ed, all checks PASS, round 2 resolved merge conflict (render timeouts from load only) · round 2: test-file conflict with main · leak audit L12 (risk) + audit 2 L6 (bug) |
-| 0033 | One status list for glass and roadmap | in-progress | solo | — | worker | built; re-merging main after the setPaneNote fix (736d7f7) · leak audit 2 L10, L14 (bug) |
+| 0033 | One status list for glass and roadmap | done | solo | — | — | merged 248a5d4, all 5 checks PASS, 419/419 on main · built; re-merging main after the setPaneNote fix (736d7f7) · leak audit 2 L10, L14 (bug) |
 | 0034 | Run line places the wait-for-blockers clause itself | done | solo | — | — | merged c812b8b, all 5 checks PASS (render timeouts from load only) · leak audit 2 L8 (bug) |
 | 0035 | Tickets folder setting: remaining paths | done | solo | — | — | merged e5e54f4, all 4 checks PASS, round 2 resolved merge conflict, 408/408 on main · checker ALL PASS; round 2: test-file conflict with main · leak audit 2 L7, L13 (bug) |
-| 0036 | New ticket rows report dropped columns | in-progress | solo | — | worker | checker ALL PASS; round 2: README conflict with main · leak audit 2 L2 (bug) |
+| 0036 | New ticket rows report dropped columns | done | solo | — | — | merged 35e2e8d, all 4 checks PASS, round 2 resolved README/ai.ts conflicts, 417/417 on main · checker ALL PASS; round 2: README conflict with main · leak audit 2 L2 (bug) |
 | 0037 | Binding line keeps the half it is not given | done | solo | — | — | merged 07e6fa1, all 4 checks PASS (render timeouts from load only) · leak audit 2 L3 (bug) |
 | 0038 | Replan Apply only applies what was ticked, for its design | done | solo | — | — | merged d42c7a1, all 5 checks PASS (render timeouts from load only) · leak audit 2 L4, L5 (bug) |
 | 0039 | One rule for where a design section's questions end | done | solo | — | — | merged 18a5a76, all 5 checks PASS (render timeouts from load only) · leak audit 2 L1 (bug) |
