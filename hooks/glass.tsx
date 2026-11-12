@@ -3,6 +3,8 @@
 // plain theme-colored look.
 import type { RenderChildren } from 'claude-code'
 
+import { STATUSES } from './core/board'
+
 import type { UI } from './views'
 
 /** Accent hues per glass: pastel on the dark glass, Tailwind 700-800 tones that keep 4.5:1 on white and on slate-100. */
@@ -57,7 +59,7 @@ export type Look = 'dark' | 'light'
 export const G = { ...SURFACES.dark, scheme: 'auto' as Scheme, look: 'dark' as Look, isAppLight: false }
 export const HUE = { ...HUES.dark }
 
-const statusHex = () => ({
+const statusPalette = () => ({
   draft: HUE.amber,
   ready: HUE.green,
   'in-progress': HUE.blue,
@@ -67,7 +69,10 @@ const statusHex = () => ({
   blocked: HUE.red,
   unlisted: HUE.red,
 })
-export const STATUS_HEX: Record<string, string> = statusHex()
+export const STATUS_HEX: Record<string, string> = statusPalette()
+
+/** A status's colour by own key only: `toString`, `constructor` and other prototype names are not statuses. */
+export const statusHexOf = (status: string): string | undefined => (Object.hasOwn(STATUS_HEX, status) ? STATUS_HEX[status] : undefined)
 
 /** Theme keys the views use, mapped onto the glass palette. */
 const keyHex = (): Record<string, string> => ({
@@ -97,7 +102,7 @@ export function setScheme(scheme: Scheme, isAppLight = false) {
   const look = lookOf(scheme, isAppLight)
   Object.assign(G, SURFACES[look], { scheme, look, isAppLight })
   Object.assign(HUE, HUES[look])
-  Object.assign(STATUS_HEX, statusHex())
+  Object.assign(STATUS_HEX, statusPalette())
   KEY_HEX = keyHex()
 }
 
@@ -232,7 +237,7 @@ export function markdown(ui: UI, text: string): RenderChildren {
     s.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\([^)]+\))/g).filter(Boolean).map(part => {
       if (part.startsWith('`') && part.endsWith('`')) {
         const word = part.slice(1, -1)
-        const hex = STATUS_HEX[word]
+        const hex = (STATUSES as readonly string[]).includes(word) ? statusHexOf(word) : undefined
         return hex !== undefined
           ? ui.Text({ color: hex, backgroundColor: tint(hex, G.chip), weight: 'semibold', children: ` ${word} ` } as never)
           : ui.Text({ color: G.accent, mono: true, backgroundColor: tint(G.accent, 0.08), children: ` ${word} ` } as never)
@@ -453,7 +458,7 @@ export function heroSvg(h: HeroInput): string {
     .map(([s, n]) => {
       const label = `${s} ${n}`
       const w = 34 + [...label].reduce((a, ch) => a + (/[ilrtf\-. ]/.test(ch) ? 4.2 : /[0-9]/.test(ch) ? 7.6 : 7.4), 0)
-      const c = STATUS_HEX[s] ?? G.accent
+      const c = statusHexOf(s) ?? G.accent
       const pill = `<g transform="translate(${x.toFixed(1)},136)">
   <rect width="${w.toFixed(1)}" height="28" rx="14" fill="${tint(c, 0.16)}" stroke="${tint(c, 0.55)}"/>
   <circle cx="13" cy="14" r="3.5" fill="${c}"/>
@@ -515,7 +520,7 @@ export function barSvg(counts: ReadonlyArray<readonly [string, number]>, total: 
   const segs = counts
     .map(([s, n]) => {
       const w = total === 0 ? 0 : (n / total) * W
-      const r = `<rect x="${x.toFixed(1)}" y="0" width="${Math.max(0, w - 3).toFixed(1)}" height="6" rx="3" fill="${STATUS_HEX[s] ?? G.accent}" fill-opacity="0.85"/>`
+      const r = `<rect x="${x.toFixed(1)}" y="0" width="${Math.max(0, w - 3).toFixed(1)}" height="6" rx="3" fill="${statusHexOf(s) ?? G.accent}" fill-opacity="0.85"/>`
       x += w
       return r
     })

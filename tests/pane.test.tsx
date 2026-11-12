@@ -312,6 +312,57 @@ test('ticket page: only the head Type line is hidden; setting Type edits the hea
   await ui.unmount()
 })
 
+// ── 0033: only words in STATUSES are status pills ─────────────────────────
+
+const RD_0033 = `# 0003 — Dark mode for settings page
+
+Type: bug
+
+## What
+
+Prototype words: \`toString\`, \`constructor\`, \`valueOf\`, \`hasOwnProperty\` and \`unlisted\`.
+
+Real statuses: \`ready\` and \`in-check\`.
+
+## Open questions
+
+- none
+`
+
+/** Every drawn Text whose children are exactly ` word `. */
+function inlineCode(node: unknown, word: string, out: any[] = []): any[] {
+  if (Array.isArray(node)) for (const n of node) inlineCode(n, word, out)
+  else if (node !== null && typeof node === 'object') {
+    const n = node as any
+    const kids = Array.isArray(n.children) ? n.children : [n.children]
+    if (n.type === 'Text' && kids.length === 1 && kids[0] === ` ${word} `) out.push(n.props ?? {})
+    inlineCode(n.children, word, out)
+  }
+  return out
+}
+
+test('ticket page: inline prototype words and unlisted render as plain code, statuses as pills (0033, desktop)', async ($, on) => {
+  const path = 'tickets/0003-dark-mode-for-settings-page/rd.md'
+  const { ui } = await boot($, on, 'desktop', { [path]: RD_0033 })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  await ui.press({ key: 'open-0003' })
+  const drawn = await ui.drawn()
+  for (const word of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', 'unlisted']) {
+    const found = inlineCode(drawn, word)
+    expect(found.length).toBeGreaterThan(0)
+    for (const p of found) expect(p.mono).toBe(true)
+  }
+  for (const word of ['ready', 'in-check']) {
+    const found = inlineCode(drawn, word)
+    expect(found.length).toBeGreaterThan(0)
+    for (const p of found) {
+      expect(p.weight).toBe('semibold')
+      expect(p.mono).toBeUndefined()
+    }
+  }
+  await ui.unmount()
+})
+
 // ---------- 0040: the questions section is hidden only when core finds it ----------
 
 test('ticket page: a singular "## Open question" stays visible and the ready check says why (0040, desktop)', async ($, on) => {

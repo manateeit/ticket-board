@@ -1,9 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 
-import { parseBoard } from '../hooks/core/board'
+import { STATUSES, parseBoard } from '../hooks/core/board'
 import {
   allBuilds,
   bindFromBoard,
+  buildState,
   checks,
   coverage,
   hill,
@@ -13,6 +14,7 @@ import {
   progress,
   roadmap,
   ticketRef,
+  type Build,
   type TicketRef,
 } from '../hooks/core/roadmap'
 import { parseDesignRefs, parsePlanRef } from '../hooks/core/ticket'
@@ -407,6 +409,24 @@ test('roadmap: each check fires once on its crafted case and not on a clean one'
   expect(ids(CLEAN_DESIGN, row2('D1', '0002'), [T1, { ...T2, plan: 'P1.1' }])).toEqual(['plan-mismatch'])
   // A resolved question does not fire.
   expect(ids(`${CLEAN_DESIGN}\n### Open questions\n- [x] Which?\n  **Resolved 2026-11-10 (human): this**\n`, CLEAN_PLAN, [T1])).toEqual([])
+})
+
+// ── 0033: build states come from STATUSES ─────────────────────────────────
+
+test('roadmap: every status in STATUSES maps to its build state; unknown words are ignored (0033)', () => {
+  const build: Build = { id: 'P1.1', phase: 'P1', name: 'A', size: 'S', needs: [], needsOther: [], covers: [], doneWhen: '', tickets: [], status: '' }
+  const t = (status: string): TicketRef => ({ number: '0001', status, plan: undefined, design: [] })
+  const expected: Record<string, string> = { draft: 'shaping', ready: 'queued', 'in-progress': 'building', 'in-check': 'building', done: 'built', blocked: 'stuck' }
+  expect([...STATUSES].sort()).toEqual(Object.keys(expected).sort())
+  for (const s of STATUSES) expect(buildState(build, [t(s)])).toBe(expected[s])
+  for (const word of ['unlisted', 'toString', 'constructor', '']) expect(buildState(build, [t(word)])).toBe('not-started')
+  expect(buildState(build, [t('toString'), t('ready')])).toBe('queued')
+  // Precedence is unchanged: stuck, then shaping, then building, then queued, then built.
+  expect(buildState(build, [t('done'), t('ready'), t('in-check'), t('draft'), t('blocked')])).toBe('stuck')
+  expect(buildState(build, [t('done'), t('ready'), t('in-check'), t('draft')])).toBe('shaping')
+  expect(buildState(build, [t('done'), t('ready'), t('in-progress')])).toBe('building')
+  expect(buildState(build, [t('done'), t('ready')])).toBe('queued')
+  expect(buildState({ ...build, status: 'deferred' }, [t('ready')])).toBe('deferred')
 })
 
 // ── Factory plan shape ────────────────────────────────────────────────────
