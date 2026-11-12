@@ -7,7 +7,7 @@ import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, tit
 import { allBuilds, staleOf, staleText, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
-import { startJob, suggestAnswer } from './ai'
+import { releaseUntracked, startJob, suggestAnswer } from './ai'
 import { adoptView, deskAdopt, openAdopt } from './adopt'
 import { Tabs, TermReplanBanner, brainstorm, deskDesign, deskPlan, deskReplan, designView, openDesign, openPlan, planView, replanView, viewName } from './plan'
 import { G, STATUS_HEX, barSvg, heroSvg, tint } from './glass'
@@ -401,7 +401,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
         {run.length > 0 && (
           <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter, boardPath()), 'In your prompt box — press Enter to send it to the router')} />
         )}
-        <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'), () => undefined)} />
+        <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void releaseUntracked($).then(() => refresh($, true)).then(() => say($, 'Refreshed'), () => undefined)} />
         <Button
           key="agents"
           label={`Agents ● ${S.agents.filter(isLive).length}`}

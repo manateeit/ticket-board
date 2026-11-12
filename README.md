@@ -285,7 +285,7 @@ For each selected build that has no ticket, the pane:
 
 Builds that already have a ticket are skipped (deferred and dropped builds are left out), and the message says how many: `Created 4 draft tickets from P2 (0012–0015) · 1 queued · skipped 1 build that already has a ticket`.
 
-**At most 3 writer jobs run at once.** The rest wait: the build shows *queued* (and the row's note `AI queued`) until a writer finishes, then the next one starts. A running one shows *✎ writing*. The queue lives in the pane for the session: it survives redraws and switching views, not a restart.
+**At most 3 writer jobs run at once.** The rest wait: the build shows *queued* (and the row's note `AI queued`) until a writer finishes, then the next one starts. A running one shows *✎ writing*. A writer the app starts without handing back an agent id still counts as one of the 3: its row's note says `AI writer started without an agent id; refresh when it is done`, the summary counts it, and it keeps its slot until you press **Refresh** (or the pane finds it running in this session's agent list and tracks it). The queue lives in the pane for the session: it survives redraws and switching views, not a restart.
 
 **When the writer finishes**, the pane checks the files: if `rd.md` has no `## Docs` naming README.md, or `eval.md` lacks the **Docs and README updated** check, the row's Notes and the toast say what is missing (`AI draft done · 0 open questions · missing ## Docs naming README.md`). **When it fails** (it stops, or cannot start), the build shows *failed: <reason>* and **↻ Create again**, which runs the writer again on the same ticket.
 

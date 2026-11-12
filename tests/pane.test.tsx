@@ -1977,6 +1977,57 @@ const rowsOf = (fs: { files: Map<string, string> }) => parseBoard(fs.files.get('
 const t8Row = (fs: { files: Map<string, string> }, n: string) => rowsOf(fs).find(r => r.number === n)!
 const t8Folder = (fs: { files: Map<string, string> }, n: string) => [...fs.files.keys()].find(k => k.startsWith(`tickets/${n}-`) && k.endsWith('/rd.md'))!.replace(/\/rd\.md$/, '')
 
+// ---------- 0042: writers that start without an agent id ----------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`untracked writers hold a slot, show it in the row and the summary, and give it back on Refresh (0042, ${surface})`, async ($, on) => {
+    const spawned: string[] = []
+    // The host hands back no agent id and agent.list does not show the writers.
+    const listed: any[] = []
+    AGENTS_OVERRIDE = listed
+    on('agent.spawn', (_: unknown, e: { description: string }) => (spawned.push(e.description), { model: 'sonnet' }))
+    const files = t8Files()
+    files['/repo/design/PLAN.md'] = T8_PLAN.replace('| P1.5 | Reminders | S | P1.4 | D3 | reminder sent | — |', '| P1.5 | Reminders | S | P1.4 | D3 | reminder sent | — |\n| P1.6 | Export | S | — | D1 | export works | — |')
+    const { ui, fs } = await boot($, on, surface, files, { blank: true })
+    try {
+      await ui.find({ key: 'tab-plan' })
+      await ui.press({ key: 'tab-plan' })
+      await ui.find({ key: 'phase-create-P1' })
+      await ui.press({ key: 'phase-create-P1' })
+      await until(async () => (await drawnText(ui)).includes('Created 5 draft tickets'), 'the batch summary')
+      await new Promise(r => setTimeout(r, 50))
+      // At most 3 writers start; the other 2 stay queued.
+      expect(spawned.length).toBe(3)
+      const made = ['0002', '0003', '0004', '0005', '0006']
+      const started = made.filter(n => spawned.some(d => d.startsWith(`Write ticket ${n} `)))
+      const waiting = made.filter(n => !started.includes(n))
+      expect(started.length).toBe(3)
+      for (const n of started) {
+        expect(t8Row(fs, n).notes).not.toContain('AI queued')
+        expect(t8Row(fs, n).notes).toContain('started without an agent id')
+      }
+      for (const n of waiting) expect(t8Row(fs, n).notes).toContain('AI queued')
+      const drawn = await drawnText(ui)
+      expect(drawn).toContain('2 queued')
+      expect(drawn).toContain('3 started without an agent id')
+      expect(drawn.match(/build-queued-/g)?.length).toBe(2)
+      expect(drawn.match(/build-writing-/g)?.length).toBe(3)
+
+      // One of them shows up live in agent.list: Refresh tracks it; the other two give their slots back.
+      listed.push({ id: 'x1', description: spawned[0]!, type: 'ticket-board:ticket-writer', status: 'running' })
+      await ui.press({ key: 'tab-board' })
+      await ui.find({ key: 'refresh' })
+      await ui.press({ key: 'refresh' })
+      await until(() => spawned.length === 5, 'the 2 queued writers to start')
+      expect(t8Row(fs, started[0]!).notes).toContain('AI drafting')
+      for (const n of waiting) expect(t8Row(fs, n).notes).toContain('started without an agent id')
+    } finally {
+      AGENTS_OVERRIDE = undefined
+      await ui.unmount()
+    }
+  })
+}
+
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`Create tickets for a phase: 4 skeletons, Blocked by from Needs, Plan cells, 3 writers at a time (${surface})`, async ($, on) => {
     const w = fakeWriter(on)

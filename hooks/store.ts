@@ -125,6 +125,8 @@ export const S = {
   planQueue: [] as PlanQueued[],
   /** Plan builds whose writer failed: build id → its ticket and the reason. Create again restarts it. */
   planFailed: new Map<string, { number: string; reason: string }>(),
+  /** Writers that started without an agent id (0042), by ticket number: each holds a writer slot until the person refreshes or agent.list shows it live. */
+  untracked: new Map<string, Omit<Job, 'agentId'> & { description: string; label: string }>(),
   /** A Create tickets press is making skeletons. */
   isCreating: false,
   /** The planner writing a replan proposal (0016): its agent, the file it may write and PLAN.md's hash when it started. */
@@ -190,6 +192,7 @@ export function resetSession(cwd: string) {
   S.planOpen.clear()
   S.planFailed.clear()
   S.jobs.clear()
+  S.untracked.clear()
   S.agentLog.clear()
   S.watching = ''
   S.drafts.clear()
@@ -362,6 +365,7 @@ export async function followCwd($: $): Promise<boolean> {
     page: 0,
   })
   S.jobs.clear()
+  S.untracked.clear()
   await loadFilters($)
   await loadStartFlags($)
   await loadPlanMode($)
