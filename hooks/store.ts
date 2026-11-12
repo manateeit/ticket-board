@@ -100,6 +100,10 @@ export const S = {
   agentLog: new Map<string, { at: number; tool: string; detail: string }[]>(),
   /** The agent whose activity is open under its row. */
   watching: '',
+  /** How each subagent's last run ended, from the `turn.complete` the pane saw (0017): this session only. */
+  agentEnds: new Map<string, AgentEnd>(),
+  /** The failed or killed agent whose failure detail is open under its row (0017); '' for none. */
+  failureOpen: '',
   /** The main Claude loop: working since (ms), and the tool it is on. */
   busySince: 0,
   busyTool: '',
@@ -198,6 +202,8 @@ export function resetSession(cwd: string) {
   S.untracked.clear()
   S.agentLog.clear()
   S.watching = ''
+  S.agentEnds.clear()
+  S.failureOpen = ''
   S.drafts.clear()
   S.suggesting.clear()
 }
@@ -1036,6 +1042,9 @@ export async function loadAgents($: $): Promise<void> {
     const sig = (l: AgentInfo[]) => l.map(a => `${a.id}:${a.status}`).join(',')
     if (sig(next) === sig(S.agents)) return
     S.agents = next
+    // A failure detail closes once its agent is no longer failed or killed (resumed, or gone).
+    const open = next.find(a => a.id === S.failureOpen)
+    if (open === undefined || !endedBadly(open)) S.failureOpen = ''
     if (S.isOpen) redraw($)
   } catch {
     // agent.list is unavailable (older Claude Code): the panel just stays empty.
@@ -1049,3 +1058,64 @@ export function ticketOfAgent(a: AgentInfo): string | undefined {
   const m = /(?:ticket\s*#?|#)(\d{1,4})\b/i.exec(a.description) ?? /\b(\d{4})\b/.exec(a.description)
   return m === null ? undefined : m[1]!.padStart(4, '0')
 }
+
+/** How a subagent's run ended, as its last `turn.complete` told the pane (0017). */
+export type AgentEnd = { reason: string; refusal?: { category: string | null; explanation: string | null }; answer: string; at: number; durationMs: number }
+
+/** Ended badly (`failed` or `killed`): the panel draws it red, and its status opens the failure detail (0017). */
+export const endedBadly = (a: AgentInfo) => a.status === 'failed' || a.status === 'killed'
+
+/** The words for why a failed run ended; undefined when the pane did not see it end. */
+export function endWords(end: AgentEnd | undefined): string | undefined {
+  if (end === undefined) return undefined
+  if (end.reason === 'error') return 'Stopped on an API error (retries used up or context limit)'
+  if (end.reason === 'aborted') return 'Interrupted (stopped by you or by its spawner)'
+  if (end.reason === 'refusal') {
+    const category = end.refusal?.category ?? ''
+    const explanation = end.refusal?.explanation ?? ''
+    return `The model refused${category !== '' ? ` (${category})` : ''}${explanation !== '' ? `: ${explanation}` : ''}`
+  }
+  return 'It finished its turn but was marked failed'
+}
+
+/** The "why" line of the failure detail: the reason, when it ended and how long it ran; or the unseen notice. */
+export function whyLine(end: AgentEnd | undefined): string {
+  const words = endWords(end)
+  if (end === undefined || words === undefined) return 'The pane did not see how this run ended. Open its transcript for the reason.'
+  return `${words} · ended ${new Date(end.at).toTimeString().slice(0, 5)} · ran ${spanOf(end.durationMs)}`
+}
+
+/** A run's length in words: `45s`, `2m 05s`, `1h 03m`. */
+export function spanOf(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  const pad = (n: number) => String(n).padStart(2, '0')
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m ${pad(s % 60)}s`
+  return `${Math.floor(s / 3600)}h ${pad(Math.floor(s / 60) % 60)}m`
+}
+
+/** A run's final answer for the detail box: at most 12 lines (cut with …), or "No final text". */
+export function lastWords(answer: string): string {
+  const text = answer.trim()
+  if (text === '') return 'No final text'
+  const lines = text.split(/\r?\n/)
+  return lines.length > 12 ? `${lines.slice(0, 12).join('\n')}\n…` : text
+}
+
+/**
+ * What came after a failed agent (0017): another agent on the same ticket that is live or held ("trying"),
+ * else one listed after it that has finished ("tried"), else nothing. With no ticket, "same ticket" is the
+ * same name, or else the same type and description.
+ */
+export function retryOf(a: AgentInfo, agents: AgentInfo[] = S.agents): { kind: 'trying' | 'tried'; agent: AgentInfo } | undefined {
+  const t = ticketOfAgent(a)
+  const same = (b: AgentInfo) =>
+    b.id !== a.id && (t !== undefined ? ticketOfAgent(b) === t : a.name !== undefined ? b.name === a.name : b.type === a.type && b.description === a.description)
+  const live = agents.filter(b => same(b) && (isLive(b) || isHeld(b))).at(-1)
+  if (live !== undefined) return { kind: 'trying', agent: live }
+  const after = agents.slice(agents.findIndex(b => b.id === a.id) + 1).filter(same).at(-1)
+  return after === undefined ? undefined : { kind: 'tried', agent: after }
+}
+
+/** An agent's name as the panel shows it. */
+export const agentName = (a: AgentInfo) => a.name ?? (a.description || a.type)

@@ -219,6 +219,12 @@ export const register: Register = (on, options) => {
       if (S.isOpen) redraw($)
       syncTitle($)
     }
+    // How every subagent's run ended, for the Agents panel's failure detail (0017): pane memory only.
+    if (e.agentId !== undefined) {
+      const refusal = e.reason === 'refusal' ? e.refusal : undefined
+      S.agentEnds.set(e.agentId, { reason: String(e.reason), ...(refusal === undefined ? {} : { refusal }), answer: typeof e.answer === 'string' ? e.answer : '', at: Date.now(), durationMs: Number(e.durationMs) || 0 })
+      if (S.isOpen && S.failureOpen === e.agentId) redraw($)
+    }
     if (e.agentId !== undefined && S.isOpen) bg(loadAgents($))
     if (e.agentId !== undefined && e.agentId === S.adoptJob?.agentId) {
       await finishAdopt($, e.isAborted || e.reason !== 'answer', String(e.reason)).catch(() => undefined)
