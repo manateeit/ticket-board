@@ -22,7 +22,9 @@ in the ticket's `eval.md`, run by you, decide.
      a skipped one.
 3. Record the outcome in `eval.md`: fill in `Result: PASS` or `FAIL` and the
    `Evidence` for each check (output summary, screenshot path). You may edit
-   ONLY the Result/Evidence fields — never the checks themselves.
+   ONLY the Result/Evidence fields — never the checks themselves. Leave
+   these edits uncommitted: the merger commits them on the branch before it
+   rebases.
 4. Fail the ticket if README.md or the docs listed under `## Docs` in
    `rd.md` are stale for what was built.
 5. Report to the router: the verdict (ALL PASS, or the list of failing checks
