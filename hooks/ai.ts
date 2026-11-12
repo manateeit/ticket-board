@@ -142,7 +142,7 @@ async function matchUntracked($: $): Promise<void> {
     const { description: _d, label, ...job } = u
     S.jobs.set(a.id, { agentId: a.id, ...job })
     await saveJobs($)
-    await setAiNote($, u.number, jobNote(label, u.extra))
+    await setPaneNote($, u.number, jobNote(label, u.extra))
   }
 }
 
@@ -195,7 +195,7 @@ export async function startJob(
   if (agentId === undefined) {
     // Untracked (0042): it still holds a writer slot, and its row says so, until the person refreshes or it is matched.
     S.untracked.set(number, { number, kind, startedAt: Date.now(), description, label, ...(plan === undefined ? {} : { build: plan.build, extra: plan.extra }) })
-    await setAiNote($, number, jobNote(UNTRACKED_NOTE, plan?.extra))
+    await setPaneNote($, number, jobNote(UNTRACKED_NOTE, plan?.extra))
     say($, 'The ticket writer started without an agent id; refresh when it is done', 'warning')
     return true
   }
