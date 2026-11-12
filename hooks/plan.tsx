@@ -11,7 +11,7 @@ import { runLine } from './core/query'
 import { REPLAN_GROUPS, allBuilds, type Build, type BuildState, type Hill, type Phase, type ReplanItem, type Roadmap } from './core/roadmap'
 import { Card, Pill, Toast, hexOf, statusName } from './desk'
 import { G, HUE, STATUS_HEX, hillSvg, needsPlate, phaseBarSvg, timelineSvg, tint, wash } from './glass'
-import { S, approveDesign, fullRoadmap, latestProposal, redraw, roadmapView, rowOf, saveDesignAnswer, say, setPlanMode, setPlanPhase, statusOf, type LatestProposal, type View } from './store'
+import { S, approveDesign, boardPath, fullRoadmap, latestProposal, redraw, roadmapView, rowOf, saveDesignAnswer, say, setPlanMode, setPlanPhase, statusOf, type LatestProposal, type View } from './store'
 import { blockersOpen, drawnSize, fail, fill, go, runnable, type UI } from './views'
 
 type $ = EngineInterface
@@ -144,7 +144,7 @@ export function whyNoneReady(rm: Roadmap, buildIds: readonly string[], what: str
 export function runBuilds($: $, rm: Roadmap, buildIds: readonly string[], what: string) {
   const nums = readyOf(rm, buildIds)
   if (nums.length === 0) return say($, whyNoneReady(rm, buildIds, what), 'warning')
-  void fill($, runLine(nums, S.hasRouter), RUN_NOTE)
+  void fill($, runLine(nums, S.hasRouter, boardPath()), RUN_NOTE)
 }
 
 /** Builds among `builds` that Create tickets would make a ticket for. */

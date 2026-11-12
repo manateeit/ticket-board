@@ -2,7 +2,7 @@
 import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, deskTicket, openReadme, openTranscript } from './desk'
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
-import { STATUSES } from './core/board'
+import { COLUMN_LABEL, STATUSES, parseBlockedBy, type CellChanges, type Column } from './core/board'
 import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, titleFromIdea, type Filters } from './core/query'
 import { allBuilds, staleOf, staleText, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
@@ -19,6 +19,7 @@ import {
   dir,
   editRow,
   fullRoadmap,
+  hasColumn,
   isLive,
   items,
   jobFor,
@@ -77,6 +78,17 @@ export function fail($: $, err: unknown) {
   say($, err instanceof Error ? err.message : String(err), 'error')
 }
 
+/** Writes row cells and says `done`; a column BOARD.md does not have is an error, never a silent success. */
+export function saveCell($: $, number: string, changes: CellChanges, done: string) {
+  void editRow($, number, changes).then(
+    skipped => (skipped.length > 0 ? say($, `Not saved: BOARD.md has no ${skipped.map(c => COLUMN_LABEL[c]).join(' or ')} column`, 'error') : say($, done)),
+    err => fail($, err),
+  )
+}
+
+/** Shown instead of a control for a column the board does not have. */
+export const noColumn = (col: Column) => `${COLUMN_LABEL[col]}: BOARD.md has no ${COLUMN_LABEL[col]} column`
+
 export async function fill($: $, text: string, note: string) {
   try {
     const r = await $.prompt.fill({ text, mode: 'replace' })
@@ -99,7 +111,7 @@ export function runnable(): string[] {
 
 export function runTicket($: $, number: string) {
   const open = blockersOpen(rowOf(number)?.blockedBy ?? [])
-  const base = runLine([number], S.hasRouter)
+  const base = runLine([number], S.hasRouter, boardPath())
   const text = open.length === 0 ? base : `${base.replace(/\.$/, '')} — but only once ${open.join(', ')} ${open.length === 1 ? 'is' : 'are'} done.`
   void fill($, text, 'In your prompt box — press Enter to send it')
 }
@@ -387,7 +399,7 @@ function boardView($: $, ui: UI, frame: Frame): RenderChildren {
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
         <Button key="new" label="+ New ticket" hotkey="n" variant="primary" onPress={() => go($, { kind: 'new' })} />
         {run.length > 0 && (
-          <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter), 'In your prompt box — press Enter to send it to the router')} />
+          <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter, boardPath()), 'In your prompt box — press Enter to send it to the router')} />
         )}
         <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true).then(() => say($, 'Refreshed'), () => undefined)} />
         <Button
@@ -566,8 +578,9 @@ export function checksFor(number: string) {
 
 export async function setStatus($: $, number: string, to: string, from: string, notes?: string) {
   try {
-    await editRow($, number, notes === undefined ? { status: to } : { status: to, notes }, from)
-    say($, `${number} → ${to}`)
+    const skipped = await editRow($, number, notes === undefined ? { status: to } : { status: to, notes }, from)
+    if (skipped.includes('notes')) say($, `${number} → ${to} · note not saved: BOARD.md has no Notes column`, 'warning')
+    else say($, `${number} → ${to}`)
   } catch (err) {
     await refresh($, true)
     fail($, err)
@@ -688,7 +701,7 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval', from?: Vie
       {isConfirming('block') && (
         <Input
           key={`block-${number}`}
-          label="Why is it blocked? (goes in Notes)"
+          label={hasColumn('notes') ? 'Why is it blocked? (goes in Notes)' : 'Why is it blocked? (not saved: BOARD.md has no Notes column)'}
           autoFocus
           submitLabel="Mark blocked"
           onSubmit={reason => {
@@ -700,24 +713,29 @@ function ticketView($: $, ui: UI, number: string, tab: 'rd' | 'eval', from?: Vie
 
       {row !== undefined && (
         <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          <Select
-            key={`mode-${number}`}
-            label="Mode"
-            value={row.mode === 'team' ? 'team' : 'solo'}
-            options={[{ value: 'solo' }, { value: 'team' }]}
-            onSelect={v => void editRow($, number, { mode: v }).then(() => say($, `Mode → ${v}`), err => fail($, err))}
-          />
-          <Input
-            key={`blockedby-${number}`}
-            label="Blocked by"
-            value={row.blockedBy.join(', ')}
-            placeholder="ticket numbers, e.g. 0003, 0007"
-            submitLabel="Save"
-            onSubmit={v => {
-              const nums = (v.match(/\d{1,4}/g) ?? []).map(n => n.padStart(4, '0')).filter(n => n !== number)
-              void editRow($, number, { blockedBy: nums.length === 0 ? '—' : nums.join(', ') }).then(() => say($, 'Blocked by saved'), err => fail($, err))
-            }}
-          />
+          {hasColumn('mode') ? (
+            <Select
+              key={`mode-${number}`}
+              label="Mode"
+              value={row.mode === 'team' ? 'team' : 'solo'}
+              options={[{ value: 'solo' }, { value: 'team' }]}
+              onSelect={v => saveCell($, number, { mode: v }, `Mode → ${v}`)}
+            />
+          ) : (
+            <Text key={`mode-${number}`} dimColor>{noColumn('mode')}</Text>
+          )}
+          {hasColumn('blockedBy') ? (
+            <Input
+              key={`blockedby-${number}`}
+              label="Blocked by"
+              value={row.blockedBy.join(', ')}
+              placeholder="ticket numbers, e.g. 0003, 0007"
+              submitLabel="Save"
+              onSubmit={v => saveCell($, number, { blockedBy: parseBlockedBy(v).filter(n => n !== number) }, 'Blocked by saved')}
+            />
+          ) : (
+            <Text key={`blockedby-${number}`} dimColor>{noColumn('blockedBy')}</Text>
+          )}
         </Box>
       )}
 
@@ -886,7 +904,7 @@ function questionsView($: $, ui: UI, number: string): RenderChildren {
 export async function createTicket($: $, withAI: boolean) {
   const idea = (S.drafts.get('new-idea') ?? '').trim()
   if (idea === '') return say($, 'Describe the ticket first', 'warning')
-  const blockedBy = ((S.drafts.get('new-blocked') ?? '').match(/\d{1,4}/g) ?? []).map(n => n.padStart(4, '0'))
+  const blockedBy = parseBlockedBy(S.drafts.get('new-blocked') ?? '')
   try {
     const { number } = await createSkeleton(
       $,

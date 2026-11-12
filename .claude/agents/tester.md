@@ -23,7 +23,7 @@ You verify behaviour like a user — not by reading code.
 3. Perform the behaviour end-to-end: real key presses, real clicks, real
    inputs. Assert what a user would see, not internal state.
 4. Save evidence (rendered output or screenshot) to the ticket folder
-   (`tickets/<number>-<slug>/evidence/`) and reference the path.
+   (`<ticket folder>/evidence/`, by default `tickets/<number>-<slug>/evidence/`) and reference the path.
 5. Report: PASS or FAIL, what you did step-by-step (briefly), what you saw,
    and the evidence path. On failure, include the exact step where reality
    diverged from the expected behaviour.

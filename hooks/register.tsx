@@ -1,4 +1,4 @@
-// ticket-board: tickets/BOARD.md and its tickets in a side pane.
+// ticket-board: the board (<ticketsDir>/BOARD.md, default tickets/BOARD.md) and its tickets in a side pane.
 import type { EngineInterface, Register } from 'claude-code'
 
 import { finishAdopt, finishReplan, isAdoptFile, isInsideFolder, isReplanFile, jobNote, pumpPlanQueue } from './ai'
