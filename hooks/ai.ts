@@ -71,7 +71,7 @@ function brief($: $, number: string, folder: string, kind: Job['kind'], idea?: s
       `Write ticket ${number} from the plan build below. The folder already holds placeholder rd.md and eval.md and the board row exists as a draft with its Blocked by filled in from the build's Needs.`,
       'Explore the codebase first so Touchpoints name real files and the eval checks use the project\'s real test and build commands. Replace both files completely, in the exact section order of the template; drop the "Original request" section once its content is in the ticket.',
       'Keep the Type:, Plan: and Design: lines under the title exactly as given below (Design: is each covered section at its current Rev). Use the phase Goal and Exit to set the scope.',
-      'In eval.md, turn every "Done when" line of the covered sections into its own check, each with a Run line (a real command or steps) and a Pass line (the observable result). Add at least one end-to-end check.',
+      'In eval.md, turn every "Done when" line of the covered sections into its own check, each with a Run line (a real command or steps), a Pass line (the observable result) and empty Result: and Evidence: lines for the checker, as in the template. Add at least one end-to-end check.',
       'Always fill ## Docs naming README.md (the section to add or change, or "README.md — no change: <why>") and keep the "Docs and README updated" check in eval.md. The pane checks both when you finish.',
       'Never edit the plan or the design: the pane writes the ticket number into PLAN.md itself.',
       ...common,
@@ -142,7 +142,7 @@ async function matchUntracked($: $): Promise<void> {
     const { description: _d, label, ...job } = u
     S.jobs.set(a.id, { agentId: a.id, ...job })
     await saveJobs($)
-    await setAiNote($, u.number, jobNote(label, u.extra))
+    await setPaneNote($, u.number, jobNote(label, u.extra))
   }
 }
 
@@ -195,7 +195,7 @@ export async function startJob(
   if (agentId === undefined) {
     // Untracked (0042): it still holds a writer slot, and its row says so, until the person refreshes or it is matched.
     S.untracked.set(number, { number, kind, startedAt: Date.now(), description, label, ...(plan === undefined ? {} : { build: plan.build, extra: plan.extra }) })
-    await setAiNote($, number, jobNote(UNTRACKED_NOTE, plan?.extra))
+    await setPaneNote($, number, jobNote(UNTRACKED_NOTE, plan?.extra))
     say($, 'The ticket writer started without an agent id; refresh when it is done', 'warning')
     return true
   }

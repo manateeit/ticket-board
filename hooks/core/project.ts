@@ -241,12 +241,19 @@ export async function readGitFacts(cwd: string, read: ReadFile, gitExists: boole
   return { state: 'repo', gitDir, commonDir, config, branch: parseHead(head), hasCommit: commitFromRefs(head, branchRef, packed) }
 }
 
-/** Files at the top of a folder that are not code: docs, licences, dotfiles and the board's own folders. */
-const NOT_CODE = /^(\..*|readme(\..*)?|licen[cs]e(\..*)?|changelog(\..*)?|contributing(\..*)?|code_of_conduct(\..*)?|notice(\..*)?|design|docs|tickets)$/i
+/** Files at the top of a folder that are not code: docs, licences, dotfiles and `design/` (where briefs and brainstorms go). */
+const NOT_CODE = /^(\..*|readme(\..*)?|licen[cs]e(\..*)?|changelog(\..*)?|contributing(\..*)?|code_of_conduct(\..*)?|notice(\..*)?|design|docs)$/i
 
-/** The folder holds something besides docs and dotfiles (names of its top-level entries). */
-export function hasCode(names: readonly string[], ticketsDir = 'tickets'): boolean {
-  return names.some(n => !NOT_CODE.test(n) && n !== ticketsDir)
+/** The top-level entry a relative path lives in (`planning` for `planning/tickets`, `spec` for `spec/DESIGN.md`). */
+const topOf = (path: string) => path.replace(/^(\.\/)+/, '').split('/')[0] ?? ''
+
+/**
+ * The folder holds something besides docs and dotfiles (names of its top-level entries). The board's
+ * own files do not count: the top folder of the tickets folder and of the bound design and plan files.
+ */
+export function hasCode(names: readonly string[], ticketsDir = 'tickets', bound: readonly string[] = []): boolean {
+  const own = new Set([ticketsDir, ...bound].map(topOf).filter(n => n !== ''))
+  return names.some(n => !NOT_CODE.test(n) && !own.has(n))
 }
 
 /** A brainstorm result: `design/brief.md` (any case), else the newest file under `design/brainstorms/`. '' when none. */

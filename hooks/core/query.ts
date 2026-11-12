@@ -166,6 +166,15 @@ export function routerTail(board = DEFAULT_BOARD): string {
   return ` as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update ${board}, and never write the code yourself.${which} A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.`
 }
 
+/**
+ * A slash command the pane fills (`/ticket`, brainstorm, design, planning), with the board named the
+ * way `runLine` names it so the skill acts on the board the pane shows. With the default board the
+ * command reads as it always has.
+ */
+export function withBoard(command: string, board = DEFAULT_BOARD): string {
+  return board === DEFAULT_BOARD ? command : `${command} (board: ${board})`
+}
+
 export function today(nowMs: number): string {
   const d = new Date(nowMs)
   const p = (n: number) => String(n).padStart(2, '0')

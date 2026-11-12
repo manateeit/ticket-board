@@ -13,7 +13,7 @@ before writing.
 
 ## 1. Read the arguments and find the file
 
-Arguments: `$ARGUMENTS`.
+Arguments: `$ARGUMENTS`. A trailing `(board: <path>)` is not an argument: it is the board path you were given (the pane adds it when the tickets folder is not `tickets/`); take it off before reading the rest.
 
 | Argument | Session |
 |---|---|
