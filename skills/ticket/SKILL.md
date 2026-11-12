@@ -15,7 +15,8 @@ The ticket-board pane (`/board`) shows the result: the person answers open
 questions there and flips the ticket from `draft` to `ready`.
 
 **The board** below means the board path you were given (default
-`tickets/BOARD.md`, set by the plugin's Tickets folder setting); **the tickets
+`tickets/BOARD.md`, set by the plugin's Tickets folder setting; the pane gives it as a trailing
+`(board: <path>)` after the request, which is not part of the request); **the tickets
 folder** is the folder that holds it (default `tickets/`). Ticket folders always
 sit next to the board.
 

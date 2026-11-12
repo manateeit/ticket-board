@@ -12,7 +12,7 @@ design section covered by a build. The format is `${CLAUDE_PLUGIN_ROOT}/docs/STA
 
 ## 1. Find the files and choose the mode
 
-`$ARGUMENTS` takes nothing. If anything is given, reply with one line and stop:
+`$ARGUMENTS` takes nothing. A trailing `(board: <path>)` is not an argument: it is the board path you were given (the pane adds it when the tickets folder is not `tickets/`); take it off before reading the rest. If anything else is given, reply with one line and stop:
 `/ticket-board:planning takes no arguments; it plans the design bound in the board.`
 
 The board is the board path you were given (default `tickets/BOARD.md`). The design and plan

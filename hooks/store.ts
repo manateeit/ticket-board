@@ -332,7 +332,7 @@ export async function loadProject($: $, boardText?: string): Promise<Project> {
     designPath,
     planPath,
     ideaPath,
-    hasCode: hasCode(top.map(e => e.name), dir()),
+    hasCode: hasCode(top.map(e => e.name), dir(), [designPath, planPath]),
   }
 }
 
