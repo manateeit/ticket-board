@@ -5,11 +5,11 @@
 import type { EngineInterface, RenderChildren } from 'claude-code'
 
 import { startJob, suggestAnswer } from './ai'
-import { STATUSES } from './core/board'
+import { STATUSES, parseBlockedBy } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { isReadyable } from './core/ticket'
 import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
-import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, editRow, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
+import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
 import { openAdopt } from './adopt'
 import {
   ADOPT_LABEL,
@@ -25,6 +25,8 @@ import {
   drawnSize,
   fail,
   fill,
+  noColumn,
+  saveCell,
   fillWithIdea,
   phaseOptions,
   planSummary,
@@ -176,7 +178,7 @@ const AGENT_HEX: Record<string, string> = {
 }
 
 /** Puts the agent's transcript in the main view. The app may refuse (the desktop can't switch views from a pane yet): say why. */
-async function openTranscript($: $, agentId: string) {
+export async function openTranscript($: $, agentId: string) {
   try {
     const shown = (await $.ui.view({ agentId })) as { deny?: string } | undefined
     if (shown?.deny !== undefined) {
@@ -187,6 +189,38 @@ async function openTranscript($: $, agentId: string) {
     S.watching = agentId
     say($, `Can't open that transcript here: ${err instanceof Error ? err.message : String(err)}. Its activity is shown below instead.`, 'warning')
   }
+}
+
+/** What an agent did, step by step: the fallback when the app won't show its transcript (openTranscript sets S.watching). */
+function AgentActivity(ui: UI, id: string, name: string): RenderChildren {
+  const { Box, Text } = ui
+  const log = S.agentLog.get(id) ?? []
+  return (
+    <Box key={`agent-log-${id}`} flexDirection="column" gap={0} marginLeft={2} paddingX={2} paddingY={1} borderStyle="round" borderColor={G.edge}>
+      <Text color={G.soft} size="caption" weight="bold">
+        {`WHAT ${name.toUpperCase()} DID · ${log.length === 0 ? 'nothing seen yet' : `last ${Math.min(log.length, 12)} of ${log.length} steps`}`}
+      </Text>
+      {log.length === 0 ? (
+        <Text color={G.faint} size="footnote">
+          No tool calls seen since the pane loaded. Steps show up here as the agent works.
+        </Text>
+      ) : (
+        log.slice(-12).map((l, n) => (
+          <Box key={`agent-log-${id}-${n}`} flexDirection="row" gap={1}>
+            <Text color={G.faint} size="footnote" mono>
+              {clockOf(l.at)}
+            </Text>
+            <Text color={G.accent} size="footnote" weight="medium">
+              {toolWords(l.tool)}
+            </Text>
+            <Text color={G.soft} size="footnote" mono wrap="truncate">
+              {l.detail}
+            </Text>
+          </Box>
+        ))
+      )}
+    </Box>
+  )
 }
 
 function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
@@ -233,35 +267,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
       </Box>
     )
   }
-  const activity = (a: (typeof S.agents)[number]) => {
-    const log = S.agentLog.get(a.id) ?? []
-    return (
-      <Box key={`agent-log-${a.id}`} flexDirection="column" gap={0} marginLeft={2} paddingX={2} paddingY={1} borderStyle="round" borderColor={G.edge}>
-        <Text color={G.soft} size="caption" weight="bold">
-          {`WHAT ${(a.name ?? a.type).toUpperCase()} DID · ${log.length === 0 ? 'nothing seen yet' : `last ${Math.min(log.length, 12)} of ${log.length} steps`}`}
-        </Text>
-        {log.length === 0 ? (
-          <Text color={G.faint} size="footnote">
-            No tool calls seen since the pane loaded. Steps show up here as the agent works.
-          </Text>
-        ) : (
-          log.slice(-12).map((l, n) => (
-            <Box key={`agent-log-${a.id}-${n}`} flexDirection="row" gap={1}>
-              <Text color={G.faint} size="footnote" mono>
-                {clockOf(l.at)}
-              </Text>
-              <Text color={G.accent} size="footnote" weight="medium">
-                {toolWords(l.tool)}
-              </Text>
-              <Text color={G.soft} size="footnote" mono wrap="truncate">
-                {l.detail}
-              </Text>
-            </Box>
-          ))
-        )}
-      </Box>
-    )
-  }
+  const activity = (a: (typeof S.agents)[number]) => AgentActivity(ui, a.id, a.name ?? a.type)
   return Card(
     ui,
     [
@@ -684,7 +690,7 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
           </Text>
         </Box>
         <Box key="title-buttons" flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
-          {run.length > 0 && <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter), 'Run line is in your prompt box — press Enter to send it')} />}
+          {run.length > 0 && <Button key="runall" label={`▶ Run ready (${run.length})`} hotkey="x" onPress={() => void fill($, runLine(run, S.hasRouter, boardPath()), 'Run line is in your prompt box — press Enter to send it')} />}
           <Button
             key="agents"
             hotkey="a"
@@ -1123,7 +1129,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
         {job !== undefined && (
           <Box flexDirection="row" gap={1} alignItems="center" backgroundColor={tint(G.accent, 0.1)} borderStyle="round" borderColor={tint(G.accent, 0.5)} paddingX={2}>
             <Text color={G.accent}>{`✎ AI is ${job.kind === 'draft' || job.kind === 'plan' ? 'writing' : job.kind === 'fold' ? 'folding answers into' : 'improving'} this ticket…`}</Text>
-            <Button key="viewagent" label="Watch" plain onPress={() => void $.ui.view({ agentId: job.agentId }).catch(() => undefined)} />
+            <Button key="viewagent" label="Watch" plain onPress={() => void openTranscript($, job.agentId)} />
           </Box>
         )}
         {status === 'draft' && open > 0 && primary !== null && !canReady ? null : status === 'draft' && open > 0 ? (
@@ -1135,6 +1141,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
         <Button key="brainstorm" label="✨ Brainstorm" hotkey="b" onPress={() => brainstorm($, number)} />
         <Button key="discuss" label="Discuss in chat" plain onPress={() => void fill($, `Let's look at ticket ${number} (${path ?? dir()}/rd.md). `, 'Started a message in your prompt box')} />
       </Box>
+      {job !== undefined && S.watching === job.agentId && AgentActivity(ui, job.agentId, S.agents.find(a => a.id === job.agentId)?.name ?? 'the writer')}
 
       {/* Two columns: content | properties */}
       <Box flexDirection="row" gap={2} flexWrap="wrap" alignItems="flex-start">
@@ -1188,28 +1195,29 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
                 options={KINDS.map(k => ({ value: k, label: `${KIND[k].icon} ${KIND[k].label}` }))}
                 onSelect={v => void setKind($, number, v as Kind)}
               />,
-              row !== undefined ? (
+              row === undefined ? null : hasColumn('mode') ? (
                 <Select
                   key={`mode-${number}`}
                   label="Mode"
                   value={row.mode === 'team' ? 'team' : 'solo'}
                   options={[{ value: 'solo', label: 'Solo' }, { value: 'team', label: 'Team' }]}
-                  onSelect={v => void editRow($, number, { mode: v }).then(() => say($, `Mode → ${v}`), err => fail($, err))}
+                  onSelect={v => saveCell($, number, { mode: v }, `Mode → ${v}`)}
                 />
-              ) : null,
-              row !== undefined ? (
+              ) : (
+                <Text key={`mode-${number}`} color={G.faint} size="footnote">{noColumn('mode')}</Text>
+              ),
+              row === undefined ? null : hasColumn('blockedBy') ? (
                 <Input
                   key={`blockedby-${number}`}
                   label="Depends on"
                   value={row.blockedBy.join(', ')}
                   placeholder="e.g. 0003, 0007"
                   submitLabel="Save"
-                  onSubmit={v => {
-                    const nums = (v.match(/\d{1,4}/g) ?? []).map(n => n.padStart(4, '0')).filter(n => n !== number)
-                    void editRow($, number, { blockedBy: nums.length === 0 ? '—' : nums.join(', ') }).then(() => say($, 'Dependencies saved'), err => fail($, err))
-                  }}
+                  onSubmit={v => saveCell($, number, { blockedBy: parseBlockedBy(v).filter(n => n !== number) }, 'Dependencies saved')}
                 />
-              ) : null,
+              ) : (
+                <Text key={`blockedby-${number}`} color={G.faint} size="footnote">{noColumn('blockedBy')}</Text>
+              ),
               waiting.length > 0 ? (
                 <Text key="waiting" color={STATUS_HEX.blocked!} size="footnote">
                   {`⛔ Waiting on ${waiting.join(', ')}`}
@@ -1271,7 +1279,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
                 isConfirming('block') ? (
                   <Input
                     key={`block-${number}`}
-                    label="Why is it blocked?"
+                    label={hasColumn('notes') ? 'Why is it blocked?' : 'Why is it blocked? (not saved: BOARD.md has no Notes column)'}
                     submitLabel="Mark blocked"
                     onSubmit={reason => {
                       S.confirm = undefined
@@ -1703,8 +1711,8 @@ export async function openReadme($: $) {
   await refresh($, true)
 }
 
-const README_ASK =
-  'Update README.md so it matches the project as it is now: what it is, how to install and run it, how to use it, and what changed recently (see tickets/BOARD.md). Keep what is still true; fix what is stale.'
+const readmeAsk = () =>
+  `Update README.md so it matches the project as it is now: what it is, how to install and run it, how to use it, and what changed recently (see ${boardPath()}). Keep what is still true; fix what is stale.`
 
 /** Characters of README per part on the glass: its markdown is drawn several times larger than the text. */
 export const README_PART = 8000
@@ -1793,7 +1801,7 @@ export function deskReadme($: $, ui: UI): RenderChildren {
             onPress={() =>
               void fill(
                 $,
-                text === undefined ? 'Write a README.md for this project: what it is, how to install and run it, and how to use it. Read the code and tickets/BOARD.md first.' : README_ASK,
+                text === undefined ? `Write a README.md for this project: what it is, how to install and run it, and how to use it. Read the code and ${boardPath()} first.` : readmeAsk(),
                 'In your prompt box — press Enter to send it',
               )
             }

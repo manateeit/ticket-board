@@ -49,7 +49,7 @@ function brief($: $, number: string, folder: string, kind: Job['kind'], idea?: s
   const path = `${dir()}/${folder}`
   const date = today(Date.now())
   const common = [
-    `Repository root: ${S.root || S.cwd}. Ticket folder: ${path}/ (rd.md and eval.md). Board: ${dir()}/BOARD.md.`,
+    `Repository root: ${S.root || S.cwd}. Ticket folder: ${path}/ (rd.md and eval.md). Board: ${boardPath()} (the board path the ticket rules mean).`,
     `Follow the ticket rules in ${rules($)} (read it first; the TEMPLATE folder next to it shows the exact sections).`,
     `Only write ${path}/rd.md and ${path}/eval.md. Never edit BOARD.md, never write code, never touch other files — writes elsewhere are refused.`,
     `When you resolve a question from the code yourself, keep it as a bullet and add a line under it: \`  **Resolved ${date} (agent, from code: <path>)**: <answer>\`.`,
@@ -235,6 +235,8 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
   S.isCreating = true
   const made: string[] = []
   let tail: string[] = []
+  // The batch's own error, never the banner: an old error still showing must not hide this summary.
+  let stopped = false
   try {
     await refresh($, true)
     const rm = roadmapView()?.rm
@@ -277,15 +279,15 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
       S.planQueue.push({ number, folder, build: b.id, brief, extra })
     }
   } catch (err) {
+    stopped = true
     say($, `Stopped creating tickets: ${err instanceof Error ? err.message : String(err)}`, 'error')
   } finally {
     S.isCreating = false
   }
   if (made.length === 0) return made
   await refresh($, true).catch(() => undefined)
-  const hadError = S.message?.tone === 'error'
   await pumpPlanQueue($)
-  if (hadError) return made
+  if (stopped) return made
   const range = made.length === 1 ? made[0]! : `${made[0]}–${made[made.length - 1]}`
   const queued = S.planQueue.filter(q => made.includes(q.number)).length
   const failed = made.filter(n => [...S.planFailed.values()].some(f => f.number === n)).length
@@ -335,7 +337,7 @@ type ReplanFacts = { designPath: string; planPath: string; designVersion: number
 function replanBrief($: $, a: ReplanFacts): string {
   return [
     `Mode: replan. The plan is behind the design: ${a.planPath} has design-version ${a.planVersion ?? '(none)'}, ${a.designPath} is version ${a.designVersion}.`,
-    `Repository root: ${S.root || S.cwd}. Board: ${dir()}/BOARD.md. Change notes: ${a.changes}/. Today: ${a.date}.`,
+    `Repository root: ${S.root || S.cwd}. Board: ${boardPath()}. Change notes: ${a.changes}/. Today: ${a.date}.`,
     `Follow ${$.plugin.root}/agents/planner.md (mode replan) and the proposal format in ${$.plugin.root}/docs/STANDARD.md, section 8.`,
     `Write only ${a.path}. Never edit PLAN.md, DESIGN.md, BOARD.md, a change note or any ticket — writes elsewhere are refused.`,
     'Start the file with exactly this front matter (plan-hash identifies the plan you are reading; keep it as given):',
@@ -578,7 +580,7 @@ export const runningJobs = () => S.jobs.size + (S.adoptJob === undefined ? 0 : 1
 function adoptBrief($: $, a: { path: string; sources: string[]; date: string }): string {
   return [
     'Mode: adopt. Convert the person\'s existing documents into a draft design and plan in the ticket-board file standard, as a proposal they review in the pane.',
-    `Repository root: ${S.root || S.cwd}. Today: ${a.date}.`,
+    `Repository root: ${S.root || S.cwd}. Board: ${boardPath()}. Today: ${a.date}.`,
     `Source files and folders (read these, and only the code you need for context): ${a.sources.join(', ')}.`,
     `Follow ${$.plugin.root}/agents/planner.md (mode adopt) and ${$.plugin.root}/docs/STANDARD.md: sections 2 (DESIGN.md) and 3 (PLAN.md) for the drafts, section 9 for the proposal file.`,
     `Write only ${a.path}. Never edit or delete a source file, and never write DESIGN.md, PLAN.md, BOARD.md, code or any other file: writes elsewhere are refused.`,

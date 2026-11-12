@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BoardEditError, addRow, parseBoard, setCells } from '../hooks/core/board'
+import { BoardEditError, addRow, formatBlockedBy, parseBlockedBy, parseBoard, setCells } from '../hooks/core/board'
 import {
   commitFromRefs,
   hasCode,
@@ -44,7 +44,7 @@ import {
   withNoteFollowUp,
 } from '../hooks/core/roadmap'
 import { historyOf } from '../hooks/core/designfile'
-import { answerQuestion, docsGaps, isReadyable, parseQuestions, readiness } from '../hooks/core/ticket'
+import { answerQuestion, docsGaps, isReadyable, isResolved, parseQuestions, readiness } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
 import { adoptLeftOut, adoptPaths, adoptResult, bindFromBoard, parseAdopt, setBindingLine } from '../hooks/core/roadmap'
 import { DEMO_ROADMAP } from './demo-roadmap'
@@ -111,7 +111,7 @@ test('parses the board table', () => {
 })
 
 test('a status change rewrites exactly one line', () => {
-  const after = setCells(BOARD, '0003', { status: 'ready' }, 'draft')
+  const after = setCells(BOARD, '0003', { status: 'ready' }, 'draft').text
   const a = BOARD.split('\n')
   const b = after.split('\n')
   expect(b.length).toBe(a.length)
@@ -134,6 +134,34 @@ test('adds a row after the last ticket and escapes pipes', () => {
   expect(after.includes('How to read this board:')).toBe(true)
 })
 
+test('setCells reports columns the board does not have and leaves the file alone for them', () => {
+  const lean = `| # | Ticket | Status |\n|---|--------|--------|\n| 0003 | Dark mode | draft |\n`
+  const all = setCells(lean, '0003', { notes: 'x', mode: 'team', blockedBy: ['0001'] })
+  expect([...all.skipped].sort()).toEqual(['blockedBy', 'mode', 'notes'])
+  expect(all.text).toBe(lean)
+  const some = setCells(lean, '0003', { status: 'blocked', notes: 'blocked: waiting' }, 'draft')
+  expect(some.skipped).toEqual(['notes'])
+  expect(parseBoard(some.text)!.rows[0]!.status).toBe('blocked')
+  expect(some.text).not.toContain('waiting')
+  // A full board writes every column and skips nothing.
+  expect(setCells(BOARD, '0003', { mode: 'team', notes: 'n' }).skipped).toEqual([])
+})
+
+test('Blocked by: the board module owns the cell format, up to 5-digit numbers', () => {
+  expect(formatBlockedBy(['0003', '10000'])).toBe('0003, 10000')
+  expect(formatBlockedBy(['3'])).toBe('0003')
+  expect(formatBlockedBy([])).toBe('—')
+  expect(parseBlockedBy(formatBlockedBy(['0003', '10000']))).toEqual(['0003', '10000'])
+  expect(parseBlockedBy(formatBlockedBy([]))).toEqual([])
+  const one = setCells(BOARD, '0003', { blockedBy: ['0003', '10000'] }).text
+  expect(parseBoard(one)!.rows[2]!.blockedBy).toEqual(['0003', '10000'])
+  const none = setCells(one, '0003', { blockedBy: [] }).text
+  expect(parseBoard(none)!.rows[2]!.blockedBy).toEqual([])
+  expect(none.split('\n').find(l => l.startsWith('| 0003'))).toContain('| —')
+  // Writing the list a row already has gives back the same bytes.
+  expect(setCells(BOARD, '0002', { blockedBy: ['0001'] }).text).toBe(BOARD)
+})
+
 test('adds the first row to an empty table', () => {
   const empty = BOARD.split('\n').filter(l => !/^\| 000/.test(l)).join('\n')
   const after = addRow(empty, { number: '0001', title: 'First', status: 'draft', mode: 'solo', blockedBy: [], owner: '—', notes: '' })
@@ -154,6 +182,39 @@ test('finds open questions and records an answer under the right one', () => {
 test('placeholder questions do not count', () => {
   expect(parseQuestions(RD.replace(/## Open questions[\s\S]*/, '## Open questions\n\n- none\n')).length).toBe(0)
   expect(parseQuestions(RD.replace(/## Open questions[\s\S]*/, '## Open questions\n\n- <Must be empty before this ticket can be marked ready>\n')).length).toBe(0)
+})
+
+test('a detail line mentioning "agent)" or "(human" does not resolve a question (0024)', () => {
+  const rd = RD.replace(/## Open questions[\s\S]*/, '## Open questions\n\n- Which colour?\n  ask the router (or the agent)\n  then check with (human review\n')
+  const qs = parseQuestions(rd)
+  expect(qs.length).toBe(1)
+  expect(qs[0]!.isResolved).toBe(false)
+  expect(isResolved('Which colour?', 'ask the router (or the agent)')).toBe(false)
+  expect(isResolved('Which colour?', 'resolved later (human')).toBe(false)
+  const check = readiness({ rd, ev: EVAL, blockedBy: [], statusOf: () => 'done' }).find(c => c.id === 'questions')
+  expect(check?.isOk).toBe(false)
+  expect(check?.label).toContain('1 open question')
+})
+
+test('every accepted resolved form counts as answered (0024)', () => {
+  const with_ = (body: string) => RD.replace(/## Open questions[\s\S]*/, `## Open questions\n\n${body}\n`)
+  const forms = [
+    '- Which colour?\n  **Resolved 2026-11-11 (human): teal**',
+    '- Which colour?\n  **Resolved 2026-11-11 (agent, from code: x.ts): teal**',
+    '- Which colour?\n  **Resolved 2026-11-11 (agent, from code: x.ts)**: teal',
+    '- [x] Which colour?',
+    '- ~~Which colour?~~',
+  ]
+  for (const f of forms) {
+    const qs = parseQuestions(with_(f))
+    expect(qs.length).toBe(1)
+    expect(qs[0]!.isResolved).toBe(true)
+  }
+  expect(parseQuestions(with_('- none')).length).toBe(0)
+  expect(parseQuestions(with_('- none (resolved 2026-11-11; answers folded into the ticket)')).length).toBe(0)
+  const statusOf = () => 'done'
+  for (const f of [...forms, '- none', '- none (resolved 2026-11-11; answers folded into the ticket)'])
+    expect(readiness({ rd: with_(f), ev: EVAL, blockedBy: [], statusOf }).find(c => c.id === 'questions')?.isOk).toBe(true)
 })
 
 test('ready check blocks on open questions and passes once answered', () => {
@@ -231,6 +292,22 @@ test('run lines', () => {
   expect(runLine(['0011'])).toBe('Run ticket 0011.')
   expect(runLine(['0011', '0013', '0014'])).toBe('Run tickets 0011, 0013 and 0014.')
   expect(runLine(['0011'], true)).toStartWith('Run ticket 0011 as the router. If this session is not already the router, first read .claude/agents/router.md')
+})
+
+test('run lines follow the tickets folder setting (0025)', () => {
+  const ROUTER_DEFAULT =
+    'Run ticket 0011 as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
+  // The default board: exactly today's text, with or without the path given.
+  expect(runLine(['0011'], true)).toBe(ROUTER_DEFAULT)
+  expect(runLine(['0011'], true, 'tickets/BOARD.md')).toBe(ROUTER_DEFAULT)
+  expect(runLine(['0011'], false, 'tickets/BOARD.md')).toBe('Run ticket 0011.')
+  // Another folder: the line names that board and never tickets/BOARD.md.
+  const plain = runLine(['0011', '0013'], false, 'work/BOARD.md')
+  expect(plain).toBe('Run tickets 0011 and 0013 (board: work/BOARD.md).')
+  const router = runLine(['0011'], true, 'work/BOARD.md')
+  expect(router).toContain('update work/BOARD.md')
+  expect(router).toContain('ticket folders are in work/.')
+  expect(router).not.toContain('tickets/')
 })
 
 test('result tags from board notes', () => {
@@ -936,6 +1013,25 @@ test('adopt: the binding line goes under the BOARD.md title, or replaces the one
   expect(setBindingLine(bound, 'design/DESIGN-adopted.md', 'design/PLAN.md')).toBe(bound.replace('design/DESIGN.md', 'design/DESIGN-adopted.md'))
   expect(setBindingLine('# T\nIntro\n', 'd.md', undefined)).toBe('# T\n\nDesign: d.md\n\nIntro\n')
   expect(setBindingLine(board, undefined, undefined)).toBe(board)
+})
+
+test('binding: a half binding line keeps the default for the other half', () => {
+  const files = (map: Record<string, string>) => (p: string) => map[p]
+  const both = { 'design/DESIGN.md': '# D\n', 'design/PLAN.md': '# P\n' }
+  // Design-only line (what adopt writes with no plan draft), then design/PLAN.md appears.
+  const designOnly = setBindingLine('# Ticket board\n', 'design/DESIGN.md', undefined)
+  const b1 = bindFromBoard(designOnly, files(both))
+  expect(b1).toEqual(expect.objectContaining({ designPath: 'design/DESIGN.md', planPath: 'design/PLAN.md', plan: '# P\n', isBound: true, warnings: [] }))
+  // Plan-only line: design/DESIGN.md is bound when it exists, unbound (no warning) when it does not.
+  const planOnly = '# Ticket board\n\nPlan: design/factory/plan.md\n'
+  const b2 = bindFromBoard(planOnly, files({ 'design/factory/plan.md': '# F\n', 'design/design.md': '# D\n' }))
+  expect(b2).toEqual(expect.objectContaining({ designPath: 'design/design.md', planPath: 'design/factory/plan.md', warnings: [] }))
+  const b3 = bindFromBoard(planOnly, files({ 'design/factory/plan.md': '# F\n' }))
+  expect(b3).toEqual(expect.objectContaining({ designPath: undefined, design: undefined, planPath: 'design/factory/plan.md', warnings: [] }))
+  // Both halves named: the defaults are never used, and a missing named file is still a warning.
+  const b4 = bindFromBoard('# B\n\nDesign: x/d.md · Plan: x/p.md\n', files(both))
+  expect(b4).toEqual(expect.objectContaining({ designPath: undefined, planPath: undefined, isBlank: true }))
+  expect(b4.warnings.length).toBe(2)
 })
 
 test('adopt: paths must be inside the project; empty input is an error', () => {

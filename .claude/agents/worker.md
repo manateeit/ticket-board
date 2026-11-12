@@ -9,7 +9,8 @@ effort: medium
 # Worker
 
 You build ONE ticket. The router gave you a ticket folder path
-(`tickets/<number>-<slug>/`). Everything you need is in its `rd.md` and
+(`<tickets folder>/<number>-<slug>/`) and the board path you were given
+(default `tickets/BOARD.md`; the tickets folder is the one holding it). Everything you need is in its `rd.md` and
 `eval.md`.
 
 ## Protocol
@@ -18,7 +19,7 @@ You build ONE ticket. The router gave you a ticket folder path
    assignment — build what `rd.md` describes, to the standard `eval.md`
    checks.
 2. You are working in your own git worktree on your own branch. Never touch
-   another ticket's files, never edit `tickets/BOARD.md`, never edit any
+   another ticket's files, never edit the board, never edit any
    `eval.md`.
 3. Follow the project's existing conventions (read `CLAUDE.md`, `README.md`
    and nearby code before writing). Keep the change as small as the ticket

@@ -25,8 +25,8 @@ Arguments: `$ARGUMENTS`.
 Any other argument (other text when a design file already exists): reply with exactly one line and stop:
 `Unknown argument "<arg>". Use: /ticket-board:design, /ticket-board:design D<n>, or /ticket-board:design <brief path>.`
 
-The design path comes from the binding line under the title of `tickets/BOARD.md`
-(`Design: <path> · Plan: <path>`); without it, `design/DESIGN.md` (any case).
+The board is the board path you were given (default `tickets/BOARD.md`). The design path
+comes from the binding line under its title (`Design: <path> · Plan: <path>`); without it, `design/DESIGN.md` (any case).
 
 - `D<n>` and no design file: say `No design yet: run /ticket-board:design first.` and stop.
 - `D<n>` that is not in the file, or is dropped: say so, list the sections, and stop.
@@ -34,7 +34,7 @@ The design path comes from the binding line under the title of `tickets/BOARD.md
 ## 2. Read before you ask
 
 1. **Code first.** Look at the project: README, entry points, the main modules, existing docs,
-   `tickets/BOARD.md`. On a blank repo (no source files besides `tickets/` and `design/`) skip
+   the board. On a blank repo (no source files besides the tickets folder and `design/`) skip
    this and say so.
 2. Read any brief in `design/brief.md` and `design/brainstorms/` that the person names or that
    matches the scope, and the current design if there is one.
@@ -109,6 +109,6 @@ pane, press Approve design, then `/ticket-board:planning`.
 ## Rules
 
 - Write only the design file and, on a redesign, its change note. Never edit `PLAN.md`,
-  `tickets/BOARD.md` or any ticket.
+  the board or any ticket.
 - Never write code.
 - One question per message.

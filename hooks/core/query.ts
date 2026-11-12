@@ -141,16 +141,26 @@ export function kindOf(title: string, rd?: string): Kind {
   return 'feature'
 }
 
-/** `Run tickets 0011, 0013 and 0014.` */
-export function runLine(numbers: readonly string[], asRouter = false): string {
+/** The board the router reads and updates when the `ticketsDir` setting is left at its default. */
+export const DEFAULT_BOARD = 'tickets/BOARD.md'
+
+/**
+ * `Run tickets 0011, 0013 and 0014.` `board` is the resolved board path (`<ticketsDir>/BOARD.md`): a
+ * non-default one is named in the line so the router works on the board the pane shows. With the
+ * default the line reads as it always has.
+ */
+export function runLine(numbers: readonly string[], asRouter = false, board = DEFAULT_BOARD): string {
   const head = numbers.slice(0, -1).join(', ')
   const line = numbers.length === 1 ? `Run ticket ${numbers[0]}` : `Run tickets ${head} and ${numbers[numbers.length - 1]}`
-  return asRouter ? `${line}${ROUTER_TAIL}` : `${line}.`
+  if (asRouter) return `${line}${routerTail(board)}`
+  return board === DEFAULT_BOARD ? `${line}.` : `${line} (board: ${board}).`
 }
 
 /** Makes a run line work in any session: the router already is one, any other session takes the role from the file. */
-export const ROUTER_TAIL =
-  ' as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update tickets/BOARD.md, and never write the code yourself. A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.'
+export function routerTail(board = DEFAULT_BOARD): string {
+  const which = board === DEFAULT_BOARD ? '' : ` The board is ${board} and the ticket folders are in ${board.replace(/\/?BOARD\.md$/, '') || '.'}/.`
+  return ` as the router. If this session is not already the router, first read .claude/agents/router.md and follow it exactly: dispatch worker and checker agents, update ${board}, and never write the code yourself.${which} A ticket moves to in-check only after its worker has updated README.md and the docs listed under ## Docs in its rd.md.`
+}
 
 export function today(nowMs: number): string {
   const d = new Date(nowMs)

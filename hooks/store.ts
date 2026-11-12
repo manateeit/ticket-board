@@ -1,7 +1,7 @@
 // The pane's in-memory state and everything that reads or writes the tickets folder.
 import type { AgentInfo, EngineInterface } from 'claude-code'
 
-import { addRow, parseBoard, setCells, type Board, type BoardRow, type Column } from './core/board'
+import { addRow, parseBoard, setCells, type Board, type BoardRow, type CellChanges, type Column } from './core/board'
 import { DEFAULT_FILTERS, KIND_OPTIONS, MODE_OPTIONS, SHOW_OPTIONS, SORT_OPTIONS, kindOf, nextNumber, slugify, today, type Filters, type Item } from './core/query'
 import { isLightTheme, type Scheme } from './glass'
 import { README_NAMES, hasCode, ideaFile, originUrl, parseGitFile, parseRemote, projectName, type Project, readGitFacts, readmeSummary } from './core/project'
@@ -216,8 +216,9 @@ export const abs = (rel: string) => (rel.startsWith('/') ? rel : `${S.root || S.
 
 /**
  * A worktree holds the board as it was when its branch was cut, so tickets added since are missing
- * there. The router keeps tickets/BOARD.md in the main checkout: when the session runs in a linked
- * worktree whose main checkout has a board, read and write that one.
+ * there. The router keeps the board (<ticketsDir>/BOARD.md, default tickets/BOARD.md) in the main
+ * checkout: when the session runs in a linked worktree whose main checkout has a board at that
+ * path, read and write that one.
  */
 export async function resolveRoot($: $): Promise<void> {
   const cwd = S.cwd || '.'
@@ -265,8 +266,8 @@ async function listOr($: $, path: string) {
 }
 
 /**
- * Design and plan the board is bound to (`Design: … · Plan: …` in BOARD.md), else `design/DESIGN.md`
- * and `design/PLAN.md` in any case. `bindFromBoard` reads synchronously, so the paths it asks for
+ * Design and plan the board is bound to (`Design: … · Plan: …` in BOARD.md); a half the line does not
+ * name is `design/DESIGN.md` / `design/PLAN.md` in any case. `bindFromBoard` reads synchronously, so the paths it asks for
  * are read first and handed back on a second pass.
  */
 async function findDesignAndPlan($: $, boardText: string | undefined): Promise<{ designPath: string; planPath: string }> {
@@ -648,12 +649,21 @@ export function items(): (Item & { isUnlisted: boolean; blockedBy: string[] })[]
   return out
 }
 
-/** Re-reads BOARD.md, applies one row edit and writes it back. Throws with a person-readable message. */
-export async function editRow($: $, number: string, changes: Partial<Record<Column, string>>, expectStatus?: string) {
+/**
+ * Re-reads BOARD.md, applies one row edit and writes it back. Throws with a person-readable message.
+ * Returns the columns it could not write because BOARD.md has no such column.
+ */
+export async function editRow($: $, number: string, changes: CellChanges, expectStatus?: string): Promise<Column[]> {
   const text = await $.fs.read(abs(boardPath()))
-  const next = setCells(text, number, changes, expectStatus)
+  const { text: next, skipped } = setCells(text, number, changes, expectStatus)
   if (next !== text) await $.fs.write(abs(boardPath()), next)
   await refresh($)
+  return skipped
+}
+
+/** Whether the board as last read has this column (Mode, Blocked by and Notes are optional). */
+export function hasColumn(col: Column): boolean {
+  return S.snap?.board?.columns[col] !== undefined
 }
 
 export async function saveAnswer($: $, number: string, q: Question, answer: string) {
@@ -808,7 +818,7 @@ export async function createSkeleton(
   return { number, folder }
 }
 
-/** Writes `tickets/BOARD.md` from the plugin's template (and `TEMPLATE/rd.md`, `eval.md` when missing). Throws on a failed write. */
+/** Writes the board (`<ticketsDir>/BOARD.md`, default `tickets/BOARD.md`) from the plugin's template (and `TEMPLATE/rd.md`, `eval.md` when missing). Throws on a failed write. */
 export async function createBoardFiles($: $): Promise<void> {
   const root = $.plugin.root
   await $.fs.write(abs(boardPath()), await $.fs.read(abs(`${root}/templates/BOARD.md`)))

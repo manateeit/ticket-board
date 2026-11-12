@@ -140,7 +140,7 @@ A project with no design, no plan and no tickets (no ticket folders and no board
 
 **The buttons never run anything** (except **Set up board only** and **I already have docs…**, which starts the converting agent). Each one only fills your prompt box with a request, such as *Initialise git here and make the first commit.* or *Create a private GitHub repository for this project with `gh repo create --private`, add it as origin and push.* You read it, change it if you like (for example to make the repo public), and press Enter. Claude then runs the commands with its own tools and asks you before each one. If the prompt box already has text in it, the pane shows the line to copy instead.
 
-Design and plan are found from the `Design: … · Plan: …` line under the title of `BOARD.md`, else `design/DESIGN.md` and `design/PLAN.md` in any case (see [docs/STANDARD.md](docs/STANDARD.md)). The git lines come from plain files (`.git/HEAD`, `.git/config`, the branch's ref or `packed-refs`, and a linked worktree's `.git` pointer file), so Start works the same in the terminal and the desktop app and never starts a process.
+Design and plan are found from the `Design: … · Plan: …` line under the title of `BOARD.md`; a half the line leaves out (or no line at all) uses `design/DESIGN.md` or `design/PLAN.md`, in any case, when that file exists (see [docs/STANDARD.md](docs/STANDARD.md)). The git lines come from plain files (`.git/HEAD`, `.git/config`, the branch's ref or `packed-refs`, and a linked worktree's `.git` pointer file), so Start works the same in the terminal and the desktop app and never starts a process.
 
 **Banner on an existing project.** A project that already has tickets but no design or plan opens on the board as before, with a banner *No design or plan yet → Set up* above it (*No plan yet* once a design exists). **Set up** opens the Start screen (**‹ Board** takes you back); **Dismiss** hides the banner for this project, and that is remembered.
 
@@ -198,8 +198,8 @@ Press a ticket number to open the full ticket.
   - `ready`: **▶ Run this ticket**, **Back to draft**
   - `draft`: **Answer questions (N)**, **✓ Mark ready** (only when the ready check passes), **✎ Enhance with AI**
   - `blocked`: **Unblock → draft**, **Unblock → ready**
-  - any status except blocked and done: **Block…**, which asks for a reason and puts it in Notes
-- **Mode** (solo/team) and **Blocked by** can be edited in place.
+  - any status except blocked and done: **Block…**, which asks for a reason and puts it in Notes. On a board without a Notes column the ticket is still blocked, and the pane says the reason was not saved.
+- **Mode** (solo/team) and **Blocked by** can be edited in place. Each needs its column on BOARD.md: on a board without a Mode or Blocked by column the control is replaced by a line saying so (*Mode: BOARD.md has no Mode column*), and an edit to a column the board lacks is shown as an error, never as saved. Blocked by takes ticket numbers of up to 5 digits (`0003, 10000`); an empty list is written as `—`.
 - **Discuss in chat** puts a starter message about this ticket in your prompt box. **Brainstorm** (key `b`) puts `/brainstorm 0007` there, to brainstorm this one item. **Copy path** copies the ticket folder path.
 - **Change status…** lets you set any status by hand, behind a warning. The router normally owns in-progress, in-check and done, so use it only to fix the board.
 - **rd.md / eval.md** tabs show the files, rendered.
@@ -226,7 +226,7 @@ The `/ticket` rules say a ticket cannot be **ready** while its *Open questions* 
     **Resolved 2026-11-09 (human): Yes, per device, in localStorage.**
   ```
 
-  A question with a `**Resolved …**` line counts as answered. The rest of the file is not touched.
+  A question counts as answered only when a line under it starts with `**Resolved` (`**Resolved <date> (human): …**`, or `(agent, from code: <path>)` from the ticket writer), or its bullet is ticked `[x]` or struck `~~…~~`. A detail line that merely mentions "(human" or "agent)" leaves it open, so **Mark ready** is not offered early. `- none` and `- none (resolved <date>; …)` mean no open questions. The router reads the same rule from `docs/STANDARD.md` section 4. The rest of the file is not touched.
 - **Suggest (AI)** drafts an answer from the ticket and its touchpoints for you to edit. Nothing is saved until you press Save.
 - **Discuss in chat** puts the question in your prompt box, so you can talk it through with the full session.
 - After answering, **✎ Fold answers into the ticket (AI)** has the ticket writer update *Behaviour*, *Scope* and *eval.md* to match your decisions. Answered questions stay in the file as a record.
@@ -260,7 +260,7 @@ Other moves (in-progress, in-check, done) belong to the router. They are availab
      4. When it finishes, the row's note becomes `AI draft done · 2 open questions` and the pane takes you to the questions.
    - **Create empty draft**: the same folder and row, with no AI. You fill it in yourself.
    - **Draft in chat instead**: puts `/ticket <idea>` in your prompt box, so the main session writes the ticket with you, interactively.
-4. You can keep using the pane and the chat while the AI writes. **Watch** opens the writer's transcript.
+4. You can keep using the pane and the chat while the AI writes. **Watch** opens the writer's transcript. Where the app won't switch to it from the pane (the desktop app today), the pane says so and shows the writer's steps under the ticket's buttons instead, the same fallback as **Open transcript** in the Agents panel.
 
 **✎ Enhance with AI** on an existing draft runs the same writer against the files that are already there. It keeps your decisions and answered questions, fills the gaps, and tightens the checks.
 
@@ -347,6 +347,8 @@ Run ticket 0014 as the router. If this session is not already the router, first 
 
 A real router session reads that as itself and carries on. Any other session takes on the router's job from the file and starts the `worker` and `checker` agents itself.
 
+With the default *Tickets folder* the lines read exactly as above. With another folder, say `work`, they name that board, so the router updates the board the pane shows: `Run ticket 0014 (board: work/BOARD.md).`, or with a router `… update work/BOARD.md, and never write the code yourself. The board is work/BOARD.md and the ticket folders are in work/. …`
+
 - If a *blocked by* ticket is not done yet, the line adds `— but only once 0008 is done.`, and the ticket view says what it is waiting for.
 - On the board, **▶ Run ready (N)** counts the ready tickets whose blockers are all done and fills one line for all of them (`Run tickets 0011, 0013 and 0014 …`).
 - In the [Plan view](#the-pane-view-by-view), each phase has the same **▶ Run ready (N)** for its own builds, and each build with a ready ticket has **▶ Run**. Same rule (status `ready`, every blocker done, also blockers outside the phase) and the same line, router tail included. Nothing is ever sent. With nothing ready the button is dim, pressing it fills nothing, and the reason is shown beside it (*No tickets in P3 yet*, *Nothing in P2 can run yet: 0012 waits on 0009*).
@@ -424,7 +426,7 @@ Change these in `/plugin` → ticket-board → configure:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Tickets folder | `tickets` | Folder, relative to the project, that holds `BOARD.md` and the ticket folders |
+| Tickets folder | `tickets` | Folder, relative to the project, that holds `BOARD.md` and the ticket folders. Everything follows it: the pane, the Run lines (they name `<folder>/BOARD.md`), and every agent the pane starts (ticket writer, planner for replan and adopt), whose briefs name the real board path and ticket folder. The skills, the planner, the router and the worker work on "the board path you were given", `tickets/BOARD.md` by default |
 | Refresh every (seconds) | `3` | How often the open pane re-reads the board |
 | Open at start | on | Open the pane automatically when a session starts in a project that has a `tickets/` folder: on the board, or on the Start screen when there is no `BOARD.md` yet or no design, plan or tickets. Projects without `tickets/` never open it on their own; run `/board` there to see Start |
 | Ticket writer model | *(session's)* | Model for the AI writer, e.g. `opus` or `sonnet` |
