@@ -302,14 +302,14 @@ After a redesign (DESIGN.md `version` bumped, a change note in `design/changes/`
    - **Change** rewrites the build row's cells (Build to Done when) and keeps its Ticket and Status: no ticket is edited;
    - **Drop** sets the row's `Status` to `dropped` (adding the Status column to that table when it has none); the row is never deleted;
    - **Follow-up** creates a new draft ticket (on the build it names, with the number added to that build's Ticket cell, or off-plan);
-   - PLAN.md's `design-version` becomes the design's version (and `updated` today);
+   - PLAN.md's `design-version` becomes the proposal's `design-version` (and `updated` today);
    - the applied items are ticked `[x]` in the proposal. Unticked items stay as they are and the banner stays (*Replan for design v3 · 1 replan item to review*) until every item is applied or dismissed (**Dismiss selected** marks items `[-]` and changes nothing else).
 
 **Done tickets are never rewritten**: no step edits a done (or in-progress) ticket's files or board row. A change to finished work is a new draft Follow-up ticket; in-progress tickets just show their [stale chip](#board). Nothing becomes `ready`.
 
 **Docs follow-up.** When README mentions a design section the redesign changed, added or dropped (its title appears in README), the proposal gets one Follow-up item *Update README/docs for design v3: Reminders*, and the redesign's change note lists the same line under `## Follow-ups`. The pane adds it after the planner ends if the planner left it out, and never twice.
 
-**Safety.** The proposal's front matter records `plan-hash`, a fingerprint of PLAN.md when the proposal was made. If PLAN.md changed on disk since, **Apply selected** stops with *plan changed; regenerate the proposal* and writes nothing: press **↻ New proposal** on the banner. Applying with nothing ticked is a no-op. A proposal that cannot be read (or has none of the four headings) shows its file path on the banner and the review screen.
+**Safety.** The proposal's front matter records `plan-hash`, a fingerprint of PLAN.md when the proposal was made. If PLAN.md changed on disk since, **Apply selected** stops with *plan changed; regenerate the proposal* and writes nothing: press **↻ New proposal** on the banner. Applying with nothing ticked is a no-op. A proposal made for an older design (its `design-version` is not the design's current version, or it has none) is refused the same way: *This replan proposal is for design v3, the design is v4: make a new proposal; nothing applied*. Ticks belong to one proposal (its path and content): when the proposal file changes, for example a new same-day replan rewrites it, the ticks are cleared and the review shows the new items unticked; if it changed after you ticked but before the pane noticed, **Apply selected** and **Dismiss selected** stop with *The replan proposal changed since you ticked: tick the items again* and write nothing. A proposal that cannot be read (or has none of the four headings) shows its file path on the banner and the review screen.
 
 ## Adopting existing docs
 

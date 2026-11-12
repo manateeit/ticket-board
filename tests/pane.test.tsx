@@ -3054,6 +3054,137 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// ---------- Replan Apply safety (0038) ----------
+
+/** The proposal rewritten by a new same-day replan: other items, in another order. */
+const T38_REWRITE = (hash: string) => `---
+change: replan
+date: 2026-11-12
+design-version: 3
+plan-hash: ${hash}
+---
+# Replan for design v3
+
+## Why
+Second pass.
+
+## Add
+- none
+
+## Change
+- none
+
+## Drop
+- [ ] P1.3 · Reminders
+  Nobody wants reminders.
+- [ ] P1.2 · Booking
+  Booking moves elsewhere.
+
+## Follow-up
+- [ ] P1.1 · Sign in with a passkey
+  Passkeys instead.
+`
+
+/** A Bash call in the session: the pane starts a plain refresh for it. */
+const bashTool = ($: any) => $.tool.call({ tool: 'Bash', command: 'true' })
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`replan apply refuses a proposal for an older design version; PLAN.md unchanged (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs, writes } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-0' })
+    await ui.press({ key: 'rp-tick-2' })
+    // A redesign lands while the review is open: DESIGN.md is v4, the proposal is for v3.
+    fs.files.set('/repo/design/DESIGN.md', T16_DESIGN.replace('version: 3', 'version: 4'))
+    fs.mtimes.set('/repo/design/DESIGN.md', 999)
+    const before = new Map(fs.files)
+    const n0 = writes.length
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('make a new proposal'), 'the stale-proposal refusal')
+    expect(await drawnText(ui)).toContain('This replan proposal is for design v3, the design is v4: make a new proposal; nothing applied')
+    expect(writes.length).toBe(n0)
+    expect([...fs.files]).toEqual([...before])
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    expect(w.spawned).toEqual([])
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan apply refuses a proposal with no design-version (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t16Files(t16Proposal(planHash(T16_PLAN)).replace('design-version: 3\n', '')), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-0' })
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('make a new proposal'), 'the refusal')
+    expect(await drawnText(ui)).toContain('This replan proposal is for an unknown design version, the design is v3')
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan apply stamps the proposal's design version (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-2' })
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('Applied 1 item'), 'the apply')
+    const pv = parseProposal(fs.files.get(T16_PROPOSAL_PATH)!).designVersion
+    expect(pv).toBe(3)
+    expect(fs.files.get(T16_PLAN_PATH)).toContain(`design-version: ${pv}\n`)
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan ticks clear when the proposal file is rewritten; Apply needs new ticks (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    on('tool.call', () => ({ result: 'ok' }) as any)
+    const { ui, fs, writes } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-1' })
+    await ui.press({ key: 'rp-tick-3' })
+    expect(await drawnText(ui)).toContain('Apply selected (2)')
+    // The planner rewrites the same-day proposal; a refresh reads it.
+    fs.files.set(T16_PROPOSAL_PATH, T38_REWRITE(planHash(T16_PLAN)))
+    fs.mtimes.set(T16_PROPOSAL_PATH, 999)
+    await bashTool($)
+    await until(async () => (await drawnText(ui)).includes('Sign in with a passkey'), 'the new items')
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('Apply selected (0)')
+    expect(drawn).not.toContain(surface === 'desktop' ? '☑' : '[x]')
+    const n0 = writes.length
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('Nothing ticked: nothing applied'), 'Apply to need new ticks')
+    expect(writes.length).toBe(n0)
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    w.done()
+    await ui.unmount()
+  })
+
+  test(`replan apply refuses ticks made on a proposal that changed before the refresh (${surface})`, async ($, on) => {
+    const w = fakeWriter(on)
+    const { ui, fs, writes } = await boot($, on, surface, t16Files(), { blank: true })
+    await openReview(ui)
+    await ui.press({ key: 'rp-tick-1' })
+    await ui.press({ key: 'rp-tick-3' })
+    // Rewritten on disk; Apply is the first to read it.
+    const rewritten = T38_REWRITE(planHash(T16_PLAN))
+    fs.files.set(T16_PROPOSAL_PATH, rewritten)
+    fs.mtimes.set(T16_PROPOSAL_PATH, 999)
+    const n0 = writes.length
+    await ui.press({ key: 'replan-apply' })
+    await until(async () => (await drawnText(ui)).includes('tick the items again'), 'the changed-proposal refusal')
+    expect(writes.length).toBe(n0)
+    expect(fs.files.get(T16_PLAN_PATH)).toBe(T16_PLAN)
+    expect(fs.files.get(T16_PROPOSAL_PATH)).toBe(rewritten)
+    expect(await drawnText(ui)).toContain('Apply selected (0)')
+    w.done()
+    await ui.unmount()
+  })
+}
+
 test('dark glass in a dark app: no plates, the dark palette as before', async ($, on) => {
   const { ui } = await boot($, on, 'desktop', p7Files(), { blank: true, store: new Map<string, unknown>([['colors', 'dark']]), theme: 'dark' })
   await ui.find({ key: 'tab-plan' })
