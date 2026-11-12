@@ -127,7 +127,8 @@ test('refuses a change when the row moved on', () => {
 })
 
 test('adds a row after the last ticket and escapes pipes', () => {
-  const after = addRow(BOARD, { number: '0004', title: 'A | B', status: 'draft', mode: 'solo', blockedBy: [], owner: '—', notes: 'x' })
+  const { text: after, skipped } = addRow(BOARD, { number: '0004', title: 'A | B', status: 'draft', mode: 'solo', blockedBy: [], owner: '—', notes: 'x' })
+  expect(skipped).toEqual([])
   const rows = parseBoard(after)!.rows
   expect(rows.map(r => r.number)).toEqual(['0001', '0002', '0003', '0004'])
   expect(after.includes('A \\| B')).toBe(true)
@@ -147,6 +148,23 @@ test('setCells reports columns the board does not have and leaves the file alone
   expect(setCells(BOARD, '0003', { mode: 'team', notes: 'n' }).skipped).toEqual([])
 })
 
+test('addRow reports values the board has no column for and writes the row without them (0036)', () => {
+  const lean = `| # | Ticket | Status | Notes |\n|---|--------|--------|-------|\n| 0003 | Dark mode | draft | |\n`
+  const { text, skipped } = addRow(lean, { number: '0004', title: 'Export', status: 'draft', mode: 'team', blockedBy: ['0003'], notes: 'n' })
+  expect([...skipped].sort()).toEqual(['blockedBy', 'mode'])
+  const row = parseBoard(text)!.rows.find(r => r.number === '0004')!
+  expect(row.title).toBe('Export')
+  expect(row.notes).toBe('n')
+  expect(text.split('\n').find(l => l.startsWith('| 0004'))).not.toContain('team')
+  expect(text.split('\n').find(l => l.startsWith('| 0004'))).not.toContain('0003')
+  // An empty Blocked by is nothing lost.
+  expect(addRow(lean, { number: '0004', title: 'Export', status: 'draft', mode: '', blockedBy: [] }).skipped).toEqual([])
+  // A board with every column writes the row as before and skips nothing.
+  const full = addRow(BOARD, { number: '0004', title: 'Export', status: 'draft', mode: 'team', blockedBy: ['0003'], notes: 'n' })
+  expect(full.skipped).toEqual([])
+  expect(parseBoard(full.text)!.rows.find(r => r.number === '0004')!.blockedBy).toEqual(['0003'])
+})
+
 test('Blocked by: the board module owns the cell format, up to 5-digit numbers', () => {
   expect(formatBlockedBy(['0003', '10000'])).toBe('0003, 10000')
   expect(formatBlockedBy(['3'])).toBe('0003')
@@ -164,7 +182,7 @@ test('Blocked by: the board module owns the cell format, up to 5-digit numbers',
 
 test('adds the first row to an empty table', () => {
   const empty = BOARD.split('\n').filter(l => !/^\| 000/.test(l)).join('\n')
-  const after = addRow(empty, { number: '0001', title: 'First', status: 'draft', mode: 'solo', blockedBy: [], owner: '—', notes: '' })
+  const after = addRow(empty, { number: '0001', title: 'First', status: 'draft', mode: 'solo', blockedBy: [], owner: '—', notes: '' }).text
   expect(parseBoard(after)!.rows.map(r => r.title)).toEqual(['First'])
 })
 

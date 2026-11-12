@@ -216,8 +216,11 @@ export type NewRow = {
   notes?: string
 }
 
-/** Appends a row after the last table line, padded like the header. */
-export function addRow(text: string, row: NewRow): string {
+/**
+ * Appends a row after the last table line, padded like the header. Returns the new text and the
+ * columns of given (non-empty) values it could not write because the board has no such column.
+ */
+export function addRow(text: string, row: NewRow): { text: string; skipped: Column[] } {
   const board = parseBoard(text)
   if (board === undefined) throw new BoardEditError('No ticket table found in BOARD.md')
   if (board.rows.some(r => r.number === row.number))
@@ -231,6 +234,16 @@ export function addRow(text: string, row: NewRow): string {
     owner: row.owner ?? '—',
     notes: row.notes ?? '',
   }
+  const given: Record<Column, boolean> = {
+    number: true,
+    title: true,
+    status: true,
+    mode: row.mode !== '',
+    blockedBy: row.blockedBy.length > 0,
+    owner: row.owner !== undefined && row.owner !== '' && row.owner !== '—',
+    notes: row.notes !== undefined && row.notes !== '',
+  }
+  const skipped = (Object.keys(values) as Column[]).filter(c => given[c] && board.columns[c] === undefined)
   const count = board.widths.length
   const out: string[] = []
   for (let i = 0; i < count; i++) {
@@ -241,7 +254,7 @@ export function addRow(text: string, row: NewRow): string {
   const line = `|${out.join('|')}|`
   const lines = text.split(/\r?\n/)
   lines.splice(board.lastLine + 1, 0, line)
-  return lines.join(board.eol)
+  return { text: lines.join(board.eol), skipped }
 }
 
 /** Status order used for sorting and the counts strip. */

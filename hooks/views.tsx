@@ -909,8 +909,10 @@ export async function createTicket($: $, withAI: boolean) {
   const idea = (S.drafts.get('new-idea') ?? '').trim()
   if (idea === '') return say($, 'Describe the ticket first', 'warning')
   const blockedBy = parseBlockedBy(S.drafts.get('new-blocked') ?? '')
+  // Mode is not offered without its column, so its default is not news; a dropped Blocked by always is.
+  const modeOffered = hasColumn('mode')
   try {
-    const { number } = await createSkeleton(
+    const { number, skipped } = await createSkeleton(
       $,
       { title: (S.drafts.get('new-title') ?? '').trim() || titleFromIdea(idea), text: idea, mode: S.newMode, blockedBy, kind: S.newKind },
       withAI ? paneNote('drafting…') : paneNote('skeleton — fill in rd.md and eval.md'),
@@ -921,9 +923,17 @@ export async function createTicket($: $, withAI: boolean) {
     go($, { kind: 'ticket', number, tab: 'rd' })
     if (withAI) await startJob($, number, 'draft', idea)
     else say($, `Created ${number} as a draft skeleton`)
+    const lost = skipped.filter(c => c === 'blockedBy' || (c === 'mode' && modeOffered))
+    if (lost.length > 0) say($, `Created ${number} · ${droppedNote(lost, blockedBy, S.newMode)}`, 'warning')
   } catch (err) {
     fail($, err)
   }
+}
+
+/** What a new row lost: `Mode team, Blocked by 0001 not saved: BOARD.md has no Mode or Blocked by column`. */
+function droppedNote(lost: readonly Column[], blockedBy: readonly string[], mode: string): string {
+  const what = lost.map(c => `${COLUMN_LABEL[c]} ${c === 'blockedBy' ? blockedBy.join(', ') : mode}`).join(', ')
+  return `${what} not saved: BOARD.md has no ${lost.map(c => COLUMN_LABEL[c]).join(' or ')} column`
 }
 
 export async function draftInChat($: $) {
@@ -958,16 +968,24 @@ function newView($: $, ui: UI): RenderChildren {
         }}
       />
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-        <Select key="new-mode" label="Mode" value={S.newMode} options={[{ value: 'solo' }, { value: 'team' }]} onSelect={v => ((S.newMode = v), redraw($))} />
-        <Input
-          key="new-blocked"
-          label="Blocked by"
-          value={S.drafts.get('new-blocked') ?? ''}
-          placeholder="—"
-          submitLabel="Set"
-          onInput={v => void S.drafts.set('new-blocked', v)}
-          onSubmit={v => void S.drafts.set('new-blocked', v)}
-        />
+        {hasColumn('mode') ? (
+          <Select key="new-mode" label="Mode" value={S.newMode} options={[{ value: 'solo' }, { value: 'team' }]} onSelect={v => ((S.newMode = v), redraw($))} />
+        ) : (
+          <Text key="new-mode-none" dimColor>{noColumn('mode')}</Text>
+        )}
+        {hasColumn('blockedBy') ? (
+          <Input
+            key="new-blocked"
+            label="Blocked by"
+            value={S.drafts.get('new-blocked') ?? ''}
+            placeholder="—"
+            submitLabel="Set"
+            onInput={v => void S.drafts.set('new-blocked', v)}
+            onSubmit={v => void S.drafts.set('new-blocked', v)}
+          />
+        ) : (
+          <Text key="new-blocked-none" dimColor>{noColumn('blockedBy')}</Text>
+        )}
       </Box>
       {Message(ui)}
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>

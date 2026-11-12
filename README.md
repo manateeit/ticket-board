@@ -220,7 +220,7 @@ Lists the open questions from the ticket's `## Open questions` section, one inpu
 
 ### New ticket
 
-A box for your idea, plus mode and *blocked by*. See [Creating a ticket](#creating-a-ticket-with-the-ai-writer).
+A box for your idea, plus mode and *blocked by*. Mode and Blocked by each need their column on BOARD.md: on a board without one the form does not offer it and says so in its place (*Blocked by: BOARD.md has no Blocked by column*). If a value is still dropped (the column went away while the form was open), the pane does not just say *Created*: it says what was not saved (*Created 0004 · Blocked by 0001 not saved: BOARD.md has no Blocked by column*). See [Creating a ticket](#creating-a-ticket-with-the-ai-writer).
 
 ## Answering open questions
 
@@ -262,7 +262,7 @@ Other moves (in-progress, in-check, done) belong to the router. They are availab
 ## Creating a ticket with the AI writer
 
 1. **+ New ticket** (or `/board new <idea>`).
-2. Describe the change in your own words. Set mode and *blocked by* if you know them.
+2. Describe the change in your own words. Set mode and *blocked by* if you know them (each is offered only when BOARD.md has its column).
 3. Choose:
    - **✎ Create draft + enhance with AI** (default). The pane:
      1. takes the next free number and makes the folder `tickets/<number>-<slug>/` with `rd.md` and `eval.md` from the templates,
@@ -290,7 +290,7 @@ When the board is bound to a plan (`design/PLAN.md`, format in [docs/STANDARD.md
 For each selected build that has no ticket, the pane:
 
 1. takes the next free number and makes `tickets/<number>-<slug>/` (the slug is the build name). `rd.md` gets `Type: feature`, `Plan: P2.3` and `Design: D1@2, D3@1` (each section the build covers, at the `Rev` it has now) under the title and a `## Docs` section naming README.md; `eval.md` gets one check per `Done when` line of the covered sections (with `Run:` and `Pass:` lines to fill in and empty `Result:` and `Evidence:` lines for the checker, as in the template) and the **Docs and README updated** check with the same four lines;
-2. adds a `draft` row, mode `solo`, with **Blocked by** filled from the build's `Needs`: each needed build's ticket numbers. A needed build that is in the same batch is created first, so its new number can be used. A needed build that has no ticket and is not selected is left out of Blocked by, and the row's Notes say so (`needs P1.4: no ticket yet, not in Blocked by`);
+2. adds a `draft` row, mode `solo`, with **Blocked by** filled from the build's `Needs`: each needed build's ticket numbers. A needed build that is in the same batch is created first, so its new number can be used. A needed build that has no ticket and is not selected is left out of Blocked by, and the row's Notes say so (`needs P1.4: no ticket yet, not in Blocked by`). On a board with no Blocked by column the dependencies cannot be written: the batch summary names the tickets that lost them (*Blocked by not saved for 0003, 0004: BOARD.md has no Blocked by column*), so you can add the column and fill them in before running those tickets;
 3. writes the new number into the build's `Ticket` cell in PLAN.md (`—` becomes `0016`; `0004` becomes `0004, 0016`). Only that cell changes, and only the pane writes PLAN.md;
 4. queues one ticket-writer job. Its brief holds the build row, the phase's Goal and Exit, and each covered design section with its `Rev`, What and `Done when` lines.
 
