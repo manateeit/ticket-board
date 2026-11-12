@@ -3,7 +3,7 @@ import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, des
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { COLUMN_LABEL, STATUSES, parseBlockedBy, type CellChanges, type Column } from './core/board'
-import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, paneNote, query, runLine, titleFromIdea, type Filters } from './core/query'
+import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, paneNote, query, runLine, titleFromIdea, withBoard, type Filters } from './core/query'
 import { allBuilds, staleOf, staleText, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
@@ -930,7 +930,7 @@ export async function draftInChat($: $) {
   const idea = (S.drafts.get('new-idea') ?? '').trim()
   if (idea === '') return say($, 'Describe the ticket first', 'warning')
   const hasOwn = await $.fs.exists(abs('.claude/skills/ticket/SKILL.md')).catch(() => false)
-  await fill($, `/${hasOwn ? 'ticket' : 'ticket-board:ticket'} ${idea}`, 'In your prompt box — press Enter to draft it in chat')
+  await fill($, withBoard(`/${hasOwn ? 'ticket' : 'ticket-board:ticket'} ${idea}`, boardPath()), 'In your prompt box — press Enter to draft it in chat')
 }
 
 function newView($: $, ui: UI): RenderChildren {
@@ -1130,11 +1130,11 @@ export const startPrompt = {
   github: () =>
     `Create a private GitHub repository for this project with \`gh repo create --private\`, add it as origin and push${startFacts().hasCommit ? '' : ' (make the first commit first)'}.`,
   firstPush: () => (startFacts().hasOrigin ? 'Make the first commit and push it to origin.' : 'Make the first commit.'),
-  brainstorm: (idea: string) => `/ticket-board:brainstorm whole ${idea}`.trim(),
-  design: (idea: string) => `/ticket-board:design ${idea}`.trim(),
-  fromCode: () => '/ticket-board:design Draft a design from the existing code in this repository.',
-  fromIdea: () => `/ticket-board:design ${S.project?.ideaPath ?? ''}`.trim(),
-  plan: () => '/ticket-board:planning',
+  brainstorm: (idea: string) => withBoard(`/ticket-board:brainstorm whole ${idea}`.trim(), boardPath()),
+  design: (idea: string) => withBoard(`/ticket-board:design ${idea}`.trim(), boardPath()),
+  fromCode: () => withBoard('/ticket-board:design Draft a design from the existing code in this repository.', boardPath()),
+  fromIdea: () => withBoard(`/ticket-board:design ${S.project?.ideaPath ?? ''}`.trim(), boardPath()),
+  plan: () => withBoard('/ticket-board:planning', boardPath()),
 }
 
 const IDEA_KEY = 'start-idea'

@@ -18,7 +18,7 @@ import {
   startStep,
   type StartFacts,
 } from '../hooks/core/project'
-import { DEFAULT_FILTERS, NOTE_PREFIXES, OFF_PLAN, PANE_NOTE_PREFIX, comparePhase, isPaneNote, kindOf, nextNumber, paneNote, resultOf, query, runLine, slugify, sortItems, titleFromIdea, type Filters, type Item, type Sort } from '../hooks/core/query'
+import { DEFAULT_FILTERS, NOTE_PREFIXES, OFF_PLAN, PANE_NOTE_PREFIX, comparePhase, isPaneNote, kindOf, nextNumber, paneNote, resultOf, query, runLine, slugify, sortItems, titleFromIdea, withBoard, type Filters, type Item, type Sort } from '../hooks/core/query'
 import {
   applyProposal,
   blockedByFor,
@@ -557,6 +557,24 @@ test('start: commit presence, code detection and the idea file from names alone'
   expect(ideaFile([{ name: 'Brief.md', kind: 'file' }], [])).toBe('design/Brief.md')
   expect(ideaFile([], [{ name: '2026-11-01-a.md', kind: 'file' }, { name: '2026-11-09-b.md', kind: 'file' }])).toBe('design/brainstorms/2026-11-09-b.md')
   expect(ideaFile([{ name: 'DESIGN.md', kind: 'file' }], [])).toBe('')
+})
+
+// ---------- Tickets folder setting: remaining paths (0035) ----------
+
+test('hasCode ignores the top folder of a nested tickets folder and of the bound design and plan', () => {
+  expect(hasCode(['planning', 'README.md'], 'planning/tickets')).toBe(false)
+  expect(hasCode(['spec', 'README.md'], 'tickets', ['spec/DESIGN.md', 'spec/PLAN.md'])).toBe(false)
+  expect(hasCode(['notes', 'work'], 'work', ['./notes/DESIGN.md', ''])).toBe(false)
+  expect(hasCode(['planning', 'src'], 'planning/tickets')).toBe(true)
+  expect(hasCode(['spec', 'README.md'], 'tickets')).toBe(true)
+  expect(hasCode(['tickets', 'README.md'], 'work')).toBe(true)
+})
+
+test('withBoard names a non-default board the way runLine does, and leaves the default alone', () => {
+  expect(withBoard('/ticket-board:planning')).toBe('/ticket-board:planning')
+  expect(withBoard('/ticket-board:planning', 'tickets/BOARD.md')).toBe('/ticket-board:planning')
+  expect(withBoard('/ticket-board:brainstorm 0007', 'work/BOARD.md')).toBe('/ticket-board:brainstorm 0007 (board: work/BOARD.md)')
+  expect(runLine(['0007'], false, 'work/BOARD.md')).toContain('(board: work/BOARD.md)')
 })
 
 // ---------- Tickets from the plan (0008) ----------

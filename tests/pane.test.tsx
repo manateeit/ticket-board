@@ -4304,6 +4304,84 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// ---------- Tickets folder setting: slash-command prompts (0035) ----------
+
+/** The 0035 fixtures with the board and ticket folders moved to `work/`. */
+const toWork = (files: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(files).map(([k, v]) => [k.startsWith('tickets/') ? `/repo/work/${k.slice('tickets/'.length)}` : k, v]))
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Tickets folder "work": Brainstorm, Redesign and Write it in chat name work/BOARD.md (${surface})`, { options: { ticketsDir: 'work' } }, async ($, on) => {
+    const { ui, filled, writes } = await boot($, on, surface, toWork(p7Files()), { blank: true })
+    await ui.find({ key: 'tab-plan' })
+    await ui.press({ key: 'tab-plan' })
+    await ui.press({ key: 'pill-P1.2-0007' })
+    await ui.press({ key: 'brainstorm' })
+    expect(filled).toEqual(['/ticket-board:brainstorm 0007 (board: work/BOARD.md)'])
+    await ui.press({ key: 'chip-D3' })
+    await ui.press({ key: 'brainstorm-section' })
+    await ui.press({ key: 'redesign-section' })
+    expect(filled.slice(1)).toEqual(['/ticket-board:brainstorm D3 (board: work/BOARD.md)', '/ticket-board:design D3 (board: work/BOARD.md)'])
+    await $.command.run({ command: 'board', args: 'new Export button does nothing' } as any)
+    await ui.find({ key: 'create-chat' })
+    await ui.press({ key: 'create-chat' })
+    expect(filled[3]).toBe('/ticket-board:ticket Export button does nothing (board: work/BOARD.md)')
+    expect(writes).toEqual([])
+    await ui.unmount()
+  })
+
+  test(`Tickets folder default: Write it in chat reads as before (${surface})`, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface)
+    await ui.find({ type: 'Text', text: /Dark mode for settings page/ })
+    await $.command.run({ command: 'board', args: 'new Export button does nothing' } as any)
+    await ui.find({ key: 'create-chat' })
+    await ui.press({ key: 'create-chat' })
+    expect(filled).toEqual(['/ticket-board:ticket Export button does nothing'])
+    await ui.unmount()
+  })
+
+  test(`Tickets folder "work": Start-screen prompts name work/BOARD.md (${surface})`, { options: { ticketsDir: 'work' } }, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface, { '/repo/src/app.ts': 'export {}\n' }, { blank: true })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await ui.press({ key: 'start-code' })
+    await ui.input({ key: 'start-idea', text: 'A booking app for small salons', kind: 'submit' } as any)
+    await ui.press({ key: 'start-brainstorm' })
+    await ui.press({ key: 'start-design' })
+    expect(filled).toEqual([
+      '/ticket-board:design Draft a design from the existing code in this repository. (board: work/BOARD.md)',
+      '/ticket-board:brainstorm whole A booking app for small salons (board: work/BOARD.md)',
+      '/ticket-board:design A booking app for small salons (board: work/BOARD.md)',
+    ])
+    await ui.unmount()
+  })
+
+  test(`Tickets folder "work": Start-screen design-from-brief and plan prompts name work/BOARD.md (${surface})`, { options: { ticketsDir: 'work' } }, async ($, on) => {
+    const brief = await boot($, on, surface, { ...GIT_READY, '/repo/work/BOARD.md': BLANK_BOARD, '/repo/design/brief.md': '# Brief\n' }, { blank: true })
+    await brief.ui.find({ type: 'Text', text: /Start a project/ })
+    await brief.ui.press({ key: 'start-from-idea' })
+    expect(brief.filled).toEqual(['/ticket-board:design design/brief.md (board: work/BOARD.md)'])
+    await brief.ui.unmount()
+  })
+
+  test(`Tickets folder "work": the Plan step prompt names work/BOARD.md (${surface})`, { options: { ticketsDir: 'work' } }, async ($, on) => {
+    const { ui, filled } = await boot($, on, surface, { ...GIT_READY, '/repo/work/BOARD.md': BLANK_BOARD, '/repo/design/DESIGN.md': '# D\n\n## D1 · X\n' }, { blank: true })
+    await ui.find({ type: 'Text', text: /No plan yet/ })
+    await ui.press({ key: 'banner-setup' })
+    await ui.find({ type: 'Text', text: /Start a project/ })
+    await ui.press({ key: 'start-plan' })
+    expect(filled).toEqual(['/ticket-board:planning (board: work/BOARD.md)'])
+    await ui.unmount()
+  })
+}
+
+test('Tickets folder "planning/tickets": an empty project is not treated as having code', { options: { ticketsDir: 'planning/tickets' } }, async ($, on) => {
+  const { ui } = await boot($, on, 'terminal', { ...GIT_READY, '/repo/planning/tickets/BOARD.md': BLANK_BOARD, '/repo/README.md': '# Salon\n' }, { blank: true })
+  await ui.find({ type: 'Text', text: /Start a project/ })
+  await ui.find({ key: 'start-idea' } as any)
+  expect(await drawnText(ui)).not.toContain('start-code')
+  await ui.unmount()
+})
+
 // ---------- Notes prefixes: the pane owns only its own "AI " notes (0032) ----------
 
 for (const surface of ['terminal', 'desktop'] as const) {

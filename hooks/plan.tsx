@@ -7,7 +7,7 @@ import type { EngineInterface, RenderChildren } from 'claude-code'
 
 import { applyReplan, createPlanTickets, dismissReplan, isCreatable, planJobOf, retryPlanBuild, stampProposal, startReplan } from './ai'
 import { historyOf } from './core/designfile'
-import { runLine } from './core/query'
+import { runLine, withBoard } from './core/query'
 import { REPLAN_GROUPS, allBuilds, type Build, type BuildState, type Hill, type Phase, type ReplanItem, type Roadmap } from './core/roadmap'
 import { Card, Pill, Toast, hexOf, statusName } from './desk'
 import { G, HUE, STATUS_HEX, hillSvg, needsPlate, phaseBarSvg, timelineSvg, tint, wash } from './glass'
@@ -169,11 +169,11 @@ export function retryBuild($: $, id: string) {
 }
 
 export function brainstorm($: $, id: string) {
-  void fill($, `/ticket-board:brainstorm ${id}`, START_NOTE)
+  void fill($, withBoard(`/ticket-board:brainstorm ${id}`, boardPath()), START_NOTE)
 }
 
 export function redesign($: $, id: string) {
-  void fill($, `/ticket-board:design ${id}`, START_NOTE)
+  void fill($, withBoard(`/ticket-board:design ${id}`, boardPath()), START_NOTE)
 }
 
 // ---------- Large plans, one phase at a time (0022) ----------
@@ -296,7 +296,7 @@ async function approve($: $, rm: Roadmap) {
   if (open.length > 0) return say($, approveBlockedWhy(open), 'warning')
   try {
     await approveDesign($)
-    await fill($, '/ticket-board:planning', 'Design approved. /ticket-board:planning is in your prompt box — press Enter to plan the builds')
+    await fill($, withBoard('/ticket-board:planning', boardPath()), 'Design approved. /ticket-board:planning is in your prompt box — press Enter to plan the builds')
   } catch (err) {
     fail($, err)
   }
@@ -622,7 +622,7 @@ export function deskPlan($: $, ui: UI, v: PlanView): RenderChildren {
           pb.warning,
           <>
             <Button key="empty-start" label="Open Start" onPress={() => go($, { kind: 'start' })} />
-            {pb.hasDesign ? <Button key="empty-planning" label="Plan it with /ticket-board:planning" variant="primary" onPress={() => void fill($, '/ticket-board:planning', START_NOTE)} /> : null}
+            {pb.hasDesign ? <Button key="empty-planning" label="Plan it with /ticket-board:planning" variant="primary" onPress={() => void fill($, withBoard('/ticket-board:planning', boardPath()), START_NOTE)} /> : null}
           </>,
         )}
       </Box>
@@ -1011,7 +1011,7 @@ export function planView($: $, ui: UI, v: PlanView): RenderChildren {
         </Text>
         <Box key="plan-empty-actions" flexDirection="row" columnGap={1}>
           <Button key="empty-start" label="Open Start" onPress={() => go($, { kind: 'start' })} />
-          {pb.hasDesign ? <Button key="empty-planning" label="Plan it with /ticket-board:planning" onPress={() => void fill($, '/ticket-board:planning', START_NOTE)} /> : null}
+          {pb.hasDesign ? <Button key="empty-planning" label="Plan it with /ticket-board:planning" onPress={() => void fill($, withBoard('/ticket-board:planning', boardPath()), START_NOTE)} /> : null}
         </Box>
       </Box>
     )
