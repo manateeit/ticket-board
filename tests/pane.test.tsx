@@ -3349,6 +3349,36 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+// 0037: a one-sided adopt keeps the other half of a custom binding line.
+for (const surface of ['terminal', 'desktop'] as const)
+  test(`adopt a plan-only proposal on a board bound to custom paths keeps the custom design (${surface})`, async ($, on) => {
+    const full = adoptProposal(ADOPT_DATE())
+    const planOnly = full.replace(/\n## DESIGN\.md\n~~~~markdown\n[\s\S]*?~~~~\n/, '\n')
+    const arch = /\n## DESIGN\.md\n~~~~markdown\n([\s\S]*?)~~~~\n/.exec(full)![1]!.replace('# Salon: design', '# Arch doc').replace('## D1 · Accounts', '## D1 · Arch accounts')
+    const board = BLANK_BOARD.replace('# Ticket board\n', '# Ticket board\n\nDesign: docs/arch.md · Plan: docs/roadmap.md\n')
+    const files = adoptFiles({ 'tickets/BOARD.md': board, '/repo/docs/arch.md': arch, [ADOPT_PATH()]: planOnly })
+    const { ui, fs } = await boot($, on, surface, files, { blank: true })
+    // The custom plan file is not written yet: the banner offers Set up, where the proposal on disk is offered.
+    await ui.find({ key: 'banner-setup' })
+    await ui.press({ key: 'banner-setup' })
+    await openAdoptView(ui)
+    await ui.find({ key: 'ad-tick-P1' })
+    await ui.press({ key: 'adopt-apply' })
+    await until(() => fs.files.has('/repo/design/PLAN.md'), 'the apply')
+    expect(fs.files.get('tickets/BOARD.md')).toContain('Design: docs/arch.md · Plan: design/PLAN.md\n')
+    expect(fs.files.get('/repo/docs/arch.md')).toBe(arch)
+    // Plan tab shows the new plan; Design tab still shows docs/arch.md.
+    await ui.press({ key: 'tab-plan' })
+    await ui.find({ key: 'phase-toggle-P1' })
+    expect(await drawnText(ui)).toContain('Magic link sign-in')
+    await ui.press({ key: 'tab-design' })
+    await ui.find({ key: 'sec-D1' })
+    const drawn = await drawnText(ui)
+    expect(drawn).toContain('Arch accounts')
+    expect(drawn).not.toContain('No design')
+    await ui.unmount()
+  })
+
 for (const surface of ['terminal', 'desktop'] as const)
   test(`the Start screen gives "I already have docs…" one button and the h key (${surface})`, async ($, on) => {
     const { ui } = await boot($, on, surface, adoptFiles(), { blank: true })

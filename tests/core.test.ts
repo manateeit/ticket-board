@@ -1053,6 +1053,16 @@ test('binding: a half binding line keeps the default for the other half', () => 
   expect(b4.warnings.length).toBe(2)
 })
 
+test('binding: rewriting the line keeps the half it is not given (0037)', () => {
+  const board = '# Ticket board\n\nDesign: docs/arch.md · Plan: docs/roadmap.md\n\n| # | Ticket | Status |\n|---|---|---|\n'
+  expect(setBindingLine(board, undefined, 'design/PLAN.md')).toBe(board.replace('Plan: docs/roadmap.md', 'Plan: design/PLAN.md'))
+  expect(setBindingLine(board, 'design/DESIGN.md', undefined)).toBe(board.replace('Design: docs/arch.md', 'Design: design/DESIGN.md'))
+  // A half-line keeps its half and gains the new one.
+  expect(setBindingLine('# B\n\nDesign: docs/arch.md\n', undefined, 'p.md')).toBe('# B\n\nDesign: docs/arch.md · Plan: p.md\n')
+  // No existing line: as before, only the given half is written.
+  expect(setBindingLine('# B\n', undefined, 'p.md')).toBe('# B\n\nPlan: p.md\n')
+})
+
 test('adopt: paths must be inside the project; empty input is an error', () => {
   expect(adoptPaths('', '/repo').error).toBe('Type one or more file or folder paths inside the project')
   expect(adoptPaths(' , \n', '/repo').error).toBe('Type one or more file or folder paths inside the project')
