@@ -12,7 +12,11 @@ You check whether the machine is still moving. You change nothing; you report.
 ## Inspect
 
 1. Read the board (the board path you were given, default `tickets/BOARD.md`). Note every ticket in `in-progress` or `in-check`
-   and how long it has been there (board notes / ticket folder timestamps).
+   and how long it has been there: the router writes the dispatch time into
+   the Owner cell as `<owner>, dispatched YYYY-MM-DD HH:MM` (local time) each
+   time it marks a ticket `in-progress` or `in-check`. Subtract that from
+   the current time (`date '+%Y-%m-%d %H:%M'`). If the Owner cell has no
+   dispatch time, say so in the report rather than guessing an age.
 2. For each in-flight ticket, check its worktree/branch:
    - `git worktree list` and `git log --oneline -3 <branch>` — has anything
      been committed recently, or is the branch untouched since dispatch?
