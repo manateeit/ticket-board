@@ -311,6 +311,20 @@ test('ticket page: only the head Type line is hidden; setting Type edits the hea
   await ui.unmount()
 })
 
+// ---------- 0040: the questions section is hidden only when core finds it ----------
+
+test('ticket page: a singular "## Open question" stays visible and the ready check says why (0040, desktop)', async ($, on) => {
+  const path = 'tickets/0003-dark-mode-for-settings-page/rd.md'
+  const singular = rd('0003', 'Dark mode for settings page', '- Which accent colour in dark mode?').replace('## Open questions', '## Open question')
+  const { ui } = await boot($, on, 'desktop', { [path]: singular })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  await ui.press({ key: 'open-0003' })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('Which accent colour in dark mode?')
+  expect(drawn).toContain('missing or template: Open questions')
+  await ui.unmount()
+})
+
 test('agents button shows what is running', async ($, on) => {
   const { ui } = await boot($, on, 'desktop')
   await ui.find({ type: 'Text', text: /Dark mode/ })

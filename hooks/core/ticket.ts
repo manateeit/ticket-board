@@ -207,11 +207,12 @@ export function readiness({ rd, ev, blockedBy, statusOf }: ReadyInput): Check[] 
   if (rd === undefined) {
     out.push({ id: 'rd', label: 'rd.md exists', isOk: false, isHard: true })
   } else {
-    const missing = RD_SECTIONS.filter(n => n !== 'Open questions' && !sectionFilled(findSection(rd, n)))
+    // Open questions may hold just `- none`; it only has to be there.
+    const missing = RD_SECTIONS.filter(n => (n === 'Open questions' ? findSection(rd, n) === undefined : !sectionFilled(findSection(rd, n))))
     out.push({
       id: 'sections',
       label: 'rd.md sections filled in',
-      isOk: missing.length === 0 && findSection(rd, 'Open questions') !== undefined,
+      isOk: missing.length === 0,
       isHard: true,
       detail: missing.length > 0 ? `missing or template: ${missing.join(', ')}` : undefined,
     })
