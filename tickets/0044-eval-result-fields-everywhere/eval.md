@@ -15,7 +15,7 @@ checks themselves. ALL checks must PASS for the ticket to be done.
    - Run: pane test: create a ticket from a plan build; read eval.md
    - Pass: every check, docs check included, has Run, Pass, Result and Evidence lines
    - Result: PASS
-   - Evidence: New test 'a plan ticket skeleton gives every check, docs check included, Run, Pass, Result and Evidence lines (desktop)' passes on 2bdc3fd (4 checks, each with exactly Run, Pass, Result, Evidence). With hooks/store.ts and hooks/ai.ts from base 0100bc8 it FAILS (as do the two edited '3 to 4' plan-ticket-file tests); files restored, tree clean. (Against current main hooks, which have moved on, extra unrelated failures appear; the base-commit run is the valid comparison.)
+   - Evidence: Round 2 on dcb2a81 (after main merge): test passes (170 ms). Round 1: New test 'a plan ticket skeleton gives every check, docs check included, Run, Pass, Result and Evidence lines (desktop)' passes on 2bdc3fd (4 checks, each with exactly Run, Pass, Result, Evidence). With hooks/store.ts and hooks/ai.ts from base 0100bc8 it FAILS (as do the two edited '3 to 4' plan-ticket-file tests); files restored, tree clean. (Against current main hooks, which have moved on, extra unrelated failures appear; the base-commit run is the valid comparison.)
 
 3. Briefs ask for the fields
    - Run: `grep -n "Result" hooks/ai.ts agents/ticket-writer.md`
@@ -26,8 +26,8 @@ checks themselves. ALL checks must PASS for the ticket to be done.
 4. Docs and README updated
    - Run: read README.md and the docs listed under `## Docs` in rd.md
    - Pass: they describe the change as built, or rd.md says why README needs no change
-   - Result: FAIL
-   - Evidence: rd.md says README needs no change, but README.md line 281 describes the plan-build skeleton as 'one check per Done when line ... (with a Run: and a Pass: line) and the Docs and README updated check'. As built, every check, docs check included, also has Result: and Evidence: lines, so that README sentence is stale. skills/ticket/SKILL.md was updated correctly and matches the template. Fix: update README.md:281 to name the four fields.
+   - Result: PASS
+   - Evidence: Round 2 on dcb2a81. README.md:282 now says eval.md gets one check per Done when line 'with Run: and Pass: lines to fill in and empty Result: and Evidence: lines for the checker, as in the template' and the Docs and README updated check 'with the same four lines'; matches the built skeleton. skills/ticket/SKILL.md:103-106 says the same. rd.md's README 'no change' note is superseded by the accurate README text. Also ran `claude plugin validate .` (exit 0) and `claude plugin test .` once: 380 pass, 1 fail, the 0022 large-plan render test ('a plan too large for the terminal', timed out after 5000 ms), the known unrelated timeout.
 
 ## Not checked by automation
 
