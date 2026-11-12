@@ -178,7 +178,7 @@ const AGENT_HEX: Record<string, string> = {
 }
 
 /** Puts the agent's transcript in the main view. The app may refuse (the desktop can't switch views from a pane yet): say why. */
-async function openTranscript($: $, agentId: string) {
+export async function openTranscript($: $, agentId: string) {
   try {
     const shown = (await $.ui.view({ agentId })) as { deny?: string } | undefined
     if (shown?.deny !== undefined) {
@@ -189,6 +189,38 @@ async function openTranscript($: $, agentId: string) {
     S.watching = agentId
     say($, `Can't open that transcript here: ${err instanceof Error ? err.message : String(err)}. Its activity is shown below instead.`, 'warning')
   }
+}
+
+/** What an agent did, step by step: the fallback when the app won't show its transcript (openTranscript sets S.watching). */
+function AgentActivity(ui: UI, id: string, name: string): RenderChildren {
+  const { Box, Text } = ui
+  const log = S.agentLog.get(id) ?? []
+  return (
+    <Box key={`agent-log-${id}`} flexDirection="column" gap={0} marginLeft={2} paddingX={2} paddingY={1} borderStyle="round" borderColor={G.edge}>
+      <Text color={G.soft} size="caption" weight="bold">
+        {`WHAT ${name.toUpperCase()} DID · ${log.length === 0 ? 'nothing seen yet' : `last ${Math.min(log.length, 12)} of ${log.length} steps`}`}
+      </Text>
+      {log.length === 0 ? (
+        <Text color={G.faint} size="footnote">
+          No tool calls seen since the pane loaded. Steps show up here as the agent works.
+        </Text>
+      ) : (
+        log.slice(-12).map((l, n) => (
+          <Box key={`agent-log-${id}-${n}`} flexDirection="row" gap={1}>
+            <Text color={G.faint} size="footnote" mono>
+              {clockOf(l.at)}
+            </Text>
+            <Text color={G.accent} size="footnote" weight="medium">
+              {toolWords(l.tool)}
+            </Text>
+            <Text color={G.soft} size="footnote" mono wrap="truncate">
+              {l.detail}
+            </Text>
+          </Box>
+        ))
+      )}
+    </Box>
+  )
 }
 
 function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
@@ -235,35 +267,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
       </Box>
     )
   }
-  const activity = (a: (typeof S.agents)[number]) => {
-    const log = S.agentLog.get(a.id) ?? []
-    return (
-      <Box key={`agent-log-${a.id}`} flexDirection="column" gap={0} marginLeft={2} paddingX={2} paddingY={1} borderStyle="round" borderColor={G.edge}>
-        <Text color={G.soft} size="caption" weight="bold">
-          {`WHAT ${(a.name ?? a.type).toUpperCase()} DID · ${log.length === 0 ? 'nothing seen yet' : `last ${Math.min(log.length, 12)} of ${log.length} steps`}`}
-        </Text>
-        {log.length === 0 ? (
-          <Text color={G.faint} size="footnote">
-            No tool calls seen since the pane loaded. Steps show up here as the agent works.
-          </Text>
-        ) : (
-          log.slice(-12).map((l, n) => (
-            <Box key={`agent-log-${a.id}-${n}`} flexDirection="row" gap={1}>
-              <Text color={G.faint} size="footnote" mono>
-                {clockOf(l.at)}
-              </Text>
-              <Text color={G.accent} size="footnote" weight="medium">
-                {toolWords(l.tool)}
-              </Text>
-              <Text color={G.soft} size="footnote" mono wrap="truncate">
-                {l.detail}
-              </Text>
-            </Box>
-          ))
-        )}
-      </Box>
-    )
-  }
+  const activity = (a: (typeof S.agents)[number]) => AgentActivity(ui, a.id, a.name ?? a.type)
   return Card(
     ui,
     [
@@ -1125,7 +1129,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
         {job !== undefined && (
           <Box flexDirection="row" gap={1} alignItems="center" backgroundColor={tint(G.accent, 0.1)} borderStyle="round" borderColor={tint(G.accent, 0.5)} paddingX={2}>
             <Text color={G.accent}>{`✎ AI is ${job.kind === 'draft' || job.kind === 'plan' ? 'writing' : job.kind === 'fold' ? 'folding answers into' : 'improving'} this ticket…`}</Text>
-            <Button key="viewagent" label="Watch" plain onPress={() => void $.ui.view({ agentId: job.agentId }).catch(() => undefined)} />
+            <Button key="viewagent" label="Watch" plain onPress={() => void openTranscript($, job.agentId)} />
           </Box>
         )}
         {status === 'draft' && open > 0 && primary !== null && !canReady ? null : status === 'draft' && open > 0 ? (
@@ -1137,6 +1141,7 @@ export function deskTicket($: $, ui: UI, number: string, tab: 'rd' | 'eval', foc
         <Button key="brainstorm" label="✨ Brainstorm" hotkey="b" onPress={() => brainstorm($, number)} />
         <Button key="discuss" label="Discuss in chat" plain onPress={() => void fill($, `Let's look at ticket ${number} (${path ?? dir()}/rd.md). `, 'Started a message in your prompt box')} />
       </Box>
+      {job !== undefined && S.watching === job.agentId && AgentActivity(ui, job.agentId, S.agents.find(a => a.id === job.agentId)?.name ?? 'the writer')}
 
       {/* Two columns: content | properties */}
       <Box flexDirection="row" gap={2} flexWrap="wrap" alignItems="flex-start">
