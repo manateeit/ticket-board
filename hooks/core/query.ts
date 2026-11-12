@@ -1,5 +1,6 @@
 // Numbering, slugs, filtering and sorting — pure helpers.
 import { statusRank } from './board'
+import { headField } from './ticket'
 
 export function nextNumber(folderNames: readonly string[], boardNumbers: readonly string[] = []): string {
   let max = 0
@@ -131,9 +132,10 @@ export function query<T extends Item>(items: T[], f: Filters): T[] {
   return f.desc === true ? sorted.reverse() : sorted
 }
 
-/** Feature, bug or chore: an explicit `Type:` line in rd.md wins, else words in the title. */
+/** Feature, bug or chore: an explicit `Type:` line in the rd.md head (above the first `## `) wins, else words in the title. */
 export function kindOf(title: string, rd?: string): Kind {
-  const m = rd === undefined ? null : /^\s*(?:\*\*)?type(?:\*\*)?\s*:\s*(?:\*\*)?\s*(feature|bug|chore)\b/im.exec(rd.split(/\r?\n/).slice(0, 12).join('\n'))
+  const v = rd === undefined ? undefined : headField(rd, 'type')
+  const m = v === undefined ? null : /^(feature|bug|chore)\b/i.exec(v)
   if (m !== null) return m[1]!.toLowerCase() as Kind
   const t = title.toLowerCase()
   if (/\b(fix|fixes|bug|broken|crash|crashes|error|regression|fails?|failing|wrong|incorrect|not working|doesn'?t)\b/.test(t)) return 'bug'

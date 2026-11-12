@@ -265,6 +265,52 @@ test('ticket page: sections as cards, no questions once done', async ($, on) => 
   await ui.unmount()
 })
 
+const RD_0030 = `# 0003 — Dark mode for settings page
+
+Type: bug
+
+## What
+
+Dark mode.
+
+## Behaviour
+
+- package.json gets:
+
+\`\`\`json
+type: module
+\`\`\`
+
+Type: written in the body
+
+## Open questions
+
+- none
+`
+
+test('ticket page: only the head Type line is hidden; setting Type edits the head (0030, desktop)', async ($, on) => {
+  const path = 'tickets/0003-dark-mode-for-settings-page/rd.md'
+  const { ui, fs } = await boot($, on, 'desktop', { [path]: RD_0030 })
+  await ui.find({ type: 'Text', text: /Dark mode/ })
+  await ui.press({ key: 'open-0003' })
+  let drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('type: module')
+  expect(drawn).toContain('written in the body')
+  expect(drawn).not.toContain('Type: bug')
+  await ui.select({ key: 'kind-0003', value: 'chore' })
+  expect(fs.files.get(path)).toBe(RD_0030.replace('Type: bug', 'Type: chore'))
+  // No head Type at all: one is added under the title, the body line stays.
+  const headless = RD_0030.replace('Type: bug\n\n', '')
+  fs.files.set(path, headless)
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'open-0003' })
+  await ui.select({ key: 'kind-0003', value: 'chore' })
+  expect(fs.files.get(path)).toBe(headless.replace('page\n', 'page\n\nType: chore\n'))
+  drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('written in the body')
+  await ui.unmount()
+})
+
 test('agents button shows what is running', async ($, on) => {
   const { ui } = await boot($, on, 'desktop')
   await ui.find({ type: 'Text', text: /Dark mode/ })

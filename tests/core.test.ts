@@ -44,7 +44,7 @@ import {
   withNoteFollowUp,
 } from '../hooks/core/roadmap'
 import { historyOf } from '../hooks/core/designfile'
-import { answerQuestion, docsGaps, isReadyable, isResolved, parseQuestions, readiness } from '../hooks/core/ticket'
+import { answerQuestion, docsGaps, headField, headFieldLine, isReadyable, isResolved, parseQuestions, readiness, setHeadField } from '../hooks/core/ticket'
 import { S, logAgentTool, toolDetail } from '../hooks/store'
 import { adoptLeftOut, adoptPaths, adoptResult, bindFromBoard, parseAdopt, setBindingLine } from '../hooks/core/roadmap'
 import { DEMO_ROADMAP } from './demo-roadmap'
@@ -286,6 +286,25 @@ test('ticket types', () => {
   expect(kindOf('Rename the package')).toBe('chore')
   expect(kindOf('Dark mode for settings')).toBe('feature')
   expect(kindOf('Dark mode', '# Dark mode\n\nType: bug\n')).toBe('bug')
+})
+
+test('head fields: one reader and writer, head only (0030)', () => {
+  // A Type: on line 15, still above the first ## : read.
+  const long = ['# 0040 — Dark mode', '', ...Array.from({ length: 12 }, (_, n) => `Note ${n + 1}.`), 'Type: bug', '', '## What', '', 'x'].join('\n')
+  expect(long.split('\n')[14]).toBe('Type: bug')
+  expect(kindOf('Dark mode', long)).toBe('bug')
+  // A Type: in a section or code fence is body text, never the head.
+  const body = '# 0041 — Dark mode\n\n## Behaviour\n\nType: bug\n\n```json\ntype: module\n```\n'
+  expect(kindOf('Dark mode', body)).toBe('feature')
+  expect(headFieldLine(body, 'type')).toBe(-1)
+  expect(headField('# T\n\n**Type:** chore\n\n## What\n', 'type')).toBe('chore')
+  // Writing: a missing head line is added under the title; the body line is unchanged.
+  const added = setHeadField(body, 'Type', 'chore')
+  expect(added).toBe('# 0041 — Dark mode\n\nType: chore\n\n## Behaviour\n\nType: bug\n\n```json\ntype: module\n```\n')
+  expect(kindOf('Dark mode', added)).toBe('chore')
+  // An existing head line is rewritten in place, CRLF kept.
+  expect(setHeadField('# T\r\n\r\nType: bug\r\n\r\n## What\r\n\r\nType: bug\r\n', 'Type', 'feature')).toBe('# T\r\n\r\nType: feature\r\n\r\n## What\r\n\r\nType: bug\r\n')
+  expect(setHeadField(long, 'Type', 'chore').split('\n')[14]).toBe('Type: chore')
 })
 
 test('run lines', () => {

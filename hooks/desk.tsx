@@ -7,7 +7,7 @@ import type { EngineInterface, RenderChildren } from 'claude-code'
 import { startJob, suggestAnswer } from './ai'
 import { STATUSES, parseBlockedBy } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
-import { isReadyable } from './core/ticket'
+import { headFieldLine, isReadyable, setHeadField } from './core/ticket'
 import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, tint, wash, workingSvg } from './glass'
 import { S, setSchemeChoice, setStartFlag, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
 import { openAdopt } from './adopt'
@@ -838,12 +838,14 @@ export function deskBoard($: $, ui: UI, _frame: Frame): RenderChildren {
 
 // ---------- Ticket ----------
 
-/** Splits rd.md / eval.md into one card per "## " section. Drops the H1 (the page shows the title), the Type line,
+/** Splits rd.md / eval.md into one card per "## " section. Drops the H1 (the page shows the title), the head's Type line
+ * (a `type:` line in a section or code block stays),
  * and the Open questions section (the questions card above handles those; a done ticket doesn't need them). */
 export function docSections(text: string): { title?: string; body: string }[] {
   const out: { title?: string; body: string[] }[] = [{ body: [] }]
-  for (const line of text.split(/\r?\n/)) {
-    if (/^#\s/.test(line) || /^\s*(\*\*)?type(\*\*)?\s*:/i.test(line)) continue
+  const typeAt = headFieldLine(text, 'type')
+  for (const [n, line] of text.split(/\r?\n/).entries()) {
+    if (/^#\s/.test(line) || n === typeAt) continue
     const h = /^##\s+(.*)$/.exec(line)
     if (h) out.push({ title: h[1]!.replace(/[`*]/g, '').trim(), body: [] })
     else out[out.length - 1]!.body.push(line)
@@ -860,15 +862,7 @@ async function setKind($: $, number: string, kind: Kind) {
   const path = `${dir()}/${f.folder}/rd.md`
   try {
     const rd = await $.fs.read(abs(path))
-    const lines = rd.split(/\r?\n/)
-    const eol = rd.includes('\r\n') ? '\r\n' : '\n'
-    const at = lines.slice(0, 12).findIndex(l => /^\s*(\*\*)?type(\*\*)?\s*:/i.test(l))
-    if (at >= 0) lines[at] = `Type: ${kind}`
-    else {
-      const h = lines.findIndex(l => /^#\s/.test(l))
-      lines.splice(h + 1, 0, '', `Type: ${kind}`)
-    }
-    await $.fs.write(abs(path), lines.join(eol))
+    await $.fs.write(abs(path), setHeadField(rd, 'Type', kind))
     await refresh($, true)
     say($, `${number} is now a ${KIND[kind].label.toLowerCase()}`)
   } catch (err) {
