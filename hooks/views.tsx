@@ -3,7 +3,7 @@ import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, des
 import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { COLUMN_LABEL, STATUSES, parseBlockedBy, type CellChanges, type Column } from './core/board'
-import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, query, runLine, titleFromIdea, type Filters } from './core/query'
+import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, paneNote, query, runLine, titleFromIdea, type Filters } from './core/query'
 import { allBuilds, staleOf, staleText, type Alert } from './core/roadmap'
 import { START_STEPS, isBlankProject, startStep, type StartFacts, type StartStep } from './core/project'
 import { isReadyable, readiness } from './core/ticket'
@@ -913,7 +913,7 @@ export async function createTicket($: $, withAI: boolean) {
     const { number } = await createSkeleton(
       $,
       { title: (S.drafts.get('new-title') ?? '').trim() || titleFromIdea(idea), text: idea, mode: S.newMode, blockedBy, kind: S.newKind },
-      withAI ? 'AI drafting…' : 'Skeleton — fill in rd.md and eval.md',
+      withAI ? paneNote('drafting…') : paneNote('skeleton — fill in rd.md and eval.md'),
     )
     S.drafts.delete('new-idea')
     S.drafts.delete('new-blocked')
