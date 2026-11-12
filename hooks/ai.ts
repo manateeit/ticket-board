@@ -235,6 +235,8 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
   S.isCreating = true
   const made: string[] = []
   let tail: string[] = []
+  // The batch's own error, never the banner: an old error still showing must not hide this summary.
+  let stopped = false
   try {
     await refresh($, true)
     const rm = roadmapView()?.rm
@@ -277,15 +279,15 @@ export async function createPlanTickets($: $, buildIds: readonly string[], what:
       S.planQueue.push({ number, folder, build: b.id, brief, extra })
     }
   } catch (err) {
+    stopped = true
     say($, `Stopped creating tickets: ${err instanceof Error ? err.message : String(err)}`, 'error')
   } finally {
     S.isCreating = false
   }
   if (made.length === 0) return made
   await refresh($, true).catch(() => undefined)
-  const hadError = S.message?.tone === 'error'
   await pumpPlanQueue($)
-  if (hadError) return made
+  if (stopped) return made
   const range = made.length === 1 ? made[0]! : `${made[0]}–${made[made.length - 1]}`
   const queued = S.planQueue.filter(q => made.includes(q.number)).length
   const failed = made.filter(n => [...S.planFailed.values()].some(f => f.number === n)).length
