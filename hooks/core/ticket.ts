@@ -52,13 +52,33 @@ function headLines(rd: string): string[] {
   return lines.slice(0, end === -1 ? Math.min(lines.length, 12) : end)
 }
 
-function headField(rd: string, key: string): string | undefined {
-  const re = new RegExp(`^\\s*(?:\\*\\*)?${key}(?:\\*\\*)?\\s*:\\s*(?:\\*\\*)?\\s*(.*?)\\s*$`, 'i')
-  for (const line of headLines(rd)) {
-    const m = re.exec(line)
-    if (m !== null) return m[1]!.replace(/\*\*/g, '').trim()
+const headRe = (key: string) => new RegExp(`^\\s*(?:\\*\\*)?${key}(?:\\*\\*)?\\s*:\\s*(?:\\*\\*)?\\s*(.*?)\\s*$`, 'i')
+
+/** The 0-based line of a head field (`Type:`, `Plan:`, `Design:`), or -1. Lines below the first `## ` never count. */
+export function headFieldLine(rd: string, key: string): number {
+  const re = headRe(key)
+  return headLines(rd).findIndex(l => re.test(l))
+}
+
+/** The value of a head field, `**` stripped; `undefined` when the head has no such line. */
+export function headField(rd: string, key: string): string | undefined {
+  const at = headFieldLine(rd, key)
+  const m = at === -1 ? null : headRe(key).exec(headLines(rd)[at]!)
+  return m === null ? undefined : m[1]!.replace(/\*\*/g, '').trim()
+}
+
+/** Writes `Key: value` into the head: rewrites the head line, or adds one under the title. Body lines are never touched. */
+export function setHeadField(rd: string, key: string, value: string): string {
+  const lines = rd.split(/\r?\n/)
+  const eol = rd.includes('\r\n') ? '\r\n' : '\n'
+  const line = `${key}: ${value}`
+  const at = headFieldLine(rd, key)
+  if (at >= 0) lines[at] = line
+  else {
+    const title = headLines(rd).findIndex(l => /^#\s/.test(l))
+    lines.splice(title + 1, 0, '', line)
   }
-  return undefined
+  return lines.join(eol)
 }
 
 /** `Plan: P1.3` → `P1.3`. No line (or `—` / `none`) means the ticket is off-plan: `undefined`. */

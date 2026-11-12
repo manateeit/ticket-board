@@ -215,6 +215,8 @@ Design: D1@2, D3@1
   alerts. A bare `D<n>` (no `@rev`), a reference that cannot be read, or a section DESIGN.md does
   not have (or has dropped) is never stale. Stale tickets, done ones included, are flagged only;
   nothing rewrites them.
+- These lines live in the head: anywhere above the first `## `, at any line number. The same
+  words inside a section or a code block are body text and are never read as head lines.
 - A ticket with no `Plan:` line is **off-plan**. That is fine for bugs and chores; it is shown,
   not punished.
 
