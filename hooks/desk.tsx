@@ -2,14 +2,14 @@
 // container. A KPI strip, status tabs, a sortable table, a two-column ticket
 // page with inline questions and a properties sidebar, and a typed New form.
 // The terminal keeps the compact views in views.tsx.
-import type { EngineInterface, RenderChildren } from 'claude-code'
+import type { AgentInfo, EngineInterface, RenderChildren } from 'claude-code'
 
 import { releaseUntracked, startJob, suggestAnswer } from './ai'
 import { STATUSES, parseBlockedBy } from './core/board'
 import { KINDS, query, resultOf, runLine, type Filters, type Kind, type Sort } from './core/query'
 import { findSection, headFieldLine, isReadyable, setHeadField } from './core/ticket'
 import { G, HUE, Plate, SCHEMES, STATUS_HEX, barSvg, groupInk, needsPlate, railSvg, spinnerSvg, statusHexOf, tint, wash, workingSvg } from './glass'
-import { S, setSchemeChoice, setStartFlag, isHeld, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
+import { S, agentName, endedBadly, lastWords, retryOf, whyLine, setSchemeChoice, setStartFlag, isHeld, isLive, loadAgents, ticketOfAgent, boardPath, dir, hasColumn, items, jobFor, redraw, refresh, roadmapView, rowOf, saveAnswer, say, statusOf, abs, versionLabel } from './store'
 import { editRd, rdLock } from './store'
 import { openAdopt } from './adopt'
 import {
@@ -224,6 +224,110 @@ function AgentActivity(ui: UI, id: string, name: string): RenderChildren {
   )
 }
 
+/** Opens or closes a failed or killed agent's failure detail (0017); one is open at a time. Reads only: no write, no spawn. */
+export function toggleFailure($: $, agentId: string) {
+  S.failureOpen = S.failureOpen === agentId ? '' : agentId
+  redraw($)
+}
+
+/** Why a failed or killed agent ended and what came after (0017): drawn under its row, each line left out when unknown. */
+function FailureDetail($: $, ui: UI, a: AgentInfo, all: Row[]): RenderChildren {
+  const { Box, Text, Button } = ui
+  const end = S.agentEnds.get(a.id)
+  const t = ticketOfAgent(a)
+  const row = t === undefined ? undefined : all.find(i => i.number === t)
+  const steps = (S.agentLog.get(a.id) ?? []).slice(-5)
+  const next = retryOf(a)
+  const label = (text: string) => (
+    <Text color={G.faint} size="caption" weight="bold">
+      {text}
+    </Text>
+  )
+  return (
+    <Box key={`agent-fail-${a.id}`} flexDirection="column" gap={1} marginLeft={2} paddingX={2} paddingY={1} borderStyle="round" borderColor={tint(AGENT_HEX.failed!, 0.45)}>
+      <Box flexDirection="row" alignItems="center" gap={1}>
+        <Box flexGrow={1} flexShrink={1} minWidth={0}>
+          <Text color={AGENT_HEX.failed!} size="caption" weight="bold">
+            {`WHY ${agentName(a).toUpperCase()} ${a.status.toUpperCase()}`}
+          </Text>
+        </Box>
+        <Button key={`agent-fh-${a.id}`} label="Hide" plain onPress={() => toggleFailure($, a.id)} />
+      </Box>
+      <Box flexDirection="column" gap={0}>
+        {label('WHAT IT WAS DOING')}
+        <Text key={`agent-fdoing-${a.id}`} color={G.ink} size="footnote">
+          {[agentName(a), a.name !== undefined && a.description !== '' ? a.description : '', a.type].filter(s => s !== '').join(' · ')}
+        </Text>
+        {t !== undefined && (
+          <Box key={`agent-fticket-${a.id}`} flexDirection="row" alignItems="center" gap={1} flexWrap="wrap">
+            <Button key={`agent-ft-${a.id}`} label={`${t}${row?.title ? ` ${row.title}` : ''} ›`} plain onPress={() => go($, { kind: 'ticket', number: t, tab: 'rd' })} />
+            {row !== undefined && (
+              <Text color={G.soft} size="footnote">
+                {[row.status, row.notes.trim()].filter(s => s !== '').join(' · ')}
+              </Text>
+            )}
+          </Box>
+        )}
+      </Box>
+      <Box flexDirection="column" gap={0}>
+        {label('WHY IT ENDED')}
+        <Text key={`agent-fwhy-${a.id}`} color={G.ink} size="footnote">
+          {whyLine(end)}
+        </Text>
+      </Box>
+      {end !== undefined && (
+        <Box key={`agent-fwords-${a.id}`} flexDirection="column" gap={0}>
+          {label('LAST WORDS')}
+          <Text color={end.answer.trim() === '' ? G.faint : G.soft} size="footnote">
+            {lastWords(end.answer)}
+          </Text>
+        </Box>
+      )}
+      {steps.length > 0 && (
+        <Box key={`agent-fsteps-${a.id}`} flexDirection="column" gap={0}>
+          {label('LAST STEPS')}
+          {steps.map((l, n) => (
+            <Box key={`agent-fstep-${a.id}-${n}`} flexDirection="row" gap={1}>
+              <Text color={G.faint} size="footnote" mono>
+                {clockOf(l.at)}
+              </Text>
+              <Text color={G.accent} size="footnote" weight="medium">
+                {toolWords(l.tool)}
+              </Text>
+              <Text color={G.soft} size="footnote" mono wrap="truncate">
+                {l.detail}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      )}
+      <Box flexDirection="column" gap={0}>
+        {label('NEXT')}
+        {next?.kind === 'trying' ? (
+          <Box key={`agent-fnextrow-${a.id}`} flexDirection="row" alignItems="center" gap={1} flexWrap="wrap">
+            <Text key={`agent-fnext-${a.id}`} color={G.ink} size="footnote">
+              Trying again:
+            </Text>
+            <Button key={`agent-fr-${a.id}`} label={agentName(next.agent)} plain onPress={() => ((S.watching = next.agent.id), redraw($))} />
+            <Text key={`agent-fnow-${a.id}`} color={G.ink} size="footnote">
+              {`is ${next.agent.status} now`}
+            </Text>
+          </Box>
+        ) : (
+          <Text key={`agent-fnext-${a.id}`} color={G.ink} size="footnote">
+            {next === undefined ? 'Not retried: nothing else is working on this' : `Tried again: ${agentName(next.agent)} ${next.agent.status}`}
+          </Text>
+        )}
+      </Box>
+      {a.teammateId === undefined && (
+        <Box flexDirection="row">
+          <Button key={`agent-fv-${a.id}`} label="Open transcript ↗" plain onPress={() => void openTranscript($, a.id)} />
+        </Box>
+      )}
+    </Box>
+  )
+}
+
 function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
   const { Box, Text, Button } = ui
   const live = S.agents.filter(isLive)
@@ -240,7 +344,13 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
     return (
       <Box key={`agent-${a.id}`} flexDirection="row" alignItems="center" gap={1} paddingX={1} paddingY={dim ? 0 : 1} backgroundColor={dim ? undefined : wash(0.03)}>
         <Box width="12%" flexShrink={0}>
-          {Pill(ui, `● ${a.status}`, hex)}
+          {endedBadly(a) ? (
+            <Button key={`agent-s-${a.id}`} plain onPress={() => toggleFailure($, a.id)}>
+              {Pill(ui, `● ${a.status}`, hex)}
+            </Button>
+          ) : (
+            Pill(ui, `● ${a.status}`, hex)
+          )}
         </Box>
         <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
           <Text color={dim ? G.soft : G.ink} weight={dim ? 'regular' : 'medium'} wrap="truncate">
@@ -278,6 +388,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
     )
   }
   const activity = (a: (typeof S.agents)[number]) => AgentActivity(ui, a.id, a.name ?? a.type)
+  const failure = (a: (typeof S.agents)[number]) => FailureDetail($, ui, a, all)
   return Card(
     ui,
     [
@@ -287,7 +398,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
         </Text>
       ) : (
         <Box key="agents-live" flexDirection="column" gap={0}>
-          {live.map(a => [agentRow(a, false), S.watching === a.id ? activity(a) : null])}
+          {live.map(a => [agentRow(a, false), S.failureOpen === a.id ? failure(a) : null, S.watching === a.id ? activity(a) : null])}
         </Box>
       ),
       flight.length > 0 ? (
@@ -311,7 +422,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
           <Text color={G.faint} size="caption" weight="bold">
             HELD
           </Text>
-          {held.map(a => [agentRow(a, true), S.watching === a.id ? activity(a) : null])}
+          {held.map(a => [agentRow(a, true), S.failureOpen === a.id ? failure(a) : null, S.watching === a.id ? activity(a) : null])}
         </Box>
       ) : null,
       past.length > 0 ? (
@@ -319,7 +430,7 @@ function AgentsPanel($: $, ui: UI, all: Row[]): RenderChildren {
           <Text color={G.faint} size="caption" weight="bold">
             RECENTLY FINISHED
           </Text>
-          {past.map(a => [agentRow(a, true), S.watching === a.id ? activity(a) : null])}
+          {past.map(a => [agentRow(a, true), S.failureOpen === a.id ? failure(a) : null, S.watching === a.id ? activity(a) : null])}
         </Box>
       ) : null,
       <Text key="agents-hint" color={G.faint} size="footnote">

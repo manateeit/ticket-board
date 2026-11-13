@@ -4443,6 +4443,184 @@ for (const surface of ['desktop', 'terminal'] as const) {
   })
 }
 
+// ---------- 0017: explain a failed agent run ----------
+
+const failedAgent = (status = 'failed', extra: Record<string, unknown> = {}) => ({ id: 'f1', description: 'Build ticket 0001', type: 'worker', status, name: 'worker-0001', ...extra })
+/** Boots with these agents, logs `steps` tool calls for f1, ends its run with `end` (none: the pane never saw it end) and opens Agents. */
+async function failedRun($: any, on: any, surface: 'terminal' | 'desktop', agents: any[], end?: Record<string, unknown>, steps = 0) {
+  AGENTS_OVERRIDE = agents
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('tool.call', () => ({ result: 'ok' }) as any)
+  const r = await boot($, on, surface)
+  await r.ui.find({ type: 'Text', text: /Dark mode/ })
+  for (let n = 1; n <= steps; n++) await $.tool.call({ tool: 'Read', file_path: `/repo/src/step${n}.ts`, agentId: 'f1' })
+  if (end !== undefined) await $.turn.complete({ turnId: 't-f1', agentId: 'f1', isAborted: end.reason === 'aborted', durationMs: 125_000, answer: '', ...end })
+  await r.ui.press({ key: 'agents' })
+  await r.ui.find({ type: 'Text', text: /AGENTS · \d+ RUNNING/ })
+  return r
+}
+/** The drawn failure detail box of agent `id`, as text ('null' when it is not drawn). */
+const boxText = async (ui: any, id = 'f1') => JSON.stringify(nodeByKey(await ui.drawn(), `agent-fail-${id}`) ?? null)
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`a failed agent's status opens why it ended; pressing again or Hide closes it (${surface})`, async ($, on) => {
+    try {
+      const { ui, writes, filled } = await failedRun($, on, surface, [failedAgent()], { reason: 'error', answer: 'Could not reach the API.' }, 7)
+      expect(await boxText(ui)).toBe('null')
+      await ui.press({ key: 'agent-s-f1' })
+      expect(await ui.find({ type: 'Text', text: /^Stopped on an API error \(retries used up or context limit\)/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /ran 2m 05s/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /Could not reach the API\./ })).toBeDefined()
+      expect(await ui.find({ key: 'agent-ft-f1', text: /0001/ })).toBeDefined()
+      const box = await boxText(ui)
+      // The ticket's board status and Notes, the last 5 of 7 steps, nothing else on this ticket, and the transcript.
+      expect(box).toContain('done · merged')
+      expect(box).toContain('src/step7.ts')
+      expect(box).toContain('src/step3.ts')
+      expect(box).not.toContain('src/step2.ts')
+      expect(box).toContain(surface === 'desktop' ? 'Reading code' : 'Read')
+      expect(box).toContain('Not retried: nothing else is working on this')
+      expect(box).toContain('agent-fv-f1')
+      // Pressing the status again closes it; so does Hide.
+      await ui.press({ key: 'agent-s-f1' })
+      expect(await boxText(ui)).toBe('null')
+      await ui.press({ key: 'agent-s-f1' })
+      expect(await boxText(ui)).not.toBe('null')
+      await ui.press({ key: 'agent-fh-f1' })
+      expect(await boxText(ui)).toBe('null')
+      // The ticket link opens the ticket.
+      await ui.press({ key: 'agent-s-f1' })
+      await ui.press({ key: 'agent-ft-f1' })
+      await ui.find({ type: 'Text', text: /Which port should it listen on/ })
+      // Nothing was written, started or filled.
+      expect(writes).toEqual([])
+      expect(filled).toEqual([])
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+
+  for (const [name, end, want] of [
+    ['aborted', { reason: 'aborted' }, /^Interrupted \(stopped by you or by its spawner\)/],
+    ['refusal', { reason: 'refusal', refusal: { category: 'cyber', explanation: 'Looks like malware.' } }, /^The model refused \(cyber\): Looks like malware\./],
+    ['answer', { reason: 'answer', answer: 'All done.' }, /^It finished its turn but was marked failed/],
+  ] as const)
+    test(`a failed agent's run that ended on ${name} says so (${surface})`, async ($, on) => {
+      try {
+        const { ui } = await failedRun($, on, surface, [failedAgent()], end)
+        await ui.press({ key: 'agent-s-f1' })
+        expect(await ui.find({ type: 'Text', text: want })).toBeDefined()
+        expect(await boxText(ui)).toContain(name === 'answer' ? 'All done.' : 'No final text')
+        await ui.unmount()
+      } finally {
+        AGENTS_OVERRIDE = undefined
+      }
+    })
+
+  test(`a long final answer is cut at 12 lines (${surface})`, async ($, on) => {
+    try {
+      const answer = Array.from({ length: 15 }, (_, n) => `line ${n + 1}.`).join('\n')
+      const { ui } = await failedRun($, on, surface, [failedAgent()], { reason: 'error', answer })
+      await ui.press({ key: 'agent-s-f1' })
+      const box = await boxText(ui)
+      expect(box).toContain('line 12.')
+      expect(box).not.toContain('line 13.')
+      expect(box).toContain('…')
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+
+  test(`a failed run the pane did not see end says to open its transcript (${surface})`, async ($, on) => {
+    try {
+      const { ui } = await failedRun($, on, surface, [failedAgent()])
+      await ui.press({ key: 'agent-s-f1' })
+      expect(await ui.find({ type: 'Text', text: /^The pane did not see how this run ended\. Open its transcript for the reason\.$/ })).toBeDefined()
+      const box = await boxText(ui)
+      expect(box).toContain('Not retried: nothing else is working on this')
+      expect(box).toContain('done · merged')
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+
+  test(`a killed agent is pressable; completed and running ones are not (${surface})`, async ($, on) => {
+    try {
+      const { ui } = await failedRun($, on, surface, [
+        { id: 'r1', description: 'Build ticket 0002', type: 'worker', status: 'running', name: 'worker-0002' },
+        { id: 'c1', description: 'Check 0003', type: 'checker', status: 'completed', name: 'checker-0003' },
+        failedAgent('killed'),
+      ], { reason: 'aborted' })
+      const drawn = await drawnText(ui)
+      expect(drawn).not.toContain('agent-s-r1')
+      expect(drawn).not.toContain('agent-s-c1')
+      expect(drawn).toContain('● running')
+      expect(drawn).toContain('● completed')
+      await expect(ui.press({ key: 'agent-s-c1' })).rejects.toBeDefined()
+      await ui.press({ key: 'agent-s-f1' })
+      expect(await ui.find({ type: 'Text', text: /^Interrupted/ })).toBeDefined()
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+
+  for (const [name, agents, lead, other, rest] of [
+    ['a running agent on the same ticket', [failedAgent(), { id: 'r2', description: 'Build ticket 0001 again', type: 'worker', status: 'running', name: 'worker-0001b' }], 'Trying again:', 'worker-0001b', 'is running now'],
+    ['a later completed agent on the same ticket', [failedAgent(), { id: 'c2', description: 'Retry ticket 0001', type: 'worker', status: 'completed', name: 'worker-0001c' }], 'Tried again: worker-0001c completed', '', ''],
+    ['nothing else', [failedAgent()], 'Not retried: nothing else is working on this', '', ''],
+    ['no ticket and a live agent of the same name', [failedAgent('failed', { description: 'Tidy the docs', name: 'tidier' }), { id: 'r3', description: 'Tidy the docs once more', type: 'helper', status: 'running', name: 'tidier' }], 'Trying again:', 'tidier', 'is running now'],
+  ] as const)
+    test(`next step with ${name} (${surface})`, async ($, on) => {
+      try {
+        const { ui } = await failedRun($, on, surface, [...agents], { reason: 'error' })
+        await ui.press({ key: 'agent-s-f1' })
+        if (other === '') {
+          expect(await ui.find({ type: 'Text', text: new RegExp(`^${lead}$`) })).toBeDefined()
+          expect(await boxText(ui)).not.toContain('agent-fr-f1')
+        } else {
+          // "Trying again: <name> is running now", the name a button that opens that agent's Activity.
+          expect(await ui.find({ type: 'Text', text: new RegExp(`^${lead}`) })).toBeDefined()
+          expect(await ui.find({ key: 'agent-fr-f1', text: new RegExp(`^${other}$`) })).toBeDefined()
+          expect(await ui.find({ type: 'Text', text: new RegExp(`^${rest}$`) })).toBeDefined()
+          const id = agents[1]!.id
+          expect(await drawnText(ui)).not.toContain(`agent-log-${id}`)
+          await ui.press({ key: 'agent-fr-f1' })
+          expect(await drawnText(ui)).toContain(`agent-log-${id}`)
+        }
+        await ui.unmount()
+      } finally {
+        AGENTS_OVERRIDE = undefined
+      }
+    })
+
+  test(`a failed agent that turns live again closes its detail on the next refresh (${surface})`, async ($, on) => {
+    try {
+      const { ui } = await failedRun($, on, surface, [failedAgent()], { reason: 'error' })
+      await ui.press({ key: 'agent-s-f1' })
+      expect(await boxText(ui)).not.toBe('null')
+      // Resumed: the next agent refresh (reopening the panel reloads the list) closes the box.
+      AGENTS_OVERRIDE = [failedAgent('running')]
+      await ui.press({ key: 'agents' })
+      await ui.press({ key: 'agents' })
+      await until(async () => (await drawnText(ui)).includes('AGENTS · 1 RUNNING'), 'the resumed agent to show')
+      expect(await boxText(ui)).toBe('null')
+      // Failed again: closed until pressed.
+      AGENTS_OVERRIDE = [failedAgent()]
+      await ui.press({ key: 'agents' })
+      await ui.press({ key: 'agents' })
+      await until(async () => (await drawnText(ui)).includes('AGENTS · 0 RUNNING'), 'the failed agent to show')
+      expect(await boxText(ui)).toBe('null')
+      await ui.unmount()
+    } finally {
+      AGENTS_OVERRIDE = undefined
+    }
+  })
+}
+
 // 0027: a forced refresh never hands back a snapshot older than the call; plain ones still share one run.
 const listPasses = (calls: string[]) => calls.filter(c => /^list \/repo\/tickets -> /.test(c)).length
 /** A Write the session makes to the tickets folder: the pane starts a plain (not forced) refresh for it. */

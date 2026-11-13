@@ -1,6 +1,6 @@
 // The pane's views: Start, Board, Ticket, Questions, New ticket, BOARD.md.
-import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, deskTicket, openReadme, openTranscript } from './desk'
-import type { Elements, EngineInterface, RenderChildren } from 'claude-code'
+import { ActivityBar, ProjectBar, deskBoard, deskNew, deskReadme, deskStart, deskTicket, openReadme, openTranscript, toggleFailure } from './desk'
+import type { AgentInfo, Elements, EngineInterface, RenderChildren } from 'claude-code'
 
 import { COLUMN_LABEL, STATUSES, parseBlockedBy, type CellChanges, type Column } from './core/board'
 import { MODE_OPTIONS, OFF_PLAN, SHOW_OPTIONS, SORT_OPTIONS, paneNote, query, runLine, titleFromIdea, withBoard, type Filters } from './core/query'
@@ -15,7 +15,12 @@ import {
   S,
   boardPath,
   createBoardFiles,
+  agentName,
   createSkeleton,
+  endedBadly,
+  lastWords,
+  retryOf,
+  whyLine,
   dir,
   editRow,
   fullRoadmap,
@@ -299,6 +304,82 @@ function Message(ui: UI): RenderChildren {
 
 // ---------- Board ----------
 
+/** A tool step as the terminal's Activity shows it: `HH:MM  Tool  detail`. */
+const stepLine = (l: { at: number; tool: string; detail: string }) => `${new Date(l.at).toTimeString().slice(0, 5)}  ${l.tool || 'Thinking'}  ${l.detail}`
+
+/** An agent's recent steps under its line in the terminal's Agents panel. */
+function activityLines(ui: UI, id: string): RenderChildren {
+  const { Box, Text } = ui
+  const log = S.agentLog.get(id) ?? []
+  return (
+    <Box key={`agent-log-${id}`} flexDirection="column" paddingLeft={2}>
+      {log.length === 0 && <Text dimColor>No tool calls seen since the pane loaded.</Text>}
+      {log.slice(-8).map((l, n) => (
+        <Text key={`agent-log-${id}-${n}`} dimColor wrap="truncate">
+          {stepLine(l)}
+        </Text>
+      ))}
+    </Box>
+  )
+}
+
+/** The terminal's failure detail (0017): why a failed or killed agent ended and what came after, as plain lines. */
+function failureLines($: $, ui: UI, a: AgentInfo, all: ReturnType<typeof items>): RenderChildren {
+  const { Box, Text, Button } = ui
+  const end = S.agentEnds.get(a.id)
+  const t = ticketOfAgent(a)
+  const row = t === undefined ? undefined : all.find(i => i.number === t)
+  const steps = (S.agentLog.get(a.id) ?? []).slice(-5)
+  const next = retryOf(a)
+  return (
+    <Box key={`agent-fail-${a.id}`} flexDirection="column" borderStyle="single" paddingX={1} marginLeft={2}>
+      <Box flexDirection="row" columnGap={2}>
+        <Text bold color="error">{`Why ${agentName(a)} ${a.status}`}</Text>
+        <Button key={`agent-fh-${a.id}`} label="Hide" plain onPress={() => toggleFailure($, a.id)} />
+      </Box>
+      <Text key={`agent-fdoing-${a.id}`} wrap="truncate">
+        {`Doing: ${[agentName(a), a.name !== undefined && a.description !== '' ? a.description : '', a.type].filter(s => s !== '').join(' · ')}`}
+      </Text>
+      {t !== undefined && (
+        <Box key={`agent-fticket-${a.id}`} flexDirection="row" columnGap={1}>
+          <Text>Ticket:</Text>
+          <Button key={`agent-ft-${a.id}`} label={`${t}${row?.title ? ` ${row.title}` : ''}`} plain onPress={() => go($, { kind: 'ticket', number: t, tab: 'rd' })} />
+          {row !== undefined && <Text dimColor>{[row.status, row.notes.trim()].filter(s => s !== '').join(' · ')}</Text>}
+        </Box>
+      )}
+      <Text key={`agent-fwhy-${a.id}`}>{whyLine(end)}</Text>
+      {end !== undefined && (
+        <Box key={`agent-fwords-${a.id}`} flexDirection="column">
+          <Text dimColor>Last words:</Text>
+          <Text>{lastWords(end.answer)}</Text>
+        </Box>
+      )}
+      {steps.length > 0 && (
+        <Box key={`agent-fsteps-${a.id}`} flexDirection="column">
+          <Text dimColor>Last steps:</Text>
+          {steps.map((l, n) => (
+            <Text key={`agent-fstep-${a.id}-${n}`} dimColor wrap="truncate">
+              {stepLine(l)}
+            </Text>
+          ))}
+        </Box>
+      )}
+      {next?.kind === 'trying' ? (
+        <Box key={`agent-fnextrow-${a.id}`} flexDirection="row" columnGap={1}>
+          <Text key={`agent-fnext-${a.id}`}>Trying again:</Text>
+          <Button key={`agent-fr-${a.id}`} label={agentName(next.agent)} plain onPress={() => ((S.watching = next.agent.id), redraw($))} />
+          <Text key={`agent-fnow-${a.id}`}>{`is ${next.agent.status} now`}</Text>
+        </Box>
+      ) : (
+        <Text key={`agent-fnext-${a.id}`}>
+          {next === undefined ? 'Not retried: nothing else is working on this' : `Tried again: ${agentName(next.agent)} ${next.agent.status}`}
+        </Text>
+      )}
+      {a.teammateId === undefined && <Button key={`agent-fv-${a.id}`} label="Open transcript ↗" plain onPress={() => void openTranscript($, a.id)} />}
+    </Box>
+  )
+}
+
 /** The terminal's Agents panel: the same lists as the desktop card, as plain lines. */
 function agentsPanel($: $, ui: UI, all: ReturnType<typeof items>): RenderChildren {
   const { Box, Text, Button } = ui
@@ -310,11 +391,21 @@ function agentsPanel($: $, ui: UI, all: ReturnType<typeof items>): RenderChildre
     const t = ticketOfAgent(a)
     // A held agent whose ticket is already done is most likely left over from finished work.
     const leftover = isHeld(a) && t !== undefined && all.find(i => i.number === t)?.status === 'done'
-    return (
+    const rest = `${a.name ?? (a.description || a.type)}  · ${a.type}${t === undefined ? '' : ` · ${t}`}${leftover ? ' · ticket done: probably leftover' : ''}`
+    // A failed or killed agent's status opens why it ended (0017).
+    const row = endedBadly(a) ? (
+      <Box key={`agent-${a.id}`} flexDirection="row" columnGap={1}>
+        <Button key={`agent-s-${a.id}`} label={`● ${a.status}`} plain onPress={() => toggleFailure($, a.id)} />
+        <Text dimColor={dim} wrap="truncate">
+          {rest}
+        </Text>
+      </Box>
+    ) : (
       <Text key={`agent-${a.id}`} dimColor={dim} wrap="truncate">
-        {`● ${a.status}  ${a.name ?? (a.description || a.type)}  · ${a.type}${t === undefined ? '' : ` · ${t}`}${leftover ? ' · ticket done: probably leftover' : ''}`}
+        {`● ${a.status}  ${rest}`}
       </Text>
     )
+    return [row, S.failureOpen === a.id ? failureLines($, ui, a, all) : null, S.watching === a.id ? activityLines(ui, a.id) : null]
   }
   return (
     <Box key="agents-panel" flexDirection="column" borderStyle="round" paddingX={1}>
